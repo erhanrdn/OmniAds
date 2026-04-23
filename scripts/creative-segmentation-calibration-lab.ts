@@ -8,6 +8,10 @@ import {
   creativeOperatorSegmentLabel,
   resolveCreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
+import {
+  isIntegrationSecretKeyRequiredError,
+  isIntegrationSecretUnreadableError,
+} from "@/lib/integration-secrets";
 import { getIntegration } from "@/lib/integrations";
 import type {
   CreativeDecisionOsCreative,
@@ -44,6 +48,12 @@ export type RuntimeCandidateSkipReason =
   | "meta_token_checkpointed"
   | "provider_read_failure"
   | "no_current_creative_activity";
+
+export type RuntimeTokenReadabilityStatus =
+  | "not_needed"
+  | "missing_key"
+  | "unreadable_key"
+  | "readable";
 
 type NumericMetricKey =
   | "spend"
@@ -332,14 +342,135 @@ export function hasIntegrationTokenDecryptionKey(env: NodeJS.ProcessEnv = proces
   return Boolean(env.INTEGRATION_TOKEN_ENCRYPTION_KEY?.trim());
 }
 
-export function shouldBlockCalibrationForMissingTokenKey(input: {
-  candidates: Pick<SourceBusinessRow, "has_access_token" | "has_encrypted_access_token">[];
-  hasTokenKey: boolean;
-}) {
-  if (input.hasTokenKey) return false;
-  return input.candidates.some(
-    (candidate) => candidate.has_access_token && candidate.has_encrypted_access_token,
+function requiresEncryptedCredentialReadability(
+  candidate: Pick<SourceBusinessRow, "has_access_token" | "has_encrypted_access_token">
+) {
+  return candidate.has_access_token && candidate.has_encrypted_access_token;
+}
+
+export function isIntegrationCredentialReadabilityError(error: unknown) {
+  if (isIntegrationSecretKeyRequiredError(error) || isIntegrationSecretUnreadableError(error)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("INTEGRATION_TOKEN_ENCRYPTION_KEY") ||
+    message.includes("Malformed encrypted integration secret") ||
+    message.toLowerCase().includes("authenticate data")
   );
+}
+
+export function classifyRuntimeTokenReadabilityError(
+  error: unknown,
+): Exclude<RuntimeTokenReadabilityStatus, "not_needed" | "readable"> | null {
+  if (isIntegrationSecretKeyRequiredError(error)) return "missing_key";
+  if (isIntegrationSecretUnreadableError(error)) return "unreadable_key";
+  if (!isIntegrationCredentialReadabilityError(error)) return null;
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("INTEGRATION_TOKEN_ENCRYPTION_KEY")) return "missing_key";
+  return "unreadable_key";
+}
+
+export async function assessRuntimeTokenReadability(input: {
+  candidates: Pick<
+    SourceBusinessRow,
+    "business_id" | "has_access_token" | "has_encrypted_access_token"
+  >[];
+  hasTokenKey?: boolean;
+  sampleSize?: number;
+  readIntegration?: typeof getIntegration;
+}) {
+  const encryptedCandidates = input.candidates.filter(requiresEncryptedCredentialReadability);
+  const sampledCandidates = encryptedCandidates.slice(0, Math.max(1, input.sampleSize ?? 3));
+  if (sampledCandidates.length === 0) {
+    return {
+      status: "not_needed" as RuntimeTokenReadabilityStatus,
+      sampledCandidates: 0,
+      readableCandidates: 0,
+      unreadableCandidates: 0,
+    };
+  }
+
+  if (!(input.hasTokenKey ?? hasIntegrationTokenDecryptionKey())) {
+    return {
+      status: "missing_key" as RuntimeTokenReadabilityStatus,
+      sampledCandidates: sampledCandidates.length,
+      readableCandidates: 0,
+      unreadableCandidates: sampledCandidates.length,
+    };
+  }
+
+  const readIntegration = input.readIntegration ?? getIntegration;
+  let readableCandidates = 0;
+  let unreadableCandidates = 0;
+
+  for (const candidate of sampledCandidates) {
+    try {
+      const integration = await readIntegration(candidate.business_id, "meta");
+      if (integration?.access_token) {
+        readableCandidates += 1;
+        continue;
+      }
+      unreadableCandidates += 1;
+    } catch (error) {
+      const errorStatus = classifyRuntimeTokenReadabilityError(error);
+      if (errorStatus === "missing_key") {
+        return {
+          status: "missing_key" as RuntimeTokenReadabilityStatus,
+          sampledCandidates: sampledCandidates.length,
+          readableCandidates,
+          unreadableCandidates: sampledCandidates.length - readableCandidates,
+        };
+      }
+      if (errorStatus === "unreadable_key") {
+        unreadableCandidates += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return {
+    status:
+      readableCandidates > 0
+        ? ("readable" as RuntimeTokenReadabilityStatus)
+        : ("unreadable_key" as RuntimeTokenReadabilityStatus),
+    sampledCandidates: sampledCandidates.length,
+    readableCandidates,
+    unreadableCandidates,
+  };
+}
+
+export function buildRuntimeTokenReadabilityBlocker(
+  status: RuntimeTokenReadabilityStatus,
+) {
+  switch (status) {
+    case "missing_key":
+      return "Calibration helper runtime is missing the integration token decryption key required to verify current Meta connectivity. DATABASE_URL alone is not enough for live Meta cohort recovery.";
+    case "unreadable_key":
+      return "Calibration helper runtime could not read current encrypted Meta credentials with the provided token decryption key. Treat this as environment mismatch, not as absence of live Meta businesses.";
+    default:
+      return null;
+  }
+}
+
+export function countRuntimeSkippedCandidates(
+  skippedCandidatesByReason: Record<RuntimeCandidateSkipReason, number>,
+) {
+  return Object.values(skippedCandidatesByReason).reduce((sum, count) => sum + count, 0);
+}
+
+export function shouldReportNoLiveReadableBusinesses(input: {
+  runtimeTokenReadabilityStatus: RuntimeTokenReadabilityStatus;
+  runtimeEligibleCandidateCount: number;
+}) {
+  if (
+    input.runtimeTokenReadabilityStatus === "missing_key" ||
+    input.runtimeTokenReadabilityStatus === "unreadable_key"
+  ) {
+    return false;
+  }
+  return input.runtimeEligibleCandidateCount === 0;
 }
 
 export function classifyRuntimeCandidateSkip(input: {
@@ -792,6 +923,9 @@ export async function runCalibrationLab() {
   const generatedAt = new Date().toISOString();
   const candidateRows = await getCandidateBusinesses();
   const candidateEligibility = summarizeCandidateEligibility(candidateRows);
+  const runtimeTokenReadability = await assessRuntimeTokenReadability({
+    candidates: candidateEligibility.eligible,
+  });
   const warehouseCreativeDaily = await getWarehouseCreativeDailyStatus();
   const rows: SanitizedCalibrationRow[] = [];
   const warnings: string[] = [
@@ -827,15 +961,9 @@ export async function runCalibrationLab() {
     number
   >;
 
-  if (
-    shouldBlockCalibrationForMissingTokenKey({
-      candidates: candidateEligibility.eligible,
-      hasTokenKey: hasIntegrationTokenDecryptionKey(),
-    })
-  ) {
-    blockers.push(
-      "Calibration helper runtime is missing the integration token decryption key required to verify current Meta connectivity. DATABASE_URL alone is not enough for live Meta cohort recovery.",
-    );
+  const runtimeTokenBlocker = buildRuntimeTokenReadabilityBlocker(runtimeTokenReadability.status);
+  if (runtimeTokenBlocker) {
+    blockers.push(runtimeTokenBlocker);
   }
 
   if (candidateEligibility.eligible.length === 0) {
@@ -898,7 +1026,12 @@ export async function runCalibrationLab() {
 
   const businessRows = runtimeEligibleBusinesses.slice(0, MAX_COMPANIES);
 
-  if (runtimeEligibleBusinesses.length === 0) {
+  if (
+    shouldReportNoLiveReadableBusinesses({
+      runtimeTokenReadabilityStatus: runtimeTokenReadability.status,
+      runtimeEligibleCandidateCount: runtimeEligibleBusinesses.length,
+    })
+  ) {
     blockers.push("No live Meta-readable businesses were available for calibration.");
   }
 
@@ -1116,8 +1249,7 @@ export async function runCalibrationLab() {
         runtimeEligibleCandidates: runtimeEligibleBusinesses.length,
         skippedCandidates: candidateEligibility.skippedCandidates,
         skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
-        runtimeSkippedCandidates:
-          candidateEligibility.eligible.length - runtimeEligibleBusinesses.length,
+        runtimeSkippedCandidates: countRuntimeSkippedCandidates(runtimeSkippedCandidatesByReason),
         runtimeSkippedCandidatesByReason,
         sampledCandidates: businessRows.length,
         zeroRowEligibleCandidates,

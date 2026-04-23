@@ -26,8 +26,9 @@ The earlier local `0 eligible businesses` diagnosis came from running the helper
 
 The helper now protects against that mismatch:
 
-- it checks for the token decryption env needed to read encrypted Meta credentials
+- it distinguishes missing token decryption env from present-but-unreadable encrypted credentials
 - it screens candidates through live Meta readability before sampling
+- it keeps runtime skip totals equal to the classified runtime skip reasons
 
 ## Current Data Accuracy Gate Status
 
@@ -81,6 +82,7 @@ Run the 10-agent media-buyer panel on the newly validated calibration artifact, 
 
 - verified that live Meta connectivity exists in the production-equivalent runtime
 - diagnosed the earlier `0 eligible` result as environment mismatch
-- patched the calibration helper to preflight encrypted-token env parity
+- patched the calibration helper to preflight encrypted-token env parity and unreadable-key runtime mismatches
 - added live Meta runtime screening before sampling
+- fixed runtime skip count consistency in the sanitized gate artifact
 - reran the sanitized calibration helper and recovered a passing cohort

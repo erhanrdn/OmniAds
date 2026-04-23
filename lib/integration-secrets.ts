@@ -2,6 +2,44 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 
 const SECRET_PREFIX = "enc:v1";
 const IV_BYTES = 12;
+const INTEGRATION_SECRET_KEY_REQUIRED_CODE = "INTEGRATION_SECRET_KEY_REQUIRED";
+const INTEGRATION_SECRET_UNREADABLE_CODE = "INTEGRATION_SECRET_UNREADABLE";
+
+export class IntegrationSecretKeyRequiredError extends Error {
+  code = INTEGRATION_SECRET_KEY_REQUIRED_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "IntegrationSecretKeyRequiredError";
+  }
+}
+
+export class IntegrationSecretUnreadableError extends Error {
+  code = INTEGRATION_SECRET_UNREADABLE_CODE;
+  override cause?: unknown;
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "IntegrationSecretUnreadableError";
+    this.cause = options?.cause;
+  }
+}
+
+export function isIntegrationSecretKeyRequiredError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === INTEGRATION_SECRET_KEY_REQUIRED_CODE
+  );
+}
+
+export function isIntegrationSecretUnreadableError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === INTEGRATION_SECRET_UNREADABLE_CODE
+  );
+}
 
 function getDerivedKey() {
   const raw = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY?.trim();
@@ -12,7 +50,7 @@ function getDerivedKey() {
 export function requireIntegrationSecretKey() {
   const key = getDerivedKey();
   if (!key) {
-    throw new Error(
+    throw new IntegrationSecretKeyRequiredError(
       "INTEGRATION_TOKEN_ENCRYPTION_KEY is required before persisting integration secrets."
     );
   }
@@ -48,7 +86,7 @@ export function decryptIntegrationSecret(value: string | null | undefined) {
 
   const key = getDerivedKey();
   if (!key) {
-    throw new Error(
+    throw new IntegrationSecretKeyRequiredError(
       "INTEGRATION_TOKEN_ENCRYPTION_KEY is required to decrypt integration secrets."
     );
   }
@@ -58,7 +96,7 @@ export function decryptIntegrationSecret(value: string | null | undefined) {
   const tagBase64 = parts[3];
   const payloadBase64 = parts.slice(4).join(":");
   if (!ivBase64 || !tagBase64 || !payloadBase64) {
-    throw new Error("Malformed encrypted integration secret.");
+    throw new IntegrationSecretUnreadableError("Malformed encrypted integration secret.");
   }
 
   const iv = Buffer.from(ivBase64, "base64");
@@ -67,5 +105,12 @@ export function decryptIntegrationSecret(value: string | null | undefined) {
   const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
 
-  return Buffer.concat([decipher.update(payload), decipher.final()]).toString("utf8");
+  try {
+    return Buffer.concat([decipher.update(payload), decipher.final()]).toString("utf8");
+  } catch (cause) {
+    throw new IntegrationSecretUnreadableError(
+      "Encrypted integration secret could not be decrypted with the current runtime key.",
+      { cause },
+    );
+  }
 }

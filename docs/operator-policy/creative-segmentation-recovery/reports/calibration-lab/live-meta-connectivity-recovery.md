@@ -46,9 +46,10 @@ Runtime skip classification:
 
 ## Helper Changes
 
-- Added runtime preflight for missing token decryption env
+- Added runtime preflight that distinguishes missing token decryption env from unreadable encrypted credentials under a wrong runtime key
 - Added live Meta readability screening before sampling
 - Added sanitized runtime skip reasons so broken credentials do not masquerade as zero-row eligible businesses
+- Fixed runtime skip totals so the reported skipped count always equals the classified runtime skip reasons
 
 ## Outcome
 

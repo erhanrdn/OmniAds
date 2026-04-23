@@ -10,9 +10,10 @@ Calibration is unblocked at the Data Accuracy Gate.
 
 - live Meta connectivity exists in the checked runtime
 - the earlier local `0 eligible` conclusion was caused by environment mismatch
-- the helper now fails safely when the Meta token decryption env is missing
+- the helper now fails safely when the Meta token decryption env is missing or unreadable for the current encrypted credentials
 - one candidate remains operationally broken because its assigned Meta account is checkpointed/token-invalid
 - that candidate is now skipped instead of being counted as an active eligible zero-row blocker
+- runtime skip totals are now derived from the classified skip reasons, so the sanitized artifact stays internally consistent
 
 ## Final Counts
 

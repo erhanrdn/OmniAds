@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T11:38:52.260Z",
+  "generatedAt": "2026-04-23T12:18:31.373Z",
   "source": "creative_segmentation_calibration_lab",
   "sanitization": {
     "rawIdsIncluded": false,
@@ -187,7 +187,7 @@
         "lifecycleState": "scale_ready",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -295,7 +295,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -403,7 +403,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -510,7 +510,7 @@
         "lifecycleState": "blocked",
         "primaryAction": "block_deploy"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -595,7 +595,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -703,7 +703,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -805,7 +805,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -911,7 +911,7 @@
         "lifecycleState": "scale_ready",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1021,7 +1021,7 @@
         "lifecycleState": "scale_ready",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1123,7 +1123,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1221,7 +1221,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1328,7 +1328,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1432,7 +1432,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1536,7 +1536,7 @@
         "lifecycleState": "stable_winner",
         "primaryAction": "hold_no_touch"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1640,7 +1640,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1744,7 +1744,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1850,7 +1850,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -1954,7 +1954,7 @@
         "lifecycleState": "retired",
         "primaryAction": "block_deploy"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2060,7 +2060,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2164,7 +2164,7 @@
         "lifecycleState": "stable_winner",
         "primaryAction": "hold_no_touch"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2268,7 +2268,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2372,7 +2372,7 @@
         "lifecycleState": "stable_winner",
         "primaryAction": "hold_no_touch"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2476,7 +2476,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2580,7 +2580,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 31,
+      "creativeAgeDays": 32,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": false,
@@ -2623,13 +2623,13 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 4442.18,
+        "spendBasis": 4442.41,
         "purchaseBasis": 58,
         "weightedRoas": 3.23,
         "weightedCpa": 76.59,
         "medianRoas": 2.93,
         "medianCpa": 67.66,
-        "medianSpend": 796.76,
+        "medianSpend": 796.82,
         "missingContext": []
       },
       "campaignBaseline": {
@@ -2637,45 +2637,45 @@
         "reliability": "medium",
         "creativeCount": 4,
         "eligibleCreativeCount": 3,
-        "spendBasis": 3497.38,
+        "spendBasis": 3497.61,
         "purchaseBasis": 46,
         "weightedRoas": 3.33,
-        "weightedCpa": 76.03,
+        "weightedCpa": 76.04,
         "medianRoas": 3.98,
         "medianCpa": 66.4,
-        "medianSpend": 796.76,
+        "medianSpend": 796.82,
         "missingContext": []
       },
-      "spend": 3840.96,
+      "spend": 3841.01,
       "purchases": 35,
       "cpa": 109.74,
       "roas": 2.13,
       "value": 8188.2,
       "recent7d": {
-        "spend": 1029.85,
+        "spend": 1029.9,
         "purchaseValue": 1406.3,
         "roas": 1.37,
-        "cpa": 171.64,
+        "cpa": 171.65,
         "purchases": 6,
-        "impressions": 47061,
+        "impressions": 47064,
         "linkClicks": 763
       },
       "mid30d": {
-        "spend": 3840.96,
+        "spend": 3841.01,
         "purchaseValue": 8188.2,
         "roas": 2.13,
         "cpa": 109.74,
         "purchases": 35,
-        "impressions": 291560,
+        "impressions": 291563,
         "linkClicks": 4960
       },
       "long90d": {
-        "spend": 10635.13,
+        "spend": 10635.18,
         "purchaseValue": 26692.6,
         "roas": 2.51,
         "cpa": 91.68,
         "purchases": 116,
-        "impressions": 1139803,
+        "impressions": 1139806,
         "linkClicks": 17258
       },
       "trendIndicators": {
@@ -2684,7 +2684,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -2726,10 +2726,10 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 7486.38,
+        "spendBasis": 7486.6,
         "purchaseBasis": 81,
         "weightedRoas": 2.59,
-        "weightedCpa": 92.42,
+        "weightedCpa": 92.43,
         "medianRoas": 2.55,
         "medianCpa": 79.74,
         "medianSpend": 877.14,
@@ -2740,45 +2740,45 @@
         "reliability": "medium",
         "creativeCount": 4,
         "eligibleCreativeCount": 3,
-        "spendBasis": 6541.58,
+        "spendBasis": 6541.8,
         "purchaseBasis": 69,
         "weightedRoas": 2.55,
         "weightedCpa": 94.81,
         "medianRoas": 2.55,
         "medianCpa": 109.74,
-        "medianSpend": 2393.47,
+        "medianSpend": 2393.64,
         "missingContext": []
       },
-      "spend": 796.76,
+      "spend": 796.82,
       "purchases": 12,
       "cpa": 66.4,
       "roas": 3.98,
       "value": 3173.56,
       "recent7d": {
-        "spend": 147.36,
+        "spend": 147.42,
         "purchaseValue": 1284.31,
-        "roas": 8.72,
-        "cpa": 49.12,
+        "roas": 8.71,
+        "cpa": 49.14,
         "purchases": 3,
-        "impressions": 6696,
+        "impressions": 6697,
         "linkClicks": 126
       },
       "mid30d": {
-        "spend": 796.76,
+        "spend": 796.82,
         "purchaseValue": 3173.56,
         "roas": 3.98,
         "cpa": 66.4,
         "purchases": 12,
-        "impressions": 41427,
+        "impressions": 41428,
         "linkClicks": 929
       },
       "long90d": {
-        "spend": 2259.17,
+        "spend": 2259.23,
         "purchaseValue": 10727.9,
         "roas": 4.75,
-        "cpa": 80.68,
+        "cpa": 80.69,
         "purchases": 28,
-        "impressions": 163142,
+        "impressions": 163143,
         "linkClicks": 2923
       },
       "trendIndicators": {
@@ -2787,7 +2787,7 @@
         "lifecycleState": "fatigued_winner",
         "primaryAction": "refresh_replace"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -2829,13 +2829,13 @@
         "reliability": "strong",
         "creativeCount": 7,
         "eligibleCreativeCount": 6,
-        "spendBasis": 8283.14,
+        "spendBasis": 8283.42,
         "purchaseBasis": 93,
         "weightedRoas": 2.72,
         "weightedCpa": 89.07,
         "medianRoas": 2.74,
         "medianCpa": 73.7,
-        "medianSpend": 836.95,
+        "medianSpend": 836.98,
         "missingContext": []
       },
       "campaignBaseline": {
@@ -2843,13 +2843,13 @@
         "reliability": "medium",
         "creativeCount": 4,
         "eligibleCreativeCount": 4,
-        "spendBasis": 7338.34,
+        "spendBasis": 7338.62,
         "purchaseBasis": 81,
         "weightedRoas": 2.7,
         "weightedCpa": 90.6,
         "medianRoas": 3.26,
         "medianCpa": 88.07,
-        "medianSpend": 1595.11,
+        "medianSpend": 1595.23,
         "missingContext": []
       },
       "spend": 319.89,
@@ -2890,7 +2890,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -2932,7 +2932,7 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 7975.99,
+        "spendBasis": 7976.27,
         "purchaseBasis": 80,
         "weightedRoas": 2.53,
         "weightedCpa": 99.7,
@@ -2946,13 +2946,13 @@
         "reliability": "medium",
         "creativeCount": 4,
         "eligibleCreativeCount": 3,
-        "spendBasis": 7031.19,
+        "spendBasis": 7031.47,
         "purchaseBasis": 68,
         "weightedRoas": 2.48,
         "weightedCpa": 103.4,
         "medianRoas": 2.55,
         "medianCpa": 109.74,
-        "medianSpend": 2393.47,
+        "medianSpend": 2393.64,
         "missingContext": []
       },
       "spend": 307.15,
@@ -2993,7 +2993,7 @@
         "lifecycleState": "stable_winner",
         "primaryAction": "hold_no_touch"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -3005,7 +3005,7 @@
       "campaignAdSetContextFlags": {
         "campaignPresent": true,
         "adSetPresent": true,
-        "deploymentCompatibility": "limited",
+        "deploymentCompatibility": "compatible",
         "targetLane": "Scaling"
       },
       "evidenceQuality": {
@@ -3035,7 +3035,7 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 8215.48,
+        "spendBasis": 8215.76,
         "purchaseBasis": 92,
         "weightedRoas": 2.73,
         "weightedCpa": 89.3,
@@ -3100,7 +3100,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -3144,13 +3144,13 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 5889.67,
+        "spendBasis": 5889.78,
         "purchaseBasis": 72,
         "weightedRoas": 2.79,
         "weightedCpa": 81.8,
         "medianRoas": 2.93,
         "medianCpa": 67.66,
-        "medianSpend": 796.76,
+        "medianSpend": 796.82,
         "missingContext": []
       },
       "campaignBaseline": {
@@ -3158,18 +3158,18 @@
         "reliability": "medium",
         "creativeCount": 4,
         "eligibleCreativeCount": 3,
-        "spendBasis": 4944.87,
+        "spendBasis": 4944.98,
         "purchaseBasis": 60,
         "weightedRoas": 2.78,
-        "weightedCpa": 82.41,
+        "weightedCpa": 82.42,
         "medianRoas": 3.98,
         "medianCpa": 66.4,
-        "medianSpend": 796.76,
+        "medianSpend": 796.82,
         "missingContext": []
       },
-      "spend": 2393.47,
+      "spend": 2393.64,
       "purchases": 21,
-      "cpa": 113.97,
+      "cpa": 113.98,
       "roas": 2.55,
       "value": 6097.06,
       "recent7d": {
@@ -3178,16 +3178,16 @@
         "roas": 2.58,
         "cpa": 130.99,
         "purchases": 2,
-        "impressions": 9247,
+        "impressions": 9248,
         "linkClicks": 320
       },
       "mid30d": {
-        "spend": 2393.47,
+        "spend": 2393.64,
         "purchaseValue": 6097.06,
         "roas": 2.55,
-        "cpa": 113.97,
+        "cpa": 113.98,
         "purchases": 21,
-        "impressions": 95488,
+        "impressions": 95490,
         "linkClicks": 3315
       },
       "long90d": {
@@ -3196,7 +3196,7 @@
         "roas": 2.41,
         "cpa": 91.02,
         "purchases": 122,
-        "impressions": 548533,
+        "impressions": 548534,
         "linkClicks": 14514
       },
       "trendIndicators": {
@@ -3205,7 +3205,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -3247,13 +3247,13 @@
         "reliability": "medium",
         "creativeCount": 7,
         "eligibleCreativeCount": 5,
-        "spendBasis": 7406,
+        "spendBasis": 7406.28,
         "purchaseBasis": 82,
         "weightedRoas": 2.7,
         "weightedCpa": 90.32,
         "medianRoas": 2.55,
         "medianCpa": 67.66,
-        "medianSpend": 796.76,
+        "medianSpend": 796.82,
         "missingContext": []
       },
       "campaignBaseline": null,
@@ -3295,7 +3295,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,
@@ -3337,13 +3337,13 @@
         "reliability": "strong",
         "creativeCount": 7,
         "eligibleCreativeCount": 6,
-        "spendBasis": 8283.14,
+        "spendBasis": 8283.42,
         "purchaseBasis": 93,
         "weightedRoas": 2.72,
         "weightedCpa": 89.07,
         "medianRoas": 2.74,
         "medianCpa": 73.7,
-        "medianSpend": 836.95,
+        "medianSpend": 836.98,
         "missingContext": []
       },
       "campaignBaseline": {
@@ -3402,7 +3402,7 @@
         "lifecycleState": "validating",
         "primaryAction": "keep_in_test"
       },
-      "creativeAgeDays": 30,
+      "creativeAgeDays": 31,
       "frequency": null,
       "commercialTruthAvailability": {
         "targetPackConfigured": true,

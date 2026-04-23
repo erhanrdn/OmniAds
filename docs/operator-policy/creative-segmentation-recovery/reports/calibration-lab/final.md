@@ -11,8 +11,10 @@ Live Meta cohort recovery succeeded and the Data Accuracy Gate now passes.
 - Live Meta connectivity is real in the production-equivalent runtime.
 - The earlier local `0 eligible` result was caused by environment mismatch, not by absent live Meta businesses.
 - `DATABASE_URL` alone is not sufficient parity for this helper when Meta credentials are encrypted.
+- The helper now distinguishes missing token-key env from present-but-unreadable encrypted credentials, and it no longer reports those runtime mismatches as `0 live businesses`.
 - One candidate was still not sampleable because its assigned Meta account returned an OAuth checkpoint/token error.
 - After skipping that candidate, the recovered cohort produced 3 sampled businesses and 32 sanitized rows with 0 table/Decision OS mismatches.
+- Runtime skip totals are now derived from the classified runtime skip reasons, so the gate artifact stays internally consistent.
 
 ## Corrected Counts
 

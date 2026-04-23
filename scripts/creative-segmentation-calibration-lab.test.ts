@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  IntegrationSecretKeyRequiredError,
+  IntegrationSecretUnreadableError,
+} from "@/lib/integration-secrets";
+import {
+  assessRuntimeTokenReadability,
+  buildRuntimeTokenReadabilityBlocker,
   classifyRuntimeCandidateSkip,
+  classifyRuntimeTokenReadabilityError,
+  countRuntimeSkippedCandidates,
   createEmptyCoverageSummary,
   hasIntegrationTokenDecryptionKey,
+  isIntegrationCredentialReadabilityError,
   recordCoverage,
   resolveCandidateSkipReason,
-  shouldBlockCalibrationForMissingTokenKey,
+  shouldReportNoLiveReadableBusinesses,
   summarizeCandidateEligibility,
   type SourceBusinessRow,
 } from "./creative-segmentation-calibration-lab";
@@ -75,25 +84,104 @@ describe("creative segmentation calibration lab helpers", () => {
     expect(coverage.pushReadiness).toEqual({ blocked_from_push: 1 });
   });
 
-  it("blocks live cohort recovery when encrypted tokens exist but the decryption key is missing", () => {
-    expect(
-      shouldBlockCalibrationForMissingTokenKey({
-        candidates: [candidate({ has_encrypted_access_token: true })],
-        hasTokenKey: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldBlockCalibrationForMissingTokenKey({
-        candidates: [candidate({ has_encrypted_access_token: false })],
-        hasTokenKey: false,
-      }),
-    ).toBe(false);
+  it("classifies missing decryption key as runtime mismatch", async () => {
+    const result = await assessRuntimeTokenReadability({
+      candidates: [candidate({ has_encrypted_access_token: true })],
+      hasTokenKey: false,
+    });
+
+    expect(result.status).toBe("missing_key");
+    expect(result.sampledCandidates).toBe(1);
+    expect(result.unreadableCandidates).toBe(1);
+    expect(buildRuntimeTokenReadabilityBlocker(result.status)).toContain("missing");
     expect(
       hasIntegrationTokenDecryptionKey({
         INTEGRATION_TOKEN_ENCRYPTION_KEY: "set",
       } as unknown as NodeJS.ProcessEnv),
     ).toBe(true);
     expect(hasIntegrationTokenDecryptionKey({} as unknown as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it("classifies wrong or unreadable decryption key as runtime mismatch", async () => {
+    const result = await assessRuntimeTokenReadability({
+      candidates: [candidate({ business_id: "encrypted-business", has_encrypted_access_token: true })],
+      hasTokenKey: true,
+      readIntegration: async () => {
+        throw new IntegrationSecretUnreadableError(
+          "Encrypted integration secret could not be decrypted with the current runtime key.",
+        );
+      },
+    });
+
+    expect(result.status).toBe("unreadable_key");
+    expect(result.readableCandidates).toBe(0);
+    expect(result.unreadableCandidates).toBe(1);
+    expect(
+      isIntegrationCredentialReadabilityError(
+        new IntegrationSecretUnreadableError(
+          "Encrypted integration secret could not be decrypted with the current runtime key.",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      classifyRuntimeTokenReadabilityError(
+        new IntegrationSecretUnreadableError(
+          "Encrypted integration secret could not be decrypted with the current runtime key.",
+        ),
+      ),
+    ).toBe("unreadable_key");
+    expect(buildRuntimeTokenReadabilityBlocker(result.status)).toContain("environment mismatch");
+    expect(
+      shouldReportNoLiveReadableBusinesses({
+        runtimeTokenReadabilityStatus: result.status,
+        runtimeEligibleCandidateCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("classifies readable runtime env when encrypted credentials can be read", async () => {
+    const result = await assessRuntimeTokenReadability({
+      candidates: [candidate({ business_id: "encrypted-business", has_encrypted_access_token: true })],
+      hasTokenKey: true,
+      readIntegration: async () =>
+        ({
+          access_token: "redacted",
+          business_id: "encrypted-business",
+          provider: "meta",
+          status: "connected",
+        } as never),
+    });
+
+    expect(result.status).toBe("readable");
+    expect(result.readableCandidates).toBe(1);
+    expect(buildRuntimeTokenReadabilityBlocker(result.status)).toBeNull();
+  });
+
+  it("does not conclude zero live businesses when runtime reads fail with a missing key error", async () => {
+    const result = await assessRuntimeTokenReadability({
+      candidates: [candidate({ business_id: "encrypted-business", has_encrypted_access_token: true })],
+      hasTokenKey: true,
+      readIntegration: async () => {
+        throw new IntegrationSecretKeyRequiredError(
+          "INTEGRATION_TOKEN_ENCRYPTION_KEY is required to decrypt integration secrets.",
+        );
+      },
+    });
+
+    expect(result.status).toBe("missing_key");
+    expect(
+      classifyRuntimeTokenReadabilityError(
+        new IntegrationSecretKeyRequiredError(
+          "INTEGRATION_TOKEN_ENCRYPTION_KEY is required to decrypt integration secrets.",
+        ),
+      ),
+    ).toBe("missing_key");
+    expect(
+      shouldReportNoLiveReadableBusinesses({
+        runtimeTokenReadabilityStatus: result.status,
+        runtimeEligibleCandidateCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("classifies checkpointed Meta accounts as runtime token skips", () => {
@@ -132,5 +220,25 @@ describe("creative segmentation calibration lab helpers", () => {
         ],
       }),
     ).toBe("no_current_creative_activity");
+  });
+
+  it("keeps runtime skip totals equal to classified reasons", () => {
+    expect(
+      countRuntimeSkippedCandidates({
+        no_current_meta_connection: 0,
+        meta_connection_not_connected: 0,
+        no_access_token: 0,
+        no_accounts_assigned: 0,
+        meta_token_checkpointed: 1,
+        provider_read_failure: 2,
+        no_current_creative_activity: 3,
+      }),
+    ).toBe(6);
+    expect(
+      shouldReportNoLiveReadableBusinesses({
+        runtimeTokenReadabilityStatus: "readable",
+        runtimeEligibleCandidateCount: 0,
+      }),
+    ).toBe(true);
   });
 });

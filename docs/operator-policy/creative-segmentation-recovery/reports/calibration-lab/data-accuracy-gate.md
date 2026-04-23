@@ -58,9 +58,14 @@ This means:
 
 ## What Changed In The Helper
 
-- Added a runtime preflight so the helper will not silently misdiagnose live Meta connectivity when the token decryption key is missing.
+- Added a stronger runtime preflight so the helper distinguishes:
+  - token decryption key missing
+  - token decryption key present but unreadable for current encrypted credentials
+  - runtime readable
+- The helper now treats unreadable encrypted credentials as environment mismatch/runtime unreadable, not as absence of live Meta businesses.
 - Added live Meta cohort screening before sampling.
 - Excluded candidates that fail current live Meta reads with sanitized runtime skip reasons instead of letting them become zero-row blockers.
+- Locked `runtimeSkippedCandidates` to the sum of classified runtime skip reasons so reports and artifacts cannot drift into phantom skipped counts.
 - Preserved the existing safety rules around thresholds, segmentation, queue/push/apply, and UI scope.
 
 ## Warehouse Fact Status
