@@ -15,63 +15,74 @@ Sanitization rules:
 - Rows use deterministic aliases such as `company-02`, `company-02-campaign-01`, and `company-02-creative-01`.
 - Instruction text is sanitized by replacing any included creative, campaign, or ad set names/IDs with aliases.
 
-## Coverage
+## Candidate Coverage
 
-- Companies checked: 3
+- Historical snapshot candidates inspected: 8
+- Currently eligible candidates: 8
+- Skipped candidates: 0
+- Sampled eligible candidates: 3
+- Active eligible zero-row candidates: 1
+
+Skipped candidates by sanitized reason:
+
+- `no_current_meta_connection`: 0
+- `meta_connection_not_connected`: 0
+- `no_access_token`: 0
+- `no_accounts_assigned`: 0
+
+## Row Coverage
+
 - Sampled rows exported: 24
 - Gate passed: false
-- Blocking issue: one sampled company returned zero current Decision OS rows.
+- Blocking issue: one active eligible sampled company returned zero current Decision OS rows.
 
 User-facing segment coverage in exported rows:
 
-- Not eligible for evaluation: 13
-- Not Enough Data: 4
 - Campaign Check: 3
+- Not Enough Data: 6
 - Watch: 2
-- Test More: 2
+- Test More: 3
+- Not eligible for evaluation: 2
+- Refresh: 5
+- Protect: 3
 
 Internal segment coverage in exported rows:
 
-- `contextual_only`: 13
 - `investigate`: 3
-- `creative_learning_incomplete`: 3
+- `creative_learning_incomplete`: 4
 - `hold_monitor`: 2
-- `promising_under_sampled`: 2
-- `false_winner_low_evidence`: 1
+- `promising_under_sampled`: 3
+- `contextual_only`: 2
+- `false_winner_low_evidence`: 2
+- `fatigued_winner`: 5
+- `protected_winner`: 3
+
+Quick-filter coverage:
+
+- `blocked`: 8
+- `watch`: 11
+- `needs_truth`: 2
+- `no_action`: 3
 
 Old-rule challenger coverage:
 
-- `pause`: 8
 - `watch`: 5
 - `kill`: 4
 - `scale`: 4
-- `test_more`: 2
+- `pause`: 7
+- `test_more`: 3
 - `scale_hard`: 1
 
 Push-readiness coverage:
 
-- `blocked_from_push`: 17
-- `read_only_insight`: 7
+- `blocked_from_push`: 11
+- `read_only_insight`: 10
+- `operator_review_required`: 3
 
-## Data Fields Included
+## Warehouse Verification
 
-Each exported row includes:
+- `meta_creative_daily` available: false
+- `meta_creative_daily` row count: 0
+- Current verification confidence: API/payload parity only
 
-- company/account/campaign/ad set/creative aliases
-- current Decision OS internal segment
-- current user-facing segment
-- old-rule challenger segment and reason
-- account baseline metrics and reliability
-- lab-computed campaign baseline metrics and reliability when same-campaign peers exist
-- spend, purchases, CPA, ROAS, value, impressions, and link clicks where available
-- recent 7-day, mid 30-day, and long 90-day metrics
-- fatigue status, lifecycle state, primary action
-- commercial truth availability
-- campaign/ad set context flags
-- evidence quality
-- current push readiness
-- sanitized instruction headline, reason summary, and missing evidence
-
-## Usability
-
-This artifact is usable for source-shape inspection and fixture planning. It is not usable for media-buyer calibration because the data accuracy gate failed.
+This artifact is usable for source-shape inspection and fixture planning. It is not usable for media-buyer calibration because the corrected Data Accuracy Gate still failed.

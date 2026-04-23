@@ -4,7 +4,7 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Creative Segmentation Calibration Lab started from merged foundation and foundation hardening. The lab is currently blocked at the Data Accuracy Gate. Do not proceed to media-buyer-agent judgment or policy-threshold implementation until source data correctness is verified.
+Creative Segmentation Calibration Lab is blocked at the Data Accuracy Gate. The gate has now been hardened so candidate businesses must be currently Meta-eligible before sampling. Do not proceed to media-buyer-agent judgment or Creative policy implementation until the remaining active eligible zero-row source issue is resolved or precisely classified.
 
 ## Product Doctrine
 
@@ -47,14 +47,36 @@ Default benchmark direction is account-wide. Campaign-level benchmark must be ex
 
 The recovered old-rule challenger exists at `lib/creative-old-rule-challenger.ts` for calibration comparison only. It is independent from Decision OS, emits challenger action/reason/metrics/confidence/score, and is marked non-authoritative. It must not drive UI, queue, push, apply, or policy directly.
 
+## Corrected Candidate Eligibility Behavior
+
+The calibration helper no longer samples businesses only because they have historical `meta_creatives_snapshots`.
+
+Candidate businesses are eligible only when they have:
+
+- current Meta provider connection with `status = connected`
+- non-empty access token row
+- at least one assigned Meta account
+
+Ineligible historical snapshot businesses are skipped and counted by sanitized reason:
+
+- `no_current_meta_connection`
+- `meta_connection_not_connected`
+- `no_access_token`
+- `no_accounts_assigned`
+
+## Corrected Coverage Model
+
+`coverage.internalSegments` now contains only true internal Creative policy segments.
+
+Quick-filter buckets are reported separately as `coverage.quickFilters`. `quick_filter:*` entries must not be mixed into internal segment distribution.
+
 ## Latest Completed Work
 
-- Created a sanitized calibration helper: `scripts/creative-segmentation-calibration-lab.ts`.
-- Created calibration lab report directory and machine-readable artifact under `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/`.
-- Ran the Data Accuracy Gate against the current Creative source path using the local DB tunnel and production env values in-process.
-- Exported sanitized aliases and metrics only; no raw business/account/campaign/ad set/creative IDs, raw names, copy, URLs, tokens, or cookies are included.
-- Verified the exported rows had zero Creative table vs Decision OS metric deltas and zero identifier mismatches.
-- Stopped calibration before the 10-agent panel because the Data Accuracy Gate failed.
+- Hardened `scripts/creative-segmentation-calibration-lab.ts` candidate selection around current Meta connection/account eligibility.
+- Added helper unit coverage for candidate skips and quick-filter coverage separation.
+- Reran the sanitized Data Accuracy Gate.
+- Updated calibration reports and artifact.
+- Confirmed no raw IDs are emitted in the new reports/artifact/helper scan.
 
 ## Calibration Status
 
@@ -64,42 +86,40 @@ Sanitized artifact:
 
 `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/artifacts/sanitized-calibration-dataset.json`
 
-Gate summary:
+Corrected gate summary:
 
-- Companies checked: 3
+- Historical snapshot candidates inspected: 8
+- Currently eligible candidates: 8
+- Skipped candidates: 0
+- Sampled eligible candidates: 3
 - Sampled rows exported: 24
 - Gate passed: false
-- Blocking issue: one sampled company returned zero current Decision OS rows
-- `meta_creative_daily` was empty in the checked database, so independent warehouse-level creative fact verification was unavailable
+- Active eligible zero-row candidates: 1
+- Blocking issue: one active eligible sampled company returned zero current Decision OS rows
+- `meta_creative_daily` row count: 0
+- Current verification confidence: API/payload parity only
+
+The candidate eligibility issue was real in code, but it was not the cause of the corrected rerun failure. The remaining blocker is a real active eligible zero-row source/data issue.
 
 ## Agent Panel Status
 
-Not run. The 10 media-buyer-agent panel must not run on this artifact because source correctness is not verified.
-
-## Mismatch Summary
-
-Only source-level mismatch synthesis is valid from this pass:
-
-- insufficient data / unverifiable source for one sampled company
-- account baselines can be present in exported rows, but relative-winner suppression is not policy-proven while the gate is failed
-- old-rule challenger produced scale-like labels in the sample, but those remain diagnostic and cannot be treated as policy evidence yet
-- UI label usefulness cannot be calibrated until source data is verified
+Not run. The 10 media-buyer-agent panel must not run until the corrected Data Accuracy Gate passes.
 
 ## Remaining Blockers
 
-- Current source path can return zero Decision OS rows for a sampled company without enough sanitized source-health detail for calibration.
-- `meta_creative_daily` is empty, so the lab cannot cross-check current creative metrics against an independent creative fact table.
+- One active eligible sampled business returns zero current Decision OS rows.
+- Source-health output is not detailed enough to classify the zero-row cause as snapshot bypass, live provider failure, empty provider data, or preview/media degradation.
+- `meta_creative_daily` is empty, so independent warehouse-level creative fact verification is unavailable.
 - Campaign baseline summaries in the artifact are diagnostic only; production campaign benchmark authority still requires explicit benchmark scope.
-- The media-buyer-agent panel and deterministic policy recommendations are blocked until the data gate passes.
 
 ## Next Recommended Action
 
-Implement a Creative source-health hardening pass before calibration:
+Implement a Creative source-health diagnostic pass:
 
-- report why current Decision OS rows are zero for a sampled company
+- report why an active eligible business has zero current Decision OS rows
 - distinguish snapshot bypass, live provider failure, empty provider data, and preview/media degradation
 - preserve/verifiably expose performance metric availability separately from preview availability where safe
-- add source-health fixtures so the Calibration Lab blocks cleanly on source failure
+- add source-health fixtures for active eligible zero-row cases
 - rerun the Data Accuracy Gate, then run the 10-agent panel only if the gate passes
 
 Policy threshold changes, segmentation rewrites, noisy UI, old-rule authority, and queue/push/apply safety changes remain out of scope.
@@ -116,14 +136,18 @@ Policy threshold changes, segmentation rewrites, noisy UI, old-rule authority, a
 - Mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
 - Fixture plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
 - Final lab report: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
-- PR: `https://github.com/erhanrdn/OmniAds/pull/34`
+- Data gate hardening report: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/data-gate-hardening-final.md`
+- Prior Calibration Lab PR: `https://github.com/erhanrdn/OmniAds/pull/34`
+- Data Gate Hardening PR: `https://github.com/erhanrdn/OmniAds/pull/35`
 
 Latest local validation:
 
-- `node --import tsx scripts/creative-segmentation-calibration-lab.ts` - completed and wrote sanitized artifact with gate failed.
-- `npm test` - passed, 293 files and 2021 tests.
+- `npx vitest run scripts/creative-segmentation-calibration-lab.test.ts` - passed, 3 tests.
+- `npm test` - passed, 294 files and 2024 tests.
 - `npx tsc --noEmit` - passed.
 - `npm run build` - passed.
 - `git diff --check` - passed.
 - hidden/bidi/control scan - passed.
+- raw ID scan for calibration reports/artifact/helper - passed.
 - No lint script exists in `package.json`.
+- `node --import tsx scripts/creative-segmentation-calibration-lab.ts` - completed and wrote sanitized artifact with corrected gate failed.

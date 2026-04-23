@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T05:05:52.302Z",
+  "generatedAt": "2026-04-23T05:59:47.062Z",
   "source": "creative_segmentation_calibration_lab",
   "sanitization": {
     "rawIdsIncluded": false,
@@ -15,8 +15,8 @@
       "company-01: current Decision OS returned zero verifiable rows."
     ],
     "warnings": [
-      "meta_creative_daily was empty in the checked database; current Creative table and Decision OS use the creative API/snapshot source instead.",
-      "Campaign baselines in this artifact are lab-computed only; production campaign segmentation still requires explicit benchmark scope input."
+      "Campaign baselines in this artifact are lab-computed only; production campaign segmentation still requires explicit benchmark scope input.",
+      "meta_creative_daily is empty in the checked database; current verification is API/payload parity only because the product Creative pipeline uses the creative API/snapshot source."
     ],
     "checkedCompanies": 3,
     "checkedRows": 24,
@@ -29,6 +29,26 @@
       "purchases": 0,
       "impressions": 0,
       "linkClicks": 0
+    },
+    "candidateEligibility": {
+      "historicalSnapshotCandidates": 8,
+      "eligibleCandidates": 8,
+      "skippedCandidates": 0,
+      "skippedCandidatesByReason": {
+        "no_current_meta_connection": 0,
+        "meta_connection_not_connected": 0,
+        "no_access_token": 0,
+        "no_accounts_assigned": 0
+      },
+      "sampledCandidates": 3,
+      "zeroRowEligibleCandidates": 1
+    },
+    "warehouseCreativeDaily": {
+      "available": false,
+      "rowCount": 0,
+      "checkedAgainstCurrentPipeline": false,
+      "confidence": "api_payload_parity_only",
+      "status": "empty_table"
     }
   },
   "coverage": {
@@ -36,36 +56,44 @@
     "creatives": 24,
     "internalSegments": {
       "investigate": 3,
-      "quick_filter:blocked": 3,
-      "creative_learning_incomplete": 3,
-      "quick_filter:watch": 8,
+      "creative_learning_incomplete": 4,
       "hold_monitor": 2,
-      "promising_under_sampled": 2,
-      "contextual_only": 13,
-      "quick_filter:needs_truth": 13,
-      "false_winner_low_evidence": 1
+      "promising_under_sampled": 3,
+      "contextual_only": 2,
+      "false_winner_low_evidence": 2,
+      "fatigued_winner": 5,
+      "protected_winner": 3
+    },
+    "quickFilters": {
+      "blocked": 8,
+      "watch": 11,
+      "needs_truth": 2,
+      "no_action": 3
     },
     "userFacingSegments": {
       "Campaign Check": 3,
-      "Not Enough Data": 4,
+      "Not Enough Data": 6,
       "Watch": 2,
-      "Test More": 2,
-      "Not eligible for evaluation": 13
+      "Test More": 3,
+      "Not eligible for evaluation": 2,
+      "Refresh": 5,
+      "Protect": 3
     },
     "oldRuleSegments": {
       "watch": 5,
       "kill": 4,
       "scale": 4,
-      "pause": 8,
-      "test_more": 2,
+      "pause": 7,
+      "test_more": 3,
       "scale_hard": 1
     },
     "baselineReliability": {
       "strong": 24
     },
     "pushReadiness": {
-      "blocked_from_push": 17,
-      "read_only_insight": 7
+      "blocked_from_push": 11,
+      "read_only_insight": 10,
+      "operator_review_required": 3
     }
   },
   "rows": [
@@ -1323,8 +1351,8 @@
       "campaignAlias": "company-03-campaign-01",
       "adSetAlias": "company-03-adset-01",
       "creativeAlias": "company-03-creative-01",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
+      "currentDecisionOsInternalSegment": "fatigued_winner",
+      "currentUserFacingSegment": "Refresh",
       "oldRuleChallengerSegment": "pause",
       "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
       "accountBaseline": {
@@ -1410,18 +1438,16 @@
         "targetLane": null
       },
       "evidenceQuality": {
-        "evidenceSource": "unknown",
+        "evidenceSource": "live",
         "trustState": "live_confident",
         "surfaceLane": "action_core",
         "previewWindow": "ready",
         "baselineReliability": "strong"
       },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-01",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
+      "currentPushReadiness": "operator_review_required",
+      "currentInstructionHeadline": "Investigate: company-03-creative-01",
+      "reasonSummary": "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.",
+      "missingEvidence": []
     },
     {
       "companyAlias": "company-03",
@@ -1429,8 +1455,8 @@
       "campaignAlias": "company-03-campaign-01",
       "adSetAlias": "company-03-adset-01",
       "creativeAlias": "company-03-creative-02",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
+      "currentDecisionOsInternalSegment": "protected_winner",
+      "currentUserFacingSegment": "Protect",
       "oldRuleChallengerSegment": "scale",
       "oldRuleChallengerReason": "Old-rule challenger sees account-relative upside with acceptable conversion quality.",
       "accountBaseline": {
@@ -1516,18 +1542,16 @@
         "targetLane": "Scaling"
       },
       "evidenceQuality": {
-        "evidenceSource": "unknown",
+        "evidenceSource": "live",
         "trustState": "live_confident",
         "surfaceLane": "watchlist",
         "previewWindow": "ready",
         "baselineReliability": "strong"
       },
       "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-02",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
+      "currentInstructionHeadline": "Protect: company-03-creative-02",
+      "reasonSummary": "Deterministic engine marks this as a shipped winner that should stay protected.",
+      "missingEvidence": []
     },
     {
       "companyAlias": "company-03",
@@ -1535,432 +1559,8 @@
       "campaignAlias": "company-03-campaign-01",
       "adSetAlias": "company-03-adset-01",
       "creativeAlias": "company-03-creative-03",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "pause",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6139.92,
-        "purchaseBasis": 56,
-        "weightedRoas": 3.83,
-        "weightedCpa": 109.64,
-        "medianRoas": 3.32,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6139.92,
-        "purchaseBasis": 56,
-        "weightedRoas": 3.83,
-        "weightedCpa": 109.64,
-        "medianRoas": 3.32,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "spend": 529.64,
-      "purchases": 5,
-      "cpa": 105.93,
-      "roas": 2.57,
-      "value": 1361.52,
-      "recent7d": {
-        "spend": 92.48,
-        "purchaseValue": 0,
-        "roas": 0,
-        "cpa": 0,
-        "purchases": 0,
-        "impressions": 20499,
-        "linkClicks": 890
-      },
-      "mid30d": {
-        "spend": 529.64,
-        "purchaseValue": 1361.52,
-        "roas": 2.57,
-        "cpa": 105.93,
-        "purchases": 5,
-        "impressions": 122313,
-        "linkClicks": 5259
-      },
-      "long90d": {
-        "spend": 1605.18,
-        "purchaseValue": 12485.51,
-        "roas": 7.78,
-        "cpa": 57.33,
-        "purchases": 28,
-        "impressions": 333616,
-        "linkClicks": 14228
-      },
-      "trendIndicators": {
-        "fatigueStatus": "fatigued",
-        "fatigueConfidence": 0.78,
-        "lifecycleState": "fatigued_winner",
-        "primaryAction": "refresh_replace"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "compatible",
-        "targetLane": null
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "action_core",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-03",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-04",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "watch",
-      "oldRuleChallengerReason": "Old-rule challenger sees mixed signals versus account baseline.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6250.93,
-        "purchaseBasis": 57,
-        "weightedRoas": 3.47,
-        "weightedCpa": 109.67,
-        "medianRoas": 2.63,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6250.93,
-        "purchaseBasis": 57,
-        "weightedRoas": 3.47,
-        "weightedCpa": 109.67,
-        "medianRoas": 2.63,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "spend": 418.63,
-      "purchases": 4,
-      "cpa": 104.66,
-      "roas": 7.57,
-      "value": 3170.1,
-      "recent7d": {
-        "spend": 71.55,
-        "purchaseValue": 0,
-        "roas": 0,
-        "cpa": 0,
-        "purchases": 0,
-        "impressions": 25809,
-        "linkClicks": 665
-      },
-      "mid30d": {
-        "spend": 418.63,
-        "purchaseValue": 3170.1,
-        "roas": 7.57,
-        "cpa": 104.66,
-        "purchases": 4,
-        "impressions": 128797,
-        "linkClicks": 3459
-      },
-      "long90d": {
-        "spend": 418.63,
-        "purchaseValue": 3170.1,
-        "roas": 7.57,
-        "cpa": 104.66,
-        "purchases": 4,
-        "impressions": 128797,
-        "linkClicks": 3459
-      },
-      "trendIndicators": {
-        "fatigueStatus": "none",
-        "fatigueConfidence": 0.64,
-        "lifecycleState": "stable_winner",
-        "primaryAction": "hold_no_touch"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "limited",
-        "targetLane": "Scaling"
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "watchlist",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-04",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-05",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "pause",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6321.15,
-        "purchaseBasis": 58,
-        "weightedRoas": 3.83,
-        "weightedCpa": 108.99,
-        "medianRoas": 3.32,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6321.15,
-        "purchaseBasis": 58,
-        "weightedRoas": 3.83,
-        "weightedCpa": 108.99,
-        "medianRoas": 3.32,
-        "medianCpa": 85.35,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "spend": 348.41,
-      "purchases": 3,
-      "cpa": 116.14,
-      "roas": 1.87,
-      "value": 650.05,
-      "recent7d": {
-        "spend": 84.18,
-        "purchaseValue": 282.74,
-        "roas": 3.36,
-        "cpa": 42.09,
-        "purchases": 2,
-        "impressions": 30580,
-        "linkClicks": 1247
-      },
-      "mid30d": {
-        "spend": 348.41,
-        "purchaseValue": 650.05,
-        "roas": 1.87,
-        "cpa": 116.14,
-        "purchases": 3,
-        "impressions": 88174,
-        "linkClicks": 3375
-      },
-      "long90d": {
-        "spend": 348.41,
-        "purchaseValue": 650.05,
-        "roas": 1.87,
-        "cpa": 116.14,
-        "purchases": 3,
-        "impressions": 88174,
-        "linkClicks": 3375
-      },
-      "trendIndicators": {
-        "fatigueStatus": "fatigued",
-        "fatigueConfidence": 0.78,
-        "lifecycleState": "fatigued_winner",
-        "primaryAction": "refresh_replace"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "compatible",
-        "targetLane": null
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "action_core",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-05",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-06",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "scale",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative upside with acceptable conversion quality.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6356.88,
-        "purchaseBasis": 56,
-        "weightedRoas": 3.54,
-        "weightedCpa": 113.52,
-        "medianRoas": 2.63,
-        "medianCpa": 104.66,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6356.88,
-        "purchaseBasis": 56,
-        "weightedRoas": 3.54,
-        "weightedCpa": 113.52,
-        "medianRoas": 2.63,
-        "medianCpa": 104.66,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "spend": 312.68,
-      "purchases": 5,
-      "cpa": 62.54,
-      "roas": 7.59,
-      "value": 2373.76,
-      "recent7d": {
-        "spend": 40.53,
-        "purchaseValue": 33.31,
-        "roas": 0.82,
-        "cpa": 40.53,
-        "purchases": 1,
-        "impressions": 11395,
-        "linkClicks": 360
-      },
-      "mid30d": {
-        "spend": 312.68,
-        "purchaseValue": 2373.76,
-        "roas": 7.59,
-        "cpa": 62.54,
-        "purchases": 5,
-        "impressions": 75902,
-        "linkClicks": 3175
-      },
-      "long90d": {
-        "spend": 347.56,
-        "purchaseValue": 2373.76,
-        "roas": 6.83,
-        "cpa": 69.51,
-        "purchases": 5,
-        "impressions": 84264,
-        "linkClicks": 3621
-      },
-      "trendIndicators": {
-        "fatigueStatus": "none",
-        "fatigueConfidence": 0.64,
-        "lifecycleState": "stable_winner",
-        "primaryAction": "hold_no_touch"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "limited",
-        "targetLane": "Scaling"
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "watchlist",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-06",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-07",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
+      "currentDecisionOsInternalSegment": "creative_learning_incomplete",
+      "currentUserFacingSegment": "Not Enough Data",
       "oldRuleChallengerSegment": "kill",
       "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
       "accountBaseline": {
@@ -2046,345 +1646,25 @@
         "targetLane": "Validation"
       },
       "evidenceQuality": {
-        "evidenceSource": "unknown",
+        "evidenceSource": "live",
         "trustState": "degraded_missing_truth",
         "surfaceLane": "action_core",
         "previewWindow": "ready",
         "baselineReliability": "strong"
       },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-07",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
+      "currentPushReadiness": "read_only_insight",
+      "currentInstructionHeadline": "Watch: company-03-creative-03",
+      "reasonSummary": "Deterministic engine keeps this in test against the format + age benchmark.",
+      "missingEvidence": []
     },
     {
       "companyAlias": "company-03",
       "accountAlias": "company-03-account-01",
       "campaignAlias": "company-03-campaign-01",
       "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-08",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "scale",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative upside with acceptable conversion quality.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6440.5,
-        "purchaseBasis": 55,
-        "weightedRoas": 3.71,
-        "weightedCpa": 117.1,
-        "medianRoas": 2.63,
-        "medianCpa": 104.66,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6440.5,
-        "purchaseBasis": 55,
-        "weightedRoas": 3.71,
-        "weightedCpa": 117.1,
-        "medianRoas": 2.63,
-        "medianCpa": 104.66,
-        "medianSpend": 170.69,
-        "missingContext": []
-      },
-      "spend": 229.06,
-      "purchases": 6,
-      "cpa": 38.18,
-      "roas": 4.23,
-      "value": 969.01,
-      "recent7d": {
-        "spend": 34.46,
-        "purchaseValue": 166.27,
-        "roas": 4.83,
-        "cpa": 34.46,
-        "purchases": 1,
-        "impressions": 14734,
-        "linkClicks": 407
-      },
-      "mid30d": {
-        "spend": 229.06,
-        "purchaseValue": 969.01,
-        "roas": 4.23,
-        "cpa": 38.18,
-        "purchases": 6,
-        "impressions": 87142,
-        "linkClicks": 2722
-      },
-      "long90d": {
-        "spend": 1056.62,
-        "purchaseValue": 3753.3,
-        "roas": 3.55,
-        "cpa": 44.03,
-        "purchases": 24,
-        "impressions": 362682,
-        "linkClicks": 10911
-      },
-      "trendIndicators": {
-        "fatigueStatus": "fatigued",
-        "fatigueConfidence": 0.78,
-        "lifecycleState": "fatigued_winner",
-        "primaryAction": "refresh_replace"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "compatible",
-        "targetLane": null
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "action_core",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-08",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-09",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "pause",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6498.87,
-        "purchaseBasis": 59,
-        "weightedRoas": 3.8,
-        "weightedCpa": 110.15,
-        "medianRoas": 3.32,
-        "medianCpa": 104.66,
-        "medianSpend": 229.06,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6498.87,
-        "purchaseBasis": 59,
-        "weightedRoas": 3.8,
-        "weightedCpa": 110.15,
-        "medianRoas": 3.32,
-        "medianCpa": 104.66,
-        "medianSpend": 229.06,
-        "missingContext": []
-      },
-      "spend": 170.69,
-      "purchases": 2,
-      "cpa": 85.35,
-      "roas": 1.07,
-      "value": 182.98,
-      "recent7d": {
-        "spend": 68,
-        "purchaseValue": 166.28,
-        "roas": 2.45,
-        "cpa": 68,
-        "purchases": 1,
-        "impressions": 27784,
-        "linkClicks": 592
-      },
-      "mid30d": {
-        "spend": 170.69,
-        "purchaseValue": 182.98,
-        "roas": 1.07,
-        "cpa": 85.35,
-        "purchases": 2,
-        "impressions": 146167,
-        "linkClicks": 1156
-      },
-      "long90d": {
-        "spend": 392.93,
-        "purchaseValue": 624.62,
-        "roas": 1.59,
-        "cpa": 98.23,
-        "purchases": 4,
-        "impressions": 167451,
-        "linkClicks": 1883
-      },
-      "trendIndicators": {
-        "fatigueStatus": "fatigued",
-        "fatigueConfidence": 0.78,
-        "lifecycleState": "fatigued_winner",
-        "primaryAction": "refresh_replace"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "compatible",
-        "targetLane": null
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "action_core",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-09",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-10",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
-      "oldRuleChallengerSegment": "pause",
-      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
-      "accountBaseline": {
-        "scope": "account",
-        "reliability": "strong",
-        "creativeCount": 30,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6506.47,
-        "purchaseBasis": 59,
-        "weightedRoas": 3.77,
-        "weightedCpa": 110.28,
-        "medianRoas": 3.32,
-        "medianCpa": 104.66,
-        "medianSpend": 229.06,
-        "missingContext": []
-      },
-      "campaignBaseline": {
-        "scope": "campaign",
-        "reliability": "strong",
-        "creativeCount": 26,
-        "eligibleCreativeCount": 13,
-        "spendBasis": 6506.47,
-        "purchaseBasis": 59,
-        "weightedRoas": 3.77,
-        "weightedCpa": 110.28,
-        "medianRoas": 3.32,
-        "medianCpa": 104.66,
-        "medianSpend": 229.06,
-        "missingContext": []
-      },
-      "spend": 163.09,
-      "purchases": 2,
-      "cpa": 81.55,
-      "roas": 1.91,
-      "value": 310.82,
-      "recent7d": {
-        "spend": 48.5,
-        "purchaseValue": 0,
-        "roas": 0,
-        "cpa": 0,
-        "purchases": 0,
-        "impressions": 12003,
-        "linkClicks": 221
-      },
-      "mid30d": {
-        "spend": 163.09,
-        "purchaseValue": 310.82,
-        "roas": 1.91,
-        "cpa": 81.55,
-        "purchases": 2,
-        "impressions": 41668,
-        "linkClicks": 895
-      },
-      "long90d": {
-        "spend": 910.17,
-        "purchaseValue": 3407.41,
-        "roas": 3.74,
-        "cpa": 47.9,
-        "purchases": 19,
-        "impressions": 263939,
-        "linkClicks": 5817
-      },
-      "trendIndicators": {
-        "fatigueStatus": "fatigued",
-        "fatigueConfidence": 0.78,
-        "lifecycleState": "fatigued_winner",
-        "primaryAction": "refresh_replace"
-      },
-      "creativeAgeDays": 31,
-      "frequency": null,
-      "commercialTruthAvailability": {
-        "targetPackConfigured": false,
-        "missingInputs": [
-          "Target pack is not configured yet.",
-          "Country economics are not configured for the live decision window.",
-          "Site health and stock pressure constraints are not configured."
-        ]
-      },
-      "campaignAdSetContextFlags": {
-        "campaignPresent": true,
-        "adSetPresent": true,
-        "deploymentCompatibility": "compatible",
-        "targetLane": null
-      },
-      "evidenceQuality": {
-        "evidenceSource": "unknown",
-        "trustState": "live_confident",
-        "surfaceLane": "action_core",
-        "previewWindow": "ready",
-        "baselineReliability": "strong"
-      },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-10",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
-      "missingEvidence": [
-        "evidence_source"
-      ]
-    },
-    {
-      "companyAlias": "company-03",
-      "accountAlias": "company-03-account-01",
-      "campaignAlias": "company-03-campaign-01",
-      "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-11",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
+      "creativeAlias": "company-03-creative-04",
+      "currentDecisionOsInternalSegment": "false_winner_low_evidence",
+      "currentUserFacingSegment": "Not Enough Data",
       "oldRuleChallengerSegment": "watch",
       "oldRuleChallengerReason": "Old-rule challenger sees mixed signals versus account baseline.",
       "accountBaseline": {
@@ -2470,17 +1750,16 @@
         "targetLane": "Validation"
       },
       "evidenceQuality": {
-        "evidenceSource": "unknown",
+        "evidenceSource": "live",
         "trustState": "degraded_missing_truth",
         "surfaceLane": "action_core",
         "previewWindow": "ready",
         "baselineReliability": "strong"
       },
-      "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-11",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
+      "currentPushReadiness": "read_only_insight",
+      "currentInstructionHeadline": "Watch: company-03-creative-04",
+      "reasonSummary": "Deterministic engine keeps this in test against the format + age benchmark.",
       "missingEvidence": [
-        "evidence_source",
         "non_roas_evidence"
       ]
     },
@@ -2489,9 +1768,9 @@
       "accountAlias": "company-03-account-01",
       "campaignAlias": "company-03-campaign-01",
       "adSetAlias": "company-03-adset-01",
-      "creativeAlias": "company-03-creative-12",
-      "currentDecisionOsInternalSegment": "contextual_only",
-      "currentUserFacingSegment": "Not eligible for evaluation",
+      "creativeAlias": "company-03-creative-05",
+      "currentDecisionOsInternalSegment": "promising_under_sampled",
+      "currentUserFacingSegment": "Test More",
       "oldRuleChallengerSegment": "pause",
       "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
       "accountBaseline": {
@@ -2577,18 +1856,746 @@
         "targetLane": "Validation"
       },
       "evidenceQuality": {
-        "evidenceSource": "unknown",
+        "evidenceSource": "live",
         "trustState": "degraded_missing_truth",
         "surfaceLane": "action_core",
         "previewWindow": "ready",
         "baselineReliability": "strong"
       },
+      "currentPushReadiness": "read_only_insight",
+      "currentInstructionHeadline": "Watch: company-03-creative-05",
+      "reasonSummary": "Deterministic engine keeps this in test against the format + age benchmark.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-06",
+      "currentDecisionOsInternalSegment": "contextual_only",
+      "currentUserFacingSegment": "Not eligible for evaluation",
+      "oldRuleChallengerSegment": "test_more",
+      "oldRuleChallengerReason": "Old-rule challenger sees insufficient evidence for a confident decision.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 14,
+        "spendBasis": 6669.56,
+        "purchaseBasis": 61,
+        "weightedRoas": 3.73,
+        "weightedCpa": 109.34,
+        "medianRoas": 2.98,
+        "medianCpa": 95.01,
+        "medianSpend": 199.88,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 14,
+        "spendBasis": 6669.56,
+        "purchaseBasis": 61,
+        "weightedRoas": 3.73,
+        "weightedCpa": 109.34,
+        "medianRoas": 2.97,
+        "medianCpa": 95.01,
+        "medianSpend": 199.88,
+        "missingContext": []
+      },
+      "spend": 0.53,
+      "purchases": 0,
+      "cpa": 0,
+      "roas": 0,
+      "value": 0,
+      "recent7d": {
+        "spend": 0.02,
+        "purchaseValue": 0,
+        "roas": 0,
+        "cpa": 0,
+        "purchases": 0,
+        "impressions": 14,
+        "linkClicks": 1
+      },
+      "mid30d": {
+        "spend": 0.53,
+        "purchaseValue": 0,
+        "roas": 0,
+        "cpa": 0,
+        "purchases": 0,
+        "impressions": 193,
+        "linkClicks": 5
+      },
+      "long90d": {
+        "spend": 30.6,
+        "purchaseValue": 0,
+        "roas": 0,
+        "cpa": 0,
+        "purchases": 0,
+        "impressions": 5607,
+        "linkClicks": 226
+      },
+      "trendIndicators": {
+        "fatigueStatus": "none",
+        "fatigueConfidence": 0.62,
+        "lifecycleState": "retired",
+        "primaryAction": "block_deploy"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "compatible",
+        "targetLane": null
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "inactive_or_immaterial",
+        "surfaceLane": "archive_context",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
       "currentPushReadiness": "blocked_from_push",
-      "currentInstructionHeadline": "Use as context: company-03-creative-12",
-      "reasonSummary": "Promising, but evidence source is missing, so Creative action remains contextual.",
+      "currentInstructionHeadline": "Use as context: company-03-creative-06",
+      "reasonSummary": "Promising, but creative is inactive or immaterial for primary action.",
       "missingEvidence": [
-        "evidence_source"
+        "evidence_floor"
       ]
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-07",
+      "currentDecisionOsInternalSegment": "fatigued_winner",
+      "currentUserFacingSegment": "Refresh",
+      "oldRuleChallengerSegment": "pause",
+      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6139.92,
+        "purchaseBasis": 56,
+        "weightedRoas": 3.83,
+        "weightedCpa": 109.64,
+        "medianRoas": 3.32,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6139.92,
+        "purchaseBasis": 56,
+        "weightedRoas": 3.83,
+        "weightedCpa": 109.64,
+        "medianRoas": 3.32,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "spend": 529.64,
+      "purchases": 5,
+      "cpa": 105.93,
+      "roas": 2.57,
+      "value": 1361.52,
+      "recent7d": {
+        "spend": 92.48,
+        "purchaseValue": 0,
+        "roas": 0,
+        "cpa": 0,
+        "purchases": 0,
+        "impressions": 20499,
+        "linkClicks": 890
+      },
+      "mid30d": {
+        "spend": 529.64,
+        "purchaseValue": 1361.52,
+        "roas": 2.57,
+        "cpa": 105.93,
+        "purchases": 5,
+        "impressions": 122313,
+        "linkClicks": 5259
+      },
+      "long90d": {
+        "spend": 1605.18,
+        "purchaseValue": 12485.51,
+        "roas": 7.78,
+        "cpa": 57.33,
+        "purchases": 28,
+        "impressions": 333616,
+        "linkClicks": 14228
+      },
+      "trendIndicators": {
+        "fatigueStatus": "fatigued",
+        "fatigueConfidence": 0.78,
+        "lifecycleState": "fatigued_winner",
+        "primaryAction": "refresh_replace"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "compatible",
+        "targetLane": null
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "action_core",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "operator_review_required",
+      "currentInstructionHeadline": "Investigate: company-03-creative-07",
+      "reasonSummary": "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-08",
+      "currentDecisionOsInternalSegment": "protected_winner",
+      "currentUserFacingSegment": "Protect",
+      "oldRuleChallengerSegment": "watch",
+      "oldRuleChallengerReason": "Old-rule challenger sees mixed signals versus account baseline.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6250.93,
+        "purchaseBasis": 57,
+        "weightedRoas": 3.47,
+        "weightedCpa": 109.67,
+        "medianRoas": 2.63,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6250.93,
+        "purchaseBasis": 57,
+        "weightedRoas": 3.47,
+        "weightedCpa": 109.67,
+        "medianRoas": 2.63,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "spend": 418.63,
+      "purchases": 4,
+      "cpa": 104.66,
+      "roas": 7.57,
+      "value": 3170.1,
+      "recent7d": {
+        "spend": 71.55,
+        "purchaseValue": 0,
+        "roas": 0,
+        "cpa": 0,
+        "purchases": 0,
+        "impressions": 25809,
+        "linkClicks": 665
+      },
+      "mid30d": {
+        "spend": 418.63,
+        "purchaseValue": 3170.1,
+        "roas": 7.57,
+        "cpa": 104.66,
+        "purchases": 4,
+        "impressions": 128797,
+        "linkClicks": 3459
+      },
+      "long90d": {
+        "spend": 418.63,
+        "purchaseValue": 3170.1,
+        "roas": 7.57,
+        "cpa": 104.66,
+        "purchases": 4,
+        "impressions": 128797,
+        "linkClicks": 3459
+      },
+      "trendIndicators": {
+        "fatigueStatus": "none",
+        "fatigueConfidence": 0.64,
+        "lifecycleState": "stable_winner",
+        "primaryAction": "hold_no_touch"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "limited",
+        "targetLane": "Scaling"
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "watchlist",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "blocked_from_push",
+      "currentInstructionHeadline": "Protect: company-03-creative-08",
+      "reasonSummary": "Deterministic engine marks this as a shipped winner that should stay protected.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-09",
+      "currentDecisionOsInternalSegment": "fatigued_winner",
+      "currentUserFacingSegment": "Refresh",
+      "oldRuleChallengerSegment": "pause",
+      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6321.15,
+        "purchaseBasis": 58,
+        "weightedRoas": 3.83,
+        "weightedCpa": 108.99,
+        "medianRoas": 3.32,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6321.15,
+        "purchaseBasis": 58,
+        "weightedRoas": 3.83,
+        "weightedCpa": 108.99,
+        "medianRoas": 3.32,
+        "medianCpa": 85.35,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "spend": 348.41,
+      "purchases": 3,
+      "cpa": 116.14,
+      "roas": 1.87,
+      "value": 650.05,
+      "recent7d": {
+        "spend": 84.18,
+        "purchaseValue": 282.74,
+        "roas": 3.36,
+        "cpa": 42.09,
+        "purchases": 2,
+        "impressions": 30580,
+        "linkClicks": 1247
+      },
+      "mid30d": {
+        "spend": 348.41,
+        "purchaseValue": 650.05,
+        "roas": 1.87,
+        "cpa": 116.14,
+        "purchases": 3,
+        "impressions": 88174,
+        "linkClicks": 3375
+      },
+      "long90d": {
+        "spend": 348.41,
+        "purchaseValue": 650.05,
+        "roas": 1.87,
+        "cpa": 116.14,
+        "purchases": 3,
+        "impressions": 88174,
+        "linkClicks": 3375
+      },
+      "trendIndicators": {
+        "fatigueStatus": "fatigued",
+        "fatigueConfidence": 0.78,
+        "lifecycleState": "fatigued_winner",
+        "primaryAction": "refresh_replace"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "compatible",
+        "targetLane": null
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "action_core",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "operator_review_required",
+      "currentInstructionHeadline": "Investigate: company-03-creative-09",
+      "reasonSummary": "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-10",
+      "currentDecisionOsInternalSegment": "protected_winner",
+      "currentUserFacingSegment": "Protect",
+      "oldRuleChallengerSegment": "scale",
+      "oldRuleChallengerReason": "Old-rule challenger sees account-relative upside with acceptable conversion quality.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6356.88,
+        "purchaseBasis": 56,
+        "weightedRoas": 3.54,
+        "weightedCpa": 113.52,
+        "medianRoas": 2.63,
+        "medianCpa": 104.66,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6356.88,
+        "purchaseBasis": 56,
+        "weightedRoas": 3.54,
+        "weightedCpa": 113.52,
+        "medianRoas": 2.63,
+        "medianCpa": 104.66,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "spend": 312.68,
+      "purchases": 5,
+      "cpa": 62.54,
+      "roas": 7.59,
+      "value": 2373.76,
+      "recent7d": {
+        "spend": 40.53,
+        "purchaseValue": 33.31,
+        "roas": 0.82,
+        "cpa": 40.53,
+        "purchases": 1,
+        "impressions": 11395,
+        "linkClicks": 360
+      },
+      "mid30d": {
+        "spend": 312.68,
+        "purchaseValue": 2373.76,
+        "roas": 7.59,
+        "cpa": 62.54,
+        "purchases": 5,
+        "impressions": 75902,
+        "linkClicks": 3175
+      },
+      "long90d": {
+        "spend": 347.56,
+        "purchaseValue": 2373.76,
+        "roas": 6.83,
+        "cpa": 69.51,
+        "purchases": 5,
+        "impressions": 84264,
+        "linkClicks": 3621
+      },
+      "trendIndicators": {
+        "fatigueStatus": "none",
+        "fatigueConfidence": 0.64,
+        "lifecycleState": "stable_winner",
+        "primaryAction": "hold_no_touch"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "limited",
+        "targetLane": "Scaling"
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "watchlist",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "blocked_from_push",
+      "currentInstructionHeadline": "Protect: company-03-creative-10",
+      "reasonSummary": "Deterministic engine marks this as a shipped winner that should stay protected.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-11",
+      "currentDecisionOsInternalSegment": "fatigued_winner",
+      "currentUserFacingSegment": "Refresh",
+      "oldRuleChallengerSegment": "scale",
+      "oldRuleChallengerReason": "Old-rule challenger sees account-relative upside with acceptable conversion quality.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6440.5,
+        "purchaseBasis": 55,
+        "weightedRoas": 3.71,
+        "weightedCpa": 117.1,
+        "medianRoas": 2.63,
+        "medianCpa": 104.66,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6440.5,
+        "purchaseBasis": 55,
+        "weightedRoas": 3.71,
+        "weightedCpa": 117.1,
+        "medianRoas": 2.63,
+        "medianCpa": 104.66,
+        "medianSpend": 170.69,
+        "missingContext": []
+      },
+      "spend": 229.06,
+      "purchases": 6,
+      "cpa": 38.18,
+      "roas": 4.23,
+      "value": 969.01,
+      "recent7d": {
+        "spend": 34.46,
+        "purchaseValue": 166.27,
+        "roas": 4.83,
+        "cpa": 34.46,
+        "purchases": 1,
+        "impressions": 14734,
+        "linkClicks": 407
+      },
+      "mid30d": {
+        "spend": 229.06,
+        "purchaseValue": 969.01,
+        "roas": 4.23,
+        "cpa": 38.18,
+        "purchases": 6,
+        "impressions": 87142,
+        "linkClicks": 2722
+      },
+      "long90d": {
+        "spend": 1056.62,
+        "purchaseValue": 3753.3,
+        "roas": 3.55,
+        "cpa": 44.03,
+        "purchases": 24,
+        "impressions": 362682,
+        "linkClicks": 10911
+      },
+      "trendIndicators": {
+        "fatigueStatus": "fatigued",
+        "fatigueConfidence": 0.78,
+        "lifecycleState": "fatigued_winner",
+        "primaryAction": "refresh_replace"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "compatible",
+        "targetLane": null
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "action_core",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "blocked_from_push",
+      "currentInstructionHeadline": "Do not act: company-03-creative-11",
+      "reasonSummary": "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.",
+      "missingEvidence": []
+    },
+    {
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-12",
+      "currentDecisionOsInternalSegment": "fatigued_winner",
+      "currentUserFacingSegment": "Refresh",
+      "oldRuleChallengerSegment": "pause",
+      "oldRuleChallengerReason": "Old-rule challenger sees account-relative downside with enough spend pressure.",
+      "accountBaseline": {
+        "scope": "account",
+        "reliability": "strong",
+        "creativeCount": 30,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6498.87,
+        "purchaseBasis": 59,
+        "weightedRoas": 3.8,
+        "weightedCpa": 110.15,
+        "medianRoas": 3.32,
+        "medianCpa": 104.66,
+        "medianSpend": 229.06,
+        "missingContext": []
+      },
+      "campaignBaseline": {
+        "scope": "campaign",
+        "reliability": "strong",
+        "creativeCount": 26,
+        "eligibleCreativeCount": 13,
+        "spendBasis": 6498.87,
+        "purchaseBasis": 59,
+        "weightedRoas": 3.8,
+        "weightedCpa": 110.15,
+        "medianRoas": 3.32,
+        "medianCpa": 104.66,
+        "medianSpend": 229.06,
+        "missingContext": []
+      },
+      "spend": 170.69,
+      "purchases": 2,
+      "cpa": 85.35,
+      "roas": 1.07,
+      "value": 182.98,
+      "recent7d": {
+        "spend": 68,
+        "purchaseValue": 166.28,
+        "roas": 2.45,
+        "cpa": 68,
+        "purchases": 1,
+        "impressions": 27784,
+        "linkClicks": 592
+      },
+      "mid30d": {
+        "spend": 170.69,
+        "purchaseValue": 182.98,
+        "roas": 1.07,
+        "cpa": 85.35,
+        "purchases": 2,
+        "impressions": 146167,
+        "linkClicks": 1156
+      },
+      "long90d": {
+        "spend": 392.93,
+        "purchaseValue": 624.62,
+        "roas": 1.59,
+        "cpa": 98.23,
+        "purchases": 4,
+        "impressions": 167451,
+        "linkClicks": 1883
+      },
+      "trendIndicators": {
+        "fatigueStatus": "fatigued",
+        "fatigueConfidence": 0.78,
+        "lifecycleState": "fatigued_winner",
+        "primaryAction": "refresh_replace"
+      },
+      "creativeAgeDays": 31,
+      "frequency": null,
+      "commercialTruthAvailability": {
+        "targetPackConfigured": false,
+        "missingInputs": [
+          "Target pack is not configured yet.",
+          "Country economics are not configured for the live decision window.",
+          "Site health and stock pressure constraints are not configured."
+        ]
+      },
+      "campaignAdSetContextFlags": {
+        "campaignPresent": true,
+        "adSetPresent": true,
+        "deploymentCompatibility": "compatible",
+        "targetLane": null
+      },
+      "evidenceQuality": {
+        "evidenceSource": "live",
+        "trustState": "live_confident",
+        "surfaceLane": "action_core",
+        "previewWindow": "ready",
+        "baselineReliability": "strong"
+      },
+      "currentPushReadiness": "blocked_from_push",
+      "currentInstructionHeadline": "Do not act: company-03-creative-12",
+      "reasonSummary": "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.",
+      "missingEvidence": []
     }
   ]
 }
