@@ -255,6 +255,16 @@ function hasRoasOnlyPositiveSignal(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function hasMeaningfulPositiveSupport(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  return (
+    hasNumber(metrics.purchases) &&
+    metrics.purchases >= 2 &&
+    hasNumber(metrics.roas) &&
+    metrics.roas > 0
+  );
+}
+
 function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
   return (
     input.deployment?.compatibility.status === "limited" ||
@@ -295,12 +305,20 @@ function resolveSegment(params: {
   }
   if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
   if (isUnderSampled(input)) {
-    if ((input.supportingMetrics?.purchases ?? 0) <= 0 || (input.supportingMetrics?.roas ?? 0) <= 0) {
+    if (
+      !hasMeaningfulPositiveSupport(input) ||
+      input.lifecycleState === "incubating"
+    ) {
       return "creative_learning_incomplete";
     }
-    return input.lifecycleState === "incubating"
-      ? "creative_learning_incomplete"
-      : "promising_under_sampled";
+    return "promising_under_sampled";
+  }
+  if (
+    relativeScaleReviewIntent &&
+    hasRelativeBaselineContext(input) &&
+    !hasRelativeScaleReviewEvidence(input)
+  ) {
+    return "hold_monitor";
   }
   if (
     input.primaryAction === "promote_to_scaling" &&
