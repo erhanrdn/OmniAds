@@ -15,7 +15,9 @@ import type { CreativeDecisionInputRow } from "@/lib/ai/generate-creative-decisi
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { buildCreativeOldRuleChallenger } from "@/lib/creative-old-rule-challenger";
 import { getDb, resetDbClientCache } from "@/lib/db";
+import { getIntegration } from "@/lib/integrations";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -44,6 +46,81 @@ type NumericMetricKey =
   | "purchases"
   | "impressions"
   | "linkClicks";
+
+type SourceWindowKey = "selected30d" | "last7" | "last90";
+
+type ZeroRowClassification =
+  | "not_zero_row"
+  | "no_current_creative_activity"
+  | "provider_read_failure"
+  | "connection_or_account_mismatch"
+  | "source_mapping_bug"
+  | "decision_os_mapping_filter_bug"
+  | "source_no_data_unknown"
+  | "source_exception";
+
+type SourceDiagnostics = {
+  window: SourceWindowKey;
+  status: string;
+  source: string | null;
+  rowCount: number;
+  freshnessState: string | null;
+  snapshotAgeMs: number | null;
+  isRefreshing: boolean | null;
+  queryShape: {
+    mediaMode: "metadata";
+    groupBy: "creative";
+    format: "all";
+    sort: "spend";
+  };
+  previewCoverage: {
+    totalCreatives: number;
+    previewReadyCount: number;
+    previewWaitingCount: number;
+    previewMissingCount: number;
+    previewCoverage: number;
+  } | null;
+};
+
+type LiveInsightsProbe = {
+  assignedAccountCount: number;
+  accountsAttempted: number;
+  accountsSucceeded: number;
+  accountsWithInsights: number;
+  accountFetchFailures: number;
+  totalInsightRows: number;
+  spendBearingInsightRows: number;
+  failureStatusCounts: Record<string, number>;
+  metaErrorCounts: Record<string, number>;
+};
+
+type CandidateSourceHealth = {
+  companyAlias: string;
+  eligible: boolean;
+  sampled: boolean;
+  decisionAsOf: string;
+  decisionSummaryMessage: string;
+  selectedWindow: {
+    startDate: string;
+    endDate: string;
+  };
+  eligibility: {
+    connected: boolean;
+    hasAccessToken: boolean;
+    assignedAccountCount: number;
+  };
+  snapshotCandidate: {
+    rowCount: number;
+    latestSyncedAt: string;
+  };
+  decisionOsRows: number;
+  tableRows: number;
+  sourceDiagnostics: SourceDiagnostics[];
+  liveInsightsProbe: LiveInsightsProbe | null;
+  zeroRowClassification: ZeroRowClassification;
+  zeroRowReason: string;
+  blocksCalibration: boolean;
+};
 
 type BaselineSummary = {
   scope: "account" | "campaign";
@@ -129,6 +206,8 @@ export type DatasetArtifact = {
     maxMetricDelta: Record<NumericMetricKey, number>;
     candidateEligibility: {
       historicalSnapshotCandidates: number;
+      uniqueCandidateBusinesses: number;
+      dedupedDuplicateRows: number;
       eligibleCandidates: number;
       skippedCandidates: number;
       skippedCandidatesByReason: Record<CandidateSkipReason, number>;
@@ -153,6 +232,7 @@ export type DatasetArtifact = {
     baselineReliability: Record<string, number>;
     pushReadiness: Record<string, number>;
   };
+  sourceHealth: CandidateSourceHealth[];
   rows: SanitizedCalibrationRow[];
 };
 
@@ -271,11 +351,48 @@ export function resolveCandidateSkipReason(candidate: Pick<
   return null;
 }
 
+function candidateEligibilityScore(candidate: SourceBusinessRow) {
+  let score = 0;
+  if (candidate.connection_status === "connected") score += 4;
+  else if (candidate.connection_status) score += 1;
+  if (candidate.has_access_token) score += 2;
+  if (candidate.assigned_account_count > 0) score += 2;
+  return score;
+}
+
+function compareCandidateRows(left: SourceBusinessRow, right: SourceBusinessRow) {
+  const scoreDelta = candidateEligibilityScore(right) - candidateEligibilityScore(left);
+  if (scoreDelta !== 0) return scoreDelta;
+  const rowCountDelta = right.max_row_count - left.max_row_count;
+  if (rowCountDelta !== 0) return rowCountDelta;
+  return Date.parse(right.latest_synced_at) - Date.parse(left.latest_synced_at);
+}
+
+export function collapseCandidateRowsByBusiness(candidates: SourceBusinessRow[]) {
+  const byBusiness = new Map<string, SourceBusinessRow>();
+  for (const candidate of candidates) {
+    const existing = byBusiness.get(candidate.business_id);
+    if (!existing || compareCandidateRows(existing, candidate) > 0) {
+      byBusiness.set(candidate.business_id, candidate);
+    }
+  }
+  const collapsed = Array.from(byBusiness.values()).sort((left, right) => {
+    const rowCountDelta = right.max_row_count - left.max_row_count;
+    if (rowCountDelta !== 0) return rowCountDelta;
+    return Date.parse(right.latest_synced_at) - Date.parse(left.latest_synced_at);
+  });
+  return {
+    candidates: collapsed,
+    duplicateRows: candidates.length - collapsed.length,
+  };
+}
+
 export function summarizeCandidateEligibility(candidates: SourceBusinessRow[]) {
+  const collapsed = collapseCandidateRowsByBusiness(candidates);
   const skippedCandidatesByReason = { ...EMPTY_SKIPPED_CANDIDATES_BY_REASON };
   const eligible: SourceBusinessRow[] = [];
 
-  for (const candidate of candidates) {
+  for (const candidate of collapsed.candidates) {
     const reason = resolveCandidateSkipReason(candidate);
     if (reason) {
       skippedCandidatesByReason[reason] += 1;
@@ -287,7 +404,225 @@ export function summarizeCandidateEligibility(candidates: SourceBusinessRow[]) {
   return {
     eligible,
     skippedCandidatesByReason,
-    skippedCandidates: candidates.length - eligible.length,
+    skippedCandidates: collapsed.candidates.length - eligible.length,
+    uniqueCandidateBusinesses: collapsed.candidates.length,
+    dedupedDuplicateRows: collapsed.duplicateRows,
+  };
+}
+
+function readNumberFromObject(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return null;
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function buildSourceDiagnostics(input: {
+  window: SourceWindowKey;
+  payload: Awaited<ReturnType<typeof getMetaCreativesApiPayload>>;
+}): SourceDiagnostics {
+  const payload = input.payload as Record<string, unknown>;
+  const previewCoverage = payload.preview_coverage;
+  const rowCount = Array.isArray(input.payload.rows) ? input.payload.rows.length : 0;
+  return {
+    window: input.window,
+    status: typeof payload.status === "string" ? payload.status : "unknown",
+    source: typeof payload.snapshot_source === "string" ? payload.snapshot_source : null,
+    rowCount,
+    freshnessState: typeof payload.freshness_state === "string" ? payload.freshness_state : null,
+    snapshotAgeMs: readNumberFromObject(payload, "snapshot_age_ms"),
+    isRefreshing: typeof payload.is_refreshing === "boolean" ? payload.is_refreshing : null,
+    queryShape: {
+      mediaMode: "metadata",
+      groupBy: "creative",
+      format: "all",
+      sort: "spend",
+    },
+    previewCoverage:
+      previewCoverage && typeof previewCoverage === "object"
+        ? {
+            totalCreatives: readNumberFromObject(previewCoverage, "totalCreatives") ?? 0,
+            previewReadyCount: readNumberFromObject(previewCoverage, "previewReadyCount") ?? 0,
+            previewWaitingCount: readNumberFromObject(previewCoverage, "previewWaitingCount") ?? 0,
+            previewMissingCount: readNumberFromObject(previewCoverage, "previewMissingCount") ?? 0,
+            previewCoverage: readNumberFromObject(previewCoverage, "previewCoverage") ?? 0,
+          }
+        : null,
+  };
+}
+
+function incrementFailure(map: Record<string, number>, key: string) {
+  map[key] = (map[key] ?? 0) + 1;
+}
+
+async function probeLiveInsights(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<LiveInsightsProbe> {
+  const [integration, assignedAccountIds] = await Promise.all([
+    getIntegration(input.businessId, "meta").catch(() => null),
+    fetchAssignedAccountIds(input.businessId).catch(() => []),
+  ]);
+  const accessToken = integration?.access_token ?? null;
+  const probe: LiveInsightsProbe = {
+    assignedAccountCount: assignedAccountIds.length,
+    accountsAttempted: accessToken ? assignedAccountIds.length : 0,
+    accountsSucceeded: 0,
+    accountsWithInsights: 0,
+    accountFetchFailures: 0,
+    totalInsightRows: 0,
+    spendBearingInsightRows: 0,
+    failureStatusCounts: {},
+    metaErrorCounts: {},
+  };
+
+  if (!accessToken) return probe;
+
+  for (const accountId of assignedAccountIds) {
+    try {
+      const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
+      url.searchParams.set("fields", "ad_id,spend,impressions,date_start");
+      url.searchParams.set("level", "ad");
+      url.searchParams.set(
+        "time_range",
+        JSON.stringify({ since: input.startDate, until: input.endDate }),
+      );
+      url.searchParams.set("limit", "500");
+      url.searchParams.set("access_token", accessToken);
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const payload = (await res.json().catch(() => null)) as {
+        data?: unknown[];
+        error?: { code?: number; error_subcode?: number; type?: string };
+      } | null;
+      if (!res.ok) {
+        probe.accountFetchFailures += 1;
+        incrementFailure(probe.failureStatusCounts, `http_${res.status}`);
+        const code = payload?.error?.code;
+        const subcode = payload?.error?.error_subcode;
+        if (typeof code === "number") {
+          incrementFailure(
+            probe.metaErrorCounts,
+            typeof subcode === "number" ? `meta_${code}_${subcode}` : `meta_${code}`,
+          );
+        }
+        continue;
+      }
+      const insightRows = Array.isArray(payload?.data) ? payload.data : [];
+      const rowCount = insightRows.length;
+      const spendBearingRowCount = insightRows.filter((row) => {
+        if (!row || typeof row !== "object") return false;
+        const adId = (row as { ad_id?: unknown }).ad_id;
+        const spend = Number((row as { spend?: unknown }).spend ?? 0);
+        return (
+          typeof adId === "string" &&
+          adId.trim().length > 0 &&
+          Number.isFinite(spend) &&
+          spend > 0
+        );
+      }).length;
+      probe.accountsSucceeded += 1;
+      probe.totalInsightRows += rowCount;
+      probe.spendBearingInsightRows += spendBearingRowCount;
+      if (rowCount > 0) probe.accountsWithInsights += 1;
+    } catch {
+      probe.accountFetchFailures += 1;
+      incrementFailure(probe.failureStatusCounts, "network_or_parse_error");
+    }
+  }
+
+  return probe;
+}
+
+export function classifyZeroRowSourceHealth(input: {
+  decisionOsRows: number;
+  tableRows: number;
+  sourceStatus: string;
+  liveInsightsProbe: LiveInsightsProbe | null;
+}): Pick<CandidateSourceHealth, "zeroRowClassification" | "zeroRowReason" | "blocksCalibration"> {
+  if (input.decisionOsRows > 0) {
+    return {
+      zeroRowClassification: "not_zero_row",
+      zeroRowReason: "Decision OS returned creative rows for this sampled candidate.",
+      blocksCalibration: false,
+    };
+  }
+
+  if (input.tableRows > 0) {
+    return {
+      zeroRowClassification: "decision_os_mapping_filter_bug",
+      zeroRowReason:
+        "Creative source returned rows, but Decision OS returned zero rows; this indicates a route or identity divergence before policy filtering.",
+      blocksCalibration: true,
+    };
+  }
+
+  if (
+    input.sourceStatus === "no_connection" ||
+    input.sourceStatus === "no_access_token" ||
+    input.sourceStatus === "no_accounts_assigned"
+  ) {
+    const reasonByStatus: Record<string, string> = {
+      no_connection:
+        "Candidate business passed snapshot eligibility, but the current creative source reported no connected Meta integration.",
+      no_access_token:
+        "Candidate business passed snapshot eligibility, but the current creative source reported a missing Meta access token.",
+      no_accounts_assigned:
+        "Candidate business passed snapshot eligibility, but the current creative source reported no assigned Meta accounts.",
+    };
+    return {
+      zeroRowClassification: "connection_or_account_mismatch",
+      zeroRowReason: reasonByStatus[input.sourceStatus] ?? "Current creative source eligibility did not match candidate eligibility.",
+      blocksCalibration: true,
+    };
+  }
+
+  const probe = input.liveInsightsProbe;
+  if (input.sourceStatus === "no_data" && probe) {
+    if (probe.accountFetchFailures > 0 && probe.accountsSucceeded === 0) {
+      return {
+        zeroRowClassification: "provider_read_failure",
+        zeroRowReason:
+          "All assigned Meta account insight reads failed for the decision window.",
+        blocksCalibration: true,
+      };
+    }
+    if (probe.spendBearingInsightRows > 0) {
+      return {
+        zeroRowClassification: "source_mapping_bug",
+        zeroRowReason:
+          "Live provider reads found spend-bearing ad rows, but the Creative source still returned no creative rows.",
+        blocksCalibration: true,
+      };
+    }
+    if (probe.accountFetchFailures > 0) {
+      return {
+        zeroRowClassification: "provider_read_failure",
+        zeroRowReason:
+          "At least one assigned Meta account insight read failed, so the no-data result cannot be trusted as true inactivity.",
+        blocksCalibration: true,
+      };
+    }
+    return {
+      zeroRowClassification: "no_current_creative_activity",
+      zeroRowReason:
+        probe.totalInsightRows > 0
+          ? "Assigned Meta accounts had no spend-bearing creative activity in the decision window."
+          : "Assigned Meta accounts returned no ad-level insights for the decision window.",
+      blocksCalibration: false,
+    };
+  }
+
+  return {
+    zeroRowClassification: input.sourceStatus === "no_data" ? "source_no_data_unknown" : "source_exception",
+    zeroRowReason:
+      input.sourceStatus === "no_data"
+        ? "Creative source returned no_data but no live insight probe was available."
+        : `Creative source returned ${input.sourceStatus || "unknown"} with zero rows.`,
+    blocksCalibration: true,
   };
 }
 
@@ -486,13 +821,17 @@ function compareTableAndDecisionRows(input: {
   return { mismatches, maxMetricDelta };
 }
 
-async function fetchCreativeRows(input: {
+function mapPayloadRows(payload: Awaited<ReturnType<typeof getMetaCreativesApiPayload>>) {
+  return ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow);
+}
+
+async function fetchCreativePayload(input: {
   request: NextRequest;
   businessId: string;
   startDate: string;
   endDate: string;
 }) {
-  const payload = await getMetaCreativesApiPayload({
+  return getMetaCreativesApiPayload({
     request: input.request,
     requestStartedAt: Date.now(),
     businessId: input.businessId,
@@ -518,13 +857,13 @@ async function fetchCreativeRows(input: {
     enableDeepAudit: false,
     perAccountSampleLimit: 10,
   });
-
-  return ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow);
 }
 
 async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
   const sql = getDb();
-  return sql.query<SourceBusinessRow>(
+  const snapshotRows = await sql.query<
+    Pick<SourceBusinessRow, "business_id" | "max_end_date" | "max_row_count" | "latest_synced_at">
+  >(
     `
       WITH latest AS (
         SELECT DISTINCT ON (business_id)
@@ -538,36 +877,35 @@ async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
           AND sort = 'spend'
           AND row_count > 0
         ORDER BY business_id, end_date DESC, row_count DESC, last_synced_at DESC
-      ),
-      assignment_counts AS (
-        SELECT
-          business_id,
-          COUNT(DISTINCT provider_account_ref_id)::int AS assigned_account_count
-        FROM business_provider_accounts
-        WHERE provider = 'meta'
-          AND NULLIF(provider_account_id, '') IS NOT NULL
-        GROUP BY business_id
       )
       SELECT
         latest.business_id,
         latest.max_end_date,
         latest.max_row_count,
-        latest.latest_synced_at,
-        pc.status AS connection_status,
-        (NULLIF(ic.access_token, '') IS NOT NULL) AS has_access_token,
-        COALESCE(assignment_counts.assigned_account_count, 0)::int AS assigned_account_count
+        latest.latest_synced_at
       FROM latest
-      LEFT JOIN provider_connections pc
-        ON pc.business_id = latest.business_id
-       AND pc.provider = 'meta'
-      LEFT JOIN integration_credentials ic
-        ON ic.provider_connection_id = pc.id
-      LEFT JOIN assignment_counts
-        ON assignment_counts.business_id = latest.business_id
       ORDER BY latest.max_row_count DESC, latest.latest_synced_at DESC
     `,
     [],
   );
+
+  const candidates = await Promise.all(
+    snapshotRows.map(async (snapshotRow) => {
+      const [integration, assignedAccountIds] = await Promise.all([
+        getIntegration(snapshotRow.business_id, "meta").catch(() => null),
+        fetchAssignedAccountIds(snapshotRow.business_id).catch(() => []),
+      ]);
+
+      return {
+        ...snapshotRow,
+        connection_status: integration?.status ?? null,
+        has_access_token: Boolean(integration?.access_token?.trim()),
+        assigned_account_count: assignedAccountIds.length,
+      } satisfies SourceBusinessRow;
+    }),
+  );
+
+  return candidates;
 }
 
 async function getWarehouseCreativeDailyStatus(): Promise<DatasetArtifact["dataAccuracyGate"]["warehouseCreativeDaily"]> {
@@ -619,28 +957,30 @@ export async function runCalibrationLab() {
     NumericMetricKey,
     number
   >;
+  const sourceHealth: CandidateSourceHealth[] = [];
 
   if (businessRows.length === 0) {
     blockers.push("No currently eligible Meta-connected businesses were available for calibration.");
   }
 
-    for (const [businessIndex, business] of businessRows.entries()) {
-      const companyAlias = `company-${String(businessIndex + 1).padStart(2, "0")}`;
-      const decisionAsOf = business.max_end_date;
-      const startDate = addDaysToIsoDate(decisionAsOf, -29);
-      const endDate = decisionAsOf;
-      const request = new NextRequest(
-        `http://localhost/api/creatives/decision-os?businessId=${encodeURIComponent(
-          business.business_id,
-        )}&startDate=${startDate}&endDate=${endDate}&decisionAsOf=${endDate}`,
-      );
+  for (const [businessIndex, business] of businessRows.entries()) {
+    const companyAlias = `company-${String(businessIndex + 1).padStart(2, "0")}`;
+    const decisionAsOf = business.max_end_date;
+    const startDate = addDaysToIsoDate(decisionAsOf, -29);
+    const endDate = decisionAsOf;
+    const request = new NextRequest(
+      `http://localhost/api/creatives/decision-os?businessId=${encodeURIComponent(
+        business.business_id,
+      )}&startDate=${startDate}&endDate=${endDate}&decisionAsOf=${endDate}`,
+    );
 
-      let decisionOs: Awaited<ReturnType<typeof getCreativeDecisionOsForRange>>;
-      let tableRows: MetaCreativeRow[];
-      let last7Rows: MetaCreativeRow[];
-      let last90Rows: MetaCreativeRow[];
-      try {
-        decisionOs = await getCreativeDecisionOsForRange({
+    let decisionOs: Awaited<ReturnType<typeof getCreativeDecisionOsForRange>>;
+    let tablePayload: Awaited<ReturnType<typeof getMetaCreativesApiPayload>>;
+    let last7Payload: Awaited<ReturnType<typeof getMetaCreativesApiPayload>>;
+    let last90Payload: Awaited<ReturnType<typeof getMetaCreativesApiPayload>>;
+    try {
+      [decisionOs, tablePayload, last7Payload, last90Payload] = await Promise.all([
+        getCreativeDecisionOsForRange({
           request,
           businessId: business.business_id,
           startDate,
@@ -648,217 +988,277 @@ export async function runCalibrationLab() {
           analyticsStartDate: startDate,
           analyticsEndDate: endDate,
           decisionAsOf: endDate,
-        });
-        tableRows = await fetchCreativeRows({ request, businessId: business.business_id, startDate, endDate });
-        last7Rows = await fetchCreativeRows({
+        }),
+        fetchCreativePayload({
+          request,
+          businessId: business.business_id,
+          startDate,
+          endDate,
+        }),
+        fetchCreativePayload({
           request,
           businessId: business.business_id,
           startDate: addDaysToIsoDate(endDate, -6),
           endDate,
-        });
-        last90Rows = await fetchCreativeRows({
+        }),
+        fetchCreativePayload({
           request,
           businessId: business.business_id,
           startDate: addDaysToIsoDate(endDate, -89),
           endDate,
-        });
-      } catch (error) {
-        blockers.push(
-          `${companyAlias}: current Creative source failed before rows could be verified (${error instanceof Error ? error.message : "unknown error"}).`,
-        );
-        coverage.companies += 1;
-        continue;
-      }
-
-      const tableCheck = compareTableAndDecisionRows({ tableRows, creatives: decisionOs.creatives });
-      tableDecisionMismatches += tableCheck.mismatches;
-      for (const key of METRIC_KEYS) {
-        maxMetricDelta[key] = Math.max(maxMetricDelta[key], tableCheck.maxMetricDelta[key]);
-      }
-
-      if (tableCheck.mismatches > 0) {
-        blockers.push(
-          `${companyAlias}: Decision OS and Creative table row identifiers diverged (${tableCheck.mismatches} missing rows).`,
-        );
-      }
-      for (const [metric, delta] of Object.entries(tableCheck.maxMetricDelta)) {
-        if (delta > 0.02) {
-          blockers.push(`${companyAlias}: ${metric} metric delta exceeded tolerance (${delta}).`);
-        }
-      }
-
-      const accountAlias = buildAliasFactory(`${companyAlias}-account`);
-      const campaignAlias = buildAliasFactory(`${companyAlias}-campaign`);
-      const adSetAlias = buildAliasFactory(`${companyAlias}-adset`);
-      const creativeAlias = buildAliasFactory(`${companyAlias}-creative`);
-      const tableById = new Map(tableRows.map((row) => [row.id, row]));
-      const oldRuleRows = buildCreativeOldRuleChallenger(
-        decisionOs.creatives.map((creative) => toOldRuleInput(creative, tableById.get(creative.creativeId) ?? null)),
+        }),
+      ]);
+    } catch (error) {
+      blockers.push(
+        `${companyAlias}: current Creative source failed before rows could be verified (${error instanceof Error ? error.message : "unknown error"}).`,
       );
-      const oldRuleById = new Map(oldRuleRows.map((row) => [row.creativeId, row]));
-      const last7ById = new Map(last7Rows.map((row) => [row.id, row]));
-      const last30ById = new Map(tableRows.map((row) => [row.id, row]));
-      const last90ById = new Map(last90Rows.map((row) => [row.id, row]));
-      const sampledRows = selectRepresentativeRows(decisionOs.creatives);
-
       coverage.companies += 1;
-      coverage.creatives += sampledRows.length;
+      continue;
+    }
 
-      for (const creative of sampledRows) {
-        const contextRow = tableById.get(creative.creativeId) ?? null;
-        const rawCampaignId = contextRow?.campaignId ?? null;
-        const rawAdSetId = contextRow?.adSetId ?? null;
-        const account = accountAlias(contextRow?.accountId ?? null);
-        const campaign = campaignAlias(rawCampaignId);
-        const adSet = adSetAlias(rawAdSetId);
-        const alias = creativeAlias(creative.creativeId);
-        const surface = buildCreativeOperatorItem(creative);
-        const challenger = oldRuleById.get(creative.creativeId) ?? null;
-        const instruction = surface.instruction;
-        const sameCampaignPeers = decisionOs.creatives.filter(
-          (peer) =>
-            peer.creativeId !== creative.creativeId &&
-            rawCampaignId != null &&
-            (tableById.get(peer.creativeId)?.campaignId ?? null) === rawCampaignId,
-        );
-        const campaignBaseline =
-          rawCampaignId && sameCampaignPeers.length > 0
-            ? summarizePeerBaseline(sameCampaignPeers, "campaign")
-            : null;
-        const replacements: Array<[string | null | undefined, string]> = [
-          [creative.name, alias],
-          [contextRow?.campaignName, campaign],
-          [rawCampaignId, campaign],
-          [contextRow?.adSetName, adSet],
-          [rawAdSetId, adSet],
-        ];
-        const userFacing = creativeOperatorSegmentLabel(creative);
-        const pushReadiness = creative.operatorPolicy?.pushReadiness ?? null;
+    const tableRows = mapPayloadRows(tablePayload);
+    const last7Rows = mapPayloadRows(last7Payload);
+    const last90Rows = mapPayloadRows(last90Payload);
+    const sourceDiagnostics = [
+      buildSourceDiagnostics({ window: "selected30d", payload: tablePayload }),
+      buildSourceDiagnostics({ window: "last7", payload: last7Payload }),
+      buildSourceDiagnostics({ window: "last90", payload: last90Payload }),
+    ];
+    let liveInsightsProbe: LiveInsightsProbe | null = null;
+    if (decisionOs.creatives.length === 0 && sourceDiagnostics[0]?.status === "no_data") {
+      liveInsightsProbe = await probeLiveInsights({
+        businessId: business.business_id,
+        startDate,
+        endDate,
+      }).catch(() => null);
+    }
+    const zeroRowDiagnosis = classifyZeroRowSourceHealth({
+      decisionOsRows: decisionOs.creatives.length,
+      tableRows: tableRows.length,
+      sourceStatus: sourceDiagnostics[0]?.status ?? "unknown",
+      liveInsightsProbe,
+    });
+    sourceHealth.push({
+      companyAlias,
+      eligible: true,
+      sampled: true,
+      decisionAsOf,
+      decisionSummaryMessage: decisionOs.summary.message,
+      selectedWindow: { startDate, endDate },
+      eligibility: {
+        connected: business.connection_status === "connected",
+        hasAccessToken: business.has_access_token,
+        assignedAccountCount: business.assigned_account_count,
+      },
+      snapshotCandidate: {
+        rowCount: business.max_row_count,
+        latestSyncedAt: business.latest_synced_at,
+      },
+      decisionOsRows: decisionOs.creatives.length,
+      tableRows: tableRows.length,
+      sourceDiagnostics,
+      liveInsightsProbe,
+      zeroRowClassification: zeroRowDiagnosis.zeroRowClassification,
+      zeroRowReason: zeroRowDiagnosis.zeroRowReason,
+      blocksCalibration: zeroRowDiagnosis.blocksCalibration,
+    });
 
-        recordCoverage({
-          coverage,
-          internalSegment: creative.operatorPolicy?.segment ?? null,
-          quickFilter: resolveCreativeQuickFilterKey(creative),
-          userFacingSegment: userFacing,
-          oldRuleSegment: challenger?.challengerAction ?? null,
-          baselineReliability: creative.relativeBaseline.reliability,
-          pushReadiness,
-        });
+    const tableCheck = compareTableAndDecisionRows({ tableRows, creatives: decisionOs.creatives });
+    tableDecisionMismatches += tableCheck.mismatches;
+    for (const key of METRIC_KEYS) {
+      maxMetricDelta[key] = Math.max(maxMetricDelta[key], tableCheck.maxMetricDelta[key]);
+    }
 
-        rows.push({
-          companyAlias,
-          accountAlias: account,
-          campaignAlias: campaign,
-          adSetAlias: adSet,
-          creativeAlias: alias,
-          currentDecisionOsInternalSegment: creative.operatorPolicy?.segment ?? null,
-          currentUserFacingSegment: userFacing,
-          oldRuleChallengerSegment: challenger?.challengerAction ?? null,
-          oldRuleChallengerReason: challenger?.reason ?? null,
-          accountBaseline: summarizeAccountBaseline(creative),
-          campaignBaseline,
-          spend: round(creative.spend),
-          purchases: round(creative.purchases),
-          cpa: round(creative.cpa),
-          roas: round(creative.roas),
-          value: round(creative.purchaseValue),
-          recent7d: historyMetric(last7ById, creative.creativeId),
-          mid30d: historyMetric(last30ById, creative.creativeId),
-          long90d: historyMetric(last90ById, creative.creativeId),
-          trendIndicators: {
-            fatigueStatus: creative.fatigue.status,
-            fatigueConfidence: creative.fatigue.confidence,
-            lifecycleState: creative.lifecycleState,
-            primaryAction: creative.primaryAction,
-          },
-          creativeAgeDays: creative.creativeAgeDays,
-          frequency: null,
-          commercialTruthAvailability: {
-            targetPackConfigured: decisionOs.commercialTruthCoverage.configuredSections.targetPack,
-            missingInputs: decisionOs.commercialTruthCoverage.missingInputs,
-          },
-          campaignAdSetContextFlags: {
-            campaignPresent: Boolean(rawCampaignId),
-            adSetPresent: Boolean(rawAdSetId),
-            deploymentCompatibility: creative.deployment.compatibility.status,
-            targetLane: creative.deployment.targetLane,
-          },
-          evidenceQuality: {
-            evidenceSource: creative.evidenceSource,
-            trustState: creative.trust.truthState,
-            surfaceLane: creative.trust.surfaceLane,
-            previewWindow: creative.previewStatus?.liveDecisionWindow ?? null,
-            baselineReliability: creative.relativeBaseline.reliability,
-          },
-          currentPushReadiness: pushReadiness,
-          currentInstructionHeadline: sanitizeText(instruction?.headline ?? "", replacements),
-          reasonSummary: sanitizeText(instruction?.reasonSummary ?? "", replacements),
-          missingEvidence: (instruction?.missingEvidence ?? []).map((item) =>
-            sanitizeText(item, replacements),
-          ),
-        });
-      }
-
-      if (decisionOs.creatives.length === 0) {
-        zeroRowEligibleCandidates += 1;
-        blockers.push(`${companyAlias}: current Decision OS returned zero verifiable rows.`);
+    if (tableCheck.mismatches > 0) {
+      blockers.push(
+        `${companyAlias}: Decision OS and Creative table row identifiers diverged (${tableCheck.mismatches} missing rows).`,
+      );
+    }
+    for (const [metric, delta] of Object.entries(tableCheck.maxMetricDelta)) {
+      if (delta > 0.02) {
+        blockers.push(`${companyAlias}: ${metric} metric delta exceeded tolerance (${delta}).`);
       }
     }
 
-    if (rows.length === 0) {
-      blockers.push("No verifiable current Decision OS creative rows were available; agent calibration must not run.");
-    }
-
-    const artifact: DatasetArtifact = {
-      generatedAt,
-      source: "creative_segmentation_calibration_lab",
-      sanitization: {
-        rawIdsIncluded: false,
-        rawNamesIncluded: false,
-        notes: [
-          "Business, account, campaign, ad set, and creative identifiers are replaced with deterministic aliases per generated artifact.",
-          "Creative names, campaign names, ad set names, preview URLs, copy text, tokens, and customer names are not exported.",
-        ],
-      },
-      dataAccuracyGate: {
-        passed: blockers.length === 0 && rows.length > 0,
-        blockers,
-        warnings,
-        checkedCompanies: coverage.companies,
-        checkedRows: coverage.creatives,
-        tableDecisionMismatches,
-        maxMetricDelta,
-        candidateEligibility: {
-          historicalSnapshotCandidates: candidateRows.length,
-          eligibleCandidates: candidateEligibility.eligible.length,
-          skippedCandidates: candidateEligibility.skippedCandidates,
-          skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
-          sampledCandidates: businessRows.length,
-          zeroRowEligibleCandidates,
-        },
-        warehouseCreativeDaily,
-      },
-      coverage,
-      rows,
-    };
-
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    await writeFile(DATASET_PATH, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
-    console.log(
-      JSON.stringify(
-        {
-          output: DATASET_PATH,
-          gatePassed: artifact.dataAccuracyGate.passed,
-          checkedCompanies: artifact.dataAccuracyGate.checkedCompanies,
-          checkedRows: artifact.dataAccuracyGate.checkedRows,
-          blockers: artifact.dataAccuracyGate.blockers,
-          warnings: artifact.dataAccuracyGate.warnings,
-          coverage: artifact.coverage,
-        },
-        null,
-        2,
-      ),
+    const accountAlias = buildAliasFactory(`${companyAlias}-account`);
+    const campaignAlias = buildAliasFactory(`${companyAlias}-campaign`);
+    const adSetAlias = buildAliasFactory(`${companyAlias}-adset`);
+    const creativeAlias = buildAliasFactory(`${companyAlias}-creative`);
+    const tableById = new Map(tableRows.map((row) => [row.id, row]));
+    const oldRuleRows = buildCreativeOldRuleChallenger(
+      decisionOs.creatives.map((creative) => toOldRuleInput(creative, tableById.get(creative.creativeId) ?? null)),
     );
+    const oldRuleById = new Map(oldRuleRows.map((row) => [row.creativeId, row]));
+    const last7ById = new Map(last7Rows.map((row) => [row.id, row]));
+    const last30ById = new Map(tableRows.map((row) => [row.id, row]));
+    const last90ById = new Map(last90Rows.map((row) => [row.id, row]));
+    const sampledRows = selectRepresentativeRows(decisionOs.creatives);
+
+    coverage.companies += 1;
+    coverage.creatives += sampledRows.length;
+
+    for (const creative of sampledRows) {
+      const contextRow = tableById.get(creative.creativeId) ?? null;
+      const rawCampaignId = contextRow?.campaignId ?? null;
+      const rawAdSetId = contextRow?.adSetId ?? null;
+      const account = accountAlias(contextRow?.accountId ?? null);
+      const campaign = campaignAlias(rawCampaignId);
+      const adSet = adSetAlias(rawAdSetId);
+      const alias = creativeAlias(creative.creativeId);
+      const surface = buildCreativeOperatorItem(creative);
+      const challenger = oldRuleById.get(creative.creativeId) ?? null;
+      const instruction = surface.instruction;
+      const sameCampaignPeers = decisionOs.creatives.filter(
+        (peer) =>
+          peer.creativeId !== creative.creativeId &&
+          rawCampaignId != null &&
+          (tableById.get(peer.creativeId)?.campaignId ?? null) === rawCampaignId,
+      );
+      const campaignBaseline =
+        rawCampaignId && sameCampaignPeers.length > 0
+          ? summarizePeerBaseline(sameCampaignPeers, "campaign")
+          : null;
+      const replacements: Array<[string | null | undefined, string]> = [
+        [creative.name, alias],
+        [contextRow?.campaignName, campaign],
+        [rawCampaignId, campaign],
+        [contextRow?.adSetName, adSet],
+        [rawAdSetId, adSet],
+      ];
+      const userFacing = creativeOperatorSegmentLabel(creative);
+      const pushReadiness = creative.operatorPolicy?.pushReadiness ?? null;
+
+      recordCoverage({
+        coverage,
+        internalSegment: creative.operatorPolicy?.segment ?? null,
+        quickFilter: resolveCreativeQuickFilterKey(creative),
+        userFacingSegment: userFacing,
+        oldRuleSegment: challenger?.challengerAction ?? null,
+        baselineReliability: creative.relativeBaseline.reliability,
+        pushReadiness,
+      });
+
+      rows.push({
+        companyAlias,
+        accountAlias: account,
+        campaignAlias: campaign,
+        adSetAlias: adSet,
+        creativeAlias: alias,
+        currentDecisionOsInternalSegment: creative.operatorPolicy?.segment ?? null,
+        currentUserFacingSegment: userFacing,
+        oldRuleChallengerSegment: challenger?.challengerAction ?? null,
+        oldRuleChallengerReason: challenger?.reason ?? null,
+        accountBaseline: summarizeAccountBaseline(creative),
+        campaignBaseline,
+        spend: round(creative.spend),
+        purchases: round(creative.purchases),
+        cpa: round(creative.cpa),
+        roas: round(creative.roas),
+        value: round(creative.purchaseValue),
+        recent7d: historyMetric(last7ById, creative.creativeId),
+        mid30d: historyMetric(last30ById, creative.creativeId),
+        long90d: historyMetric(last90ById, creative.creativeId),
+        trendIndicators: {
+          fatigueStatus: creative.fatigue.status,
+          fatigueConfidence: creative.fatigue.confidence,
+          lifecycleState: creative.lifecycleState,
+          primaryAction: creative.primaryAction,
+        },
+        creativeAgeDays: creative.creativeAgeDays,
+        frequency: null,
+        commercialTruthAvailability: {
+          targetPackConfigured: decisionOs.commercialTruthCoverage.configuredSections.targetPack,
+          missingInputs: decisionOs.commercialTruthCoverage.missingInputs,
+        },
+        campaignAdSetContextFlags: {
+          campaignPresent: Boolean(rawCampaignId),
+          adSetPresent: Boolean(rawAdSetId),
+          deploymentCompatibility: creative.deployment.compatibility.status,
+          targetLane: creative.deployment.targetLane,
+        },
+        evidenceQuality: {
+          evidenceSource: creative.evidenceSource,
+          trustState: creative.trust.truthState,
+          surfaceLane: creative.trust.surfaceLane,
+          previewWindow: creative.previewStatus?.liveDecisionWindow ?? null,
+          baselineReliability: creative.relativeBaseline.reliability,
+        },
+        currentPushReadiness: pushReadiness,
+        currentInstructionHeadline: sanitizeText(instruction?.headline ?? "", replacements),
+        reasonSummary: sanitizeText(instruction?.reasonSummary ?? "", replacements),
+        missingEvidence: (instruction?.missingEvidence ?? []).map((item) =>
+          sanitizeText(item, replacements),
+        ),
+      });
+    }
+
+    if (decisionOs.creatives.length === 0) {
+      if (zeroRowDiagnosis.blocksCalibration) {
+        zeroRowEligibleCandidates += 1;
+        blockers.push(`${companyAlias}: ${zeroRowDiagnosis.zeroRowReason}`);
+      } else {
+        warnings.push(`${companyAlias}: ${zeroRowDiagnosis.zeroRowReason}`);
+      }
+    }
+  }
+
+  if (rows.length === 0) {
+    blockers.push("No verifiable current Decision OS creative rows were available; agent calibration must not run.");
+  }
+
+  const artifact: DatasetArtifact = {
+    generatedAt,
+    source: "creative_segmentation_calibration_lab",
+    sanitization: {
+      rawIdsIncluded: false,
+      rawNamesIncluded: false,
+      notes: [
+        "Business, account, campaign, ad set, and creative identifiers are replaced with deterministic aliases per generated artifact.",
+        "Creative names, campaign names, ad set names, preview URLs, copy text, tokens, and customer names are not exported.",
+      ],
+    },
+    dataAccuracyGate: {
+      passed: blockers.length === 0 && rows.length > 0,
+      blockers,
+      warnings,
+      checkedCompanies: coverage.companies,
+      checkedRows: coverage.creatives,
+      tableDecisionMismatches,
+      maxMetricDelta,
+      candidateEligibility: {
+        historicalSnapshotCandidates: candidateEligibility.uniqueCandidateBusinesses,
+        uniqueCandidateBusinesses: candidateEligibility.uniqueCandidateBusinesses,
+        dedupedDuplicateRows: candidateEligibility.dedupedDuplicateRows,
+        eligibleCandidates: candidateEligibility.eligible.length,
+        skippedCandidates: candidateEligibility.skippedCandidates,
+        skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
+        sampledCandidates: businessRows.length,
+        zeroRowEligibleCandidates,
+      },
+      warehouseCreativeDaily,
+    },
+    coverage,
+    sourceHealth,
+    rows,
+  };
+
+  await mkdir(OUTPUT_DIR, { recursive: true });
+  await writeFile(DATASET_PATH, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  console.log(
+    JSON.stringify(
+      {
+        output: DATASET_PATH,
+        gatePassed: artifact.dataAccuracyGate.passed,
+        checkedCompanies: artifact.dataAccuracyGate.checkedCompanies,
+        checkedRows: artifact.dataAccuracyGate.checkedRows,
+        blockers: artifact.dataAccuracyGate.blockers,
+        warnings: artifact.dataAccuracyGate.warnings,
+        coverage: artifact.coverage,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 function isDirectRun() {
