@@ -5,6 +5,7 @@ import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/Deci
 import {
   buildCreativeOperatorItem,
   buildCreativePreviewTruthSummary,
+  creativeOperatorSegmentLabel,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
@@ -20,9 +21,9 @@ function formatLifecycleLabel(value: string) {
     incubating: "Testing",
     validating: "Testing",
     scale_ready: "Scale-ready",
+    scale_review: "Scale Review",
     stable_winner: "Evergreen winner",
     fatigued_winner: "Needs refresh",
-    blocked: "On hold",
     comeback_candidate: "Retest",
     promote_to_scaling: "Scale",
     keep_in_test: "Testing",
@@ -30,14 +31,16 @@ function formatLifecycleLabel(value: string) {
     block_deploy: "On hold",
     hold_no_touch: "Evergreen",
     protected_winner: "Evergreen winner",
-    hold_monitor: "Monitor hold",
-    false_winner_low_evidence: "False winner",
-    promising_under_sampled: "Under-sampled",
-    kill_candidate: "Kill candidate",
-    needs_new_variant: "Needs variant",
-    creative_learning_incomplete: "Learning incomplete",
-    spend_waste: "Spend waste",
-    contextual_only: "Context only",
+    hold_monitor: "Watch",
+    false_winner_low_evidence: "Not Enough Data",
+    promising_under_sampled: "Test More",
+    kill_candidate: "Cut",
+    needs_new_variant: "Refresh",
+    creative_learning_incomplete: "Not Enough Data",
+    spend_waste: "Cut",
+    investigate: "Campaign Check",
+    contextual_only: "Not Enough Data",
+    blocked: "Not Enough Data",
   };
   if (labels[value]) return labels[value];
   return value.replaceAll("_", " ");
@@ -312,7 +315,7 @@ export function CreativeDecisionOsOverview({
                       ) : null}
                     </div>
                     <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                      {formatLifecycleLabel(creative.operatorPolicy.segment)}
+                      {creativeOperatorSegmentLabel(creative)}
                     </span>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
