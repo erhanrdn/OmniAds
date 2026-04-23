@@ -64,7 +64,7 @@ type NumericMetricKey =
   | "impressions"
   | "linkClicks";
 
-type BaselineSummary = {
+export type BaselineSummary = {
   scope: "account" | "campaign";
   reliability: "strong" | "medium" | "weak" | "unavailable";
   creativeCount: number;
@@ -130,7 +130,7 @@ type SanitizedCalibrationRow = {
   missingEvidence: string[];
 };
 
-type LiveMetaAccountProbe = {
+export type LiveMetaAccountProbe = {
   ok: boolean;
   status: number;
   errorCode: number | null;
@@ -139,7 +139,7 @@ type LiveMetaAccountProbe = {
   spendBearingRows: number;
 };
 
-type FetchCreativePayloadResult = {
+export type FetchCreativePayloadResult = {
   status: string | null;
   snapshotSource: string | null;
   rows: MetaCreativeRow[];
@@ -225,13 +225,17 @@ const EMPTY_RUNTIME_SKIPPED_CANDIDATES_BY_REASON: Record<RuntimeCandidateSkipRea
   no_current_creative_activity: 0,
 };
 
-function installSanitizedRuntimeGuards() {
+export function installSanitizedRuntimeGuards() {
   const originalFetch = globalThis.fetch.bind(globalThis);
   const originalWarn = console.warn.bind(console);
   const originalLog = console.log.bind(console);
   const shouldSuppressLog = (args: unknown[]) =>
     typeof args[0] === "string" &&
-    (args[0].startsWith("[meta-creatives]") || args[0].startsWith("[preview-resolve]"));
+    (
+      args[0].startsWith("[meta-creatives]") ||
+      args[0].startsWith("[preview-resolve]") ||
+      args[0].startsWith("[meta-serving]")
+    );
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
@@ -630,7 +634,7 @@ function toOldRuleInput(
   };
 }
 
-function selectRepresentativeRows(creatives: CreativeDecisionOsCreative[]) {
+export function selectRepresentativeRows(creatives: CreativeDecisionOsCreative[]) {
   const selected = new Map<string, CreativeDecisionOsCreative>();
   const sorted = [...creatives].sort((a, b) => b.spend - a.spend);
 
@@ -650,7 +654,7 @@ function selectRepresentativeRows(creatives: CreativeDecisionOsCreative[]) {
   return Array.from(selected.values());
 }
 
-function buildAliasFactory(prefix: string) {
+export function buildAliasFactory(prefix: string) {
   const map = new Map<string, string>();
   return (raw: string | null | undefined) => {
     const key = raw?.trim() || "missing";
@@ -662,7 +666,10 @@ function buildAliasFactory(prefix: string) {
   };
 }
 
-function sanitizeText(value: string, replacements: Array<[string | null | undefined, string]>) {
+export function sanitizeText(
+  value: string,
+  replacements: Array<[string | null | undefined, string]>,
+) {
   let output = value;
   for (const [raw, alias] of replacements) {
     const token = raw?.trim();
@@ -719,7 +726,7 @@ function compareTableAndDecisionRows(input: {
   return { mismatches, maxMetricDelta };
 }
 
-async function fetchCreativeRows(input: {
+export async function fetchCreativeRows(input: {
   request: NextRequest;
   businessId: string;
   startDate: string;
@@ -729,7 +736,7 @@ async function fetchCreativeRows(input: {
   return payload.rows;
 }
 
-async function fetchCreativePayload(input: {
+export async function fetchCreativePayload(input: {
   request: NextRequest;
   businessId: string;
   startDate: string;
@@ -773,7 +780,7 @@ async function fetchCreativePayload(input: {
   };
 }
 
-async function probeLiveMetaAccountAccess(input: {
+export async function probeLiveMetaAccountAccess(input: {
   accessToken: string;
   accountIds: string[];
   startDate: string;
@@ -832,7 +839,7 @@ async function probeLiveMetaAccountAccess(input: {
   return probes;
 }
 
-async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
+export async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
   const sql = getDb();
   return sql.query<SourceBusinessRow>(
     `
