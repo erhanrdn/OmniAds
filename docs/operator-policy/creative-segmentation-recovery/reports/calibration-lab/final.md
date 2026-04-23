@@ -4,15 +4,15 @@ Last updated: 2026-04-23 by Codex
 
 ## 1. Branch / PR Status
 
-Branch: `feature/adsecute-creative-segmentation-calibration-lab`
+Branch: `feature/adsecute-calibration-data-gate-hardening`
 
-PR: `https://github.com/erhanrdn/OmniAds/pull/34`
+PR: `https://github.com/erhanrdn/OmniAds/pull/35`
 
 ## 2. Data Accuracy Gate Result
 
-Failed. Calibration is blocked at Phase B.
+Failed after hardening. Calibration remains blocked at Phase B.
 
-The sanitized artifact checked three companies and exported 24 sampled rows, but one sampled company returned zero current Decision OS rows. The gate therefore cannot certify that the current Creative table and Decision OS source path are reliable enough for media-buyer judgment.
+The corrected gate now samples only currently eligible Meta-connected businesses. It inspected 8 historical snapshot candidates, found 8 currently eligible candidates, sampled 3, and exported 24 sanitized rows. One active eligible sampled business still returned zero current Decision OS rows.
 
 ## 3. Dataset Coverage Summary
 
@@ -22,7 +22,11 @@ Artifact:
 
 Coverage:
 
-- Companies checked: 3
+- Historical snapshot candidates inspected: 8
+- Eligible candidates: 8
+- Skipped candidates: 0
+- Sampled candidates: 3
+- Active eligible zero-row candidates: 1
 - Sampled rows: 24
 - Table vs Decision OS mismatches on exported rows: 0
 - Max metric deltas on exported rows: 0
@@ -30,76 +34,81 @@ Coverage:
 
 ## 4. Current Decision OS Failure Modes
 
-Policy failure modes are not proven yet. The verified failure is source/data availability:
+The prior sampling risk is fixed. The remaining verified failure is source/data availability for an active eligible business:
 
-- one sampled company returned zero current Decision OS rows
-- `meta_creative_daily` was empty in the checked database
-- current lab data depends on the creative API/snapshot source path
-- source-health details are not explicit enough for calibration to distinguish empty data from source failure
+- one active eligible sampled company returned zero current Decision OS rows
+- `meta_creative_daily` is empty, so independent warehouse creative fact verification is unavailable
+- current verification relies on API/payload parity for exported rows
+- source-health details are still not explicit enough to classify why the eligible zero-row company returned no rows
 
 ## 5. Old-Rule Challenger Findings
 
-The old-rule challenger is independent and read-only. In the exported sample it produced:
+The old-rule challenger remains independent and read-only. In the exported sample it produced:
 
-- `pause`: 8
 - `watch`: 5
 - `kill`: 4
 - `scale`: 4
-- `test_more`: 2
+- `pause`: 7
+- `test_more`: 3
 - `scale_hard`: 1
 
 These are diagnostic only. They did not drive UI, policy, queue, push, or apply behavior.
 
 ## 6. Agent Panel Findings
 
-Not run. The data gate failed, so agent judgment was intentionally skipped.
+Not run. The corrected data gate failed, so agent judgment was intentionally skipped.
 
 ## 7. Mismatch Clusters
 
 Only source-level clusters were produced:
 
-- insufficient data / unverifiable source
-- account baseline present but relative-winner suppression not policy-proven
+- active eligible business with zero current Decision OS rows
+- warehouse-level creative fact verification unavailable because `meta_creative_daily` is empty
+- account baseline present but relative-winner suppression not policy-proven while the gate is failed
 - UI label usefulness not judgeable until source data is verified
 
 ## 8. Recommended Deterministic Policy Changes
 
-None yet. Do not change Creative policy thresholds from this blocked lab pass.
+None. Do not change Creative policy thresholds from this blocked gate-hardening pass.
 
 Recommended deterministic source changes:
 
-- add explicit source-health output for empty current Decision OS rows
-- distinguish snapshot bypass, live provider failure, and preview/media degradation
-- preserve performance metric availability even when preview metadata is degraded, if the source can do so safely
+- add explicit source-health output for active eligible zero-row cases
+- distinguish snapshot bypass, live provider failure, empty provider data, and preview/media degradation
+- classify whether performance metrics exist separately from preview/media metadata
 - keep campaign benchmark authority explicit
 
 ## 9. Fixture Candidates
 
-See `fixture-candidate-plan.md`. Source-health fixtures should come first, followed by policy fixtures after the data gate passes.
+Source-health fixtures should come before policy fixtures:
+
+- historical snapshot business without current Meta eligibility should be skipped, not counted as a gate failure
+- active eligible business returning zero Decision OS rows should block the gate with a source-health reason
+- quick-filter coverage must remain separate from internal segment coverage
 
 ## 10. Data Gaps
 
 - No rows in `meta_creative_daily` for independent creative fact verification.
-- One sampled company produced zero current Decision OS rows.
-- Source-health reasons are not detailed enough in the exported dataset to classify the zero-row company without runtime inspection.
+- One active eligible sampled company produced zero current Decision OS rows.
+- Source-health reasons are not detailed enough in the exported dataset to classify the zero-row company beyond the active eligible source blocker.
 - Campaign baseline summaries are diagnostic only until explicit campaign benchmark scope is wired into the lab input.
 
 ## 11. UI / Naming Recommendations
 
-Do not add noisy UI. Later, expose only concise source-health/operator notes where they prevent confusion, such as "Not eligible for evaluation" for policy/source-ineligible rows.
+Do not add noisy UI. Later, expose only concise source-health/operator notes where they prevent confusion.
 
 ## 12. Whether Policy Implementation Can Start
 
-No. Fix and re-run the Data Accuracy Gate first.
+No. Fix or classify the active eligible zero-row source issue first.
 
 ## 13. What Codex Should Implement Next
 
-Implement a source-health hardening pass for the Creative source path and calibration helper:
+Implement a Creative source-health diagnostic pass:
 
-- report why current Decision OS rows are zero for a sampled company
+- report why an active eligible business has zero current Decision OS rows
 - capture sanitized source status in the artifact
 - make snapshot/live-provider failure modes explicit
-- then rerun the calibration dataset and agent panel only if the gate passes
+- rerun the data gate, then run the agent panel only if the gate passes
 
 ## 14. What Must Not Be Done
 

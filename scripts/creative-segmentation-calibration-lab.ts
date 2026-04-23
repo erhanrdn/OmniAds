@@ -1,5 +1,6 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { NextRequest } from "next/server";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import {
@@ -19,12 +20,21 @@ import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 
-type SourceBusinessRow = {
+export type SourceBusinessRow = {
   business_id: string;
   max_end_date: string;
   max_row_count: number;
   latest_synced_at: string;
+  connection_status: string | null;
+  has_access_token: boolean;
+  assigned_account_count: number;
 };
+
+export type CandidateSkipReason =
+  | "no_current_meta_connection"
+  | "meta_connection_not_connected"
+  | "no_access_token"
+  | "no_accounts_assigned";
 
 type NumericMetricKey =
   | "spend"
@@ -101,7 +111,7 @@ type SanitizedCalibrationRow = {
   missingEvidence: string[];
 };
 
-type DatasetArtifact = {
+export type DatasetArtifact = {
   generatedAt: string;
   source: "creative_segmentation_calibration_lab";
   sanitization: {
@@ -117,11 +127,27 @@ type DatasetArtifact = {
     checkedRows: number;
     tableDecisionMismatches: number;
     maxMetricDelta: Record<NumericMetricKey, number>;
+    candidateEligibility: {
+      historicalSnapshotCandidates: number;
+      eligibleCandidates: number;
+      skippedCandidates: number;
+      skippedCandidatesByReason: Record<CandidateSkipReason, number>;
+      sampledCandidates: number;
+      zeroRowEligibleCandidates: number;
+    };
+    warehouseCreativeDaily: {
+      available: boolean;
+      rowCount: number;
+      checkedAgainstCurrentPipeline: boolean;
+      confidence: "api_payload_parity_only" | "api_payload_parity_plus_warehouse_available";
+      status: "empty_table" | "available_not_cross_checked";
+    };
   };
   coverage: {
     companies: number;
     creatives: number;
     internalSegments: Record<string, number>;
+    quickFilters: Record<string, number>;
     userFacingSegments: Record<string, number>;
     oldRuleSegments: Record<string, number>;
     baselineReliability: Record<string, number>;
@@ -144,6 +170,13 @@ const METRIC_KEYS: NumericMetricKey[] = [
   "impressions",
   "linkClicks",
 ];
+
+const EMPTY_SKIPPED_CANDIDATES_BY_REASON: Record<CandidateSkipReason, number> = {
+  no_current_meta_connection: 0,
+  meta_connection_not_connected: 0,
+  no_access_token: 0,
+  no_accounts_assigned: 0,
+};
 
 function installSanitizedRuntimeGuards() {
   const originalFetch = globalThis.fetch.bind(globalThis);
@@ -194,6 +227,68 @@ function nullableRound(value: number | null | undefined, digits = 2) {
 function increment(map: Record<string, number>, key: string | null | undefined) {
   const normalized = key?.trim() || "missing";
   map[normalized] = (map[normalized] ?? 0) + 1;
+}
+
+export function createEmptyCoverageSummary(): DatasetArtifact["coverage"] {
+  return {
+    companies: 0,
+    creatives: 0,
+    internalSegments: {},
+    quickFilters: {},
+    userFacingSegments: {},
+    oldRuleSegments: {},
+    baselineReliability: {},
+    pushReadiness: {},
+  };
+}
+
+export function recordCoverage(input: {
+  coverage: DatasetArtifact["coverage"];
+  internalSegment: string | null | undefined;
+  quickFilter: string | null | undefined;
+  userFacingSegment: string | null | undefined;
+  oldRuleSegment: string | null | undefined;
+  baselineReliability: string | null | undefined;
+  pushReadiness: string | null | undefined;
+}) {
+  increment(input.coverage.internalSegments, input.internalSegment);
+  increment(input.coverage.quickFilters, input.quickFilter);
+  increment(input.coverage.userFacingSegments, input.userFacingSegment);
+  increment(input.coverage.oldRuleSegments, input.oldRuleSegment);
+  increment(input.coverage.baselineReliability, input.baselineReliability);
+  increment(input.coverage.pushReadiness, input.pushReadiness);
+}
+
+export function resolveCandidateSkipReason(candidate: Pick<
+  SourceBusinessRow,
+  "connection_status" | "has_access_token" | "assigned_account_count"
+>): CandidateSkipReason | null {
+  const connectionStatus = candidate.connection_status?.trim() || null;
+  if (!connectionStatus) return "no_current_meta_connection";
+  if (connectionStatus !== "connected") return "meta_connection_not_connected";
+  if (!candidate.has_access_token) return "no_access_token";
+  if (candidate.assigned_account_count <= 0) return "no_accounts_assigned";
+  return null;
+}
+
+export function summarizeCandidateEligibility(candidates: SourceBusinessRow[]) {
+  const skippedCandidatesByReason = { ...EMPTY_SKIPPED_CANDIDATES_BY_REASON };
+  const eligible: SourceBusinessRow[] = [];
+
+  for (const candidate of candidates) {
+    const reason = resolveCandidateSkipReason(candidate);
+    if (reason) {
+      skippedCandidatesByReason[reason] += 1;
+      continue;
+    }
+    eligible.push(candidate);
+  }
+
+  return {
+    eligible,
+    skippedCandidatesByReason,
+    skippedCandidates: candidates.length - eligible.length,
+  };
 }
 
 function median(values: number[]) {
@@ -443,40 +538,91 @@ async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
           AND sort = 'spend'
           AND row_count > 0
         ORDER BY business_id, end_date DESC, row_count DESC, last_synced_at DESC
+      ),
+      assignment_counts AS (
+        SELECT
+          business_id,
+          COUNT(DISTINCT provider_account_ref_id)::int AS assigned_account_count
+        FROM business_provider_accounts
+        WHERE provider = 'meta'
+          AND NULLIF(provider_account_id, '') IS NOT NULL
+        GROUP BY business_id
       )
-      SELECT *
+      SELECT
+        latest.business_id,
+        latest.max_end_date,
+        latest.max_row_count,
+        latest.latest_synced_at,
+        pc.status AS connection_status,
+        (NULLIF(ic.access_token, '') IS NOT NULL) AS has_access_token,
+        COALESCE(assignment_counts.assigned_account_count, 0)::int AS assigned_account_count
       FROM latest
-      ORDER BY max_row_count DESC, latest_synced_at DESC
-      LIMIT $1
+      LEFT JOIN provider_connections pc
+        ON pc.business_id = latest.business_id
+       AND pc.provider = 'meta'
+      LEFT JOIN integration_credentials ic
+        ON ic.provider_connection_id = pc.id
+      LEFT JOIN assignment_counts
+        ON assignment_counts.business_id = latest.business_id
+      ORDER BY latest.max_row_count DESC, latest.latest_synced_at DESC
     `,
-    [MAX_COMPANIES],
+    [],
   );
 }
 
-async function main() {
+async function getWarehouseCreativeDailyStatus(): Promise<DatasetArtifact["dataAccuracyGate"]["warehouseCreativeDaily"]> {
+  const sql = getDb();
+  const [row] = await sql.query<{ row_count: string | number }>(
+    "SELECT COUNT(*) AS row_count FROM meta_creative_daily",
+    [],
+  );
+  const rowCount = Number(row?.row_count ?? 0);
+  return {
+    available: rowCount > 0,
+    rowCount,
+    checkedAgainstCurrentPipeline: false,
+    confidence: rowCount > 0 ? "api_payload_parity_plus_warehouse_available" : "api_payload_parity_only",
+    status: rowCount > 0 ? "available_not_cross_checked" : "empty_table",
+  };
+}
+
+export async function runCalibrationLab() {
   installSanitizedRuntimeGuards();
   const generatedAt = new Date().toISOString();
-  const businessRows = await getCandidateBusinesses();
-    const rows: SanitizedCalibrationRow[] = [];
-    const warnings: string[] = [
-      "meta_creative_daily was empty in the checked database; current Creative table and Decision OS use the creative API/snapshot source instead.",
-      "Campaign baselines in this artifact are lab-computed only; production campaign segmentation still requires explicit benchmark scope input.",
-    ];
-    const blockers: string[] = [];
-    const coverage = {
-      companies: 0,
-      creatives: 0,
-      internalSegments: {} as Record<string, number>,
-      userFacingSegments: {} as Record<string, number>,
-      oldRuleSegments: {} as Record<string, number>,
-      baselineReliability: {} as Record<string, number>,
-      pushReadiness: {} as Record<string, number>,
-    };
-    let tableDecisionMismatches = 0;
-    const maxMetricDelta = Object.fromEntries(METRIC_KEYS.map((key) => [key, 0])) as Record<
-      NumericMetricKey,
-      number
-    >;
+  const candidateRows = await getCandidateBusinesses();
+  const candidateEligibility = summarizeCandidateEligibility(candidateRows);
+  const businessRows = candidateEligibility.eligible.slice(0, MAX_COMPANIES);
+  const warehouseCreativeDaily = await getWarehouseCreativeDailyStatus();
+  const rows: SanitizedCalibrationRow[] = [];
+  const warnings: string[] = [
+    "Campaign baselines in this artifact are lab-computed only; production campaign segmentation still requires explicit benchmark scope input.",
+  ];
+  if (candidateEligibility.skippedCandidates > 0) {
+    warnings.push(
+      "Some historical snapshot businesses were skipped because they are not currently eligible for Creative Decision OS validation.",
+    );
+  }
+  if (!warehouseCreativeDaily.available) {
+    warnings.push(
+      "meta_creative_daily is empty in the checked database; current verification is API/payload parity only because the product Creative pipeline uses the creative API/snapshot source.",
+    );
+  } else {
+    warnings.push(
+      "meta_creative_daily has rows, but this gate does not yet cross-check it against the current Creative API/snapshot source.",
+    );
+  }
+  const blockers: string[] = [];
+  const coverage = createEmptyCoverageSummary();
+  let tableDecisionMismatches = 0;
+  let zeroRowEligibleCandidates = 0;
+  const maxMetricDelta = Object.fromEntries(METRIC_KEYS.map((key) => [key, 0])) as Record<
+    NumericMetricKey,
+    number
+  >;
+
+  if (businessRows.length === 0) {
+    blockers.push("No currently eligible Meta-connected businesses were available for calibration.");
+  }
 
     for (const [businessIndex, business] of businessRows.entries()) {
       const companyAlias = `company-${String(businessIndex + 1).padStart(2, "0")}`;
@@ -589,11 +735,15 @@ async function main() {
         const userFacing = creativeOperatorSegmentLabel(creative);
         const pushReadiness = creative.operatorPolicy?.pushReadiness ?? null;
 
-        increment(coverage.internalSegments, creative.operatorPolicy?.segment ?? null);
-        increment(coverage.userFacingSegments, userFacing);
-        increment(coverage.oldRuleSegments, challenger?.challengerAction ?? null);
-        increment(coverage.baselineReliability, creative.relativeBaseline.reliability);
-        increment(coverage.pushReadiness, pushReadiness);
+        recordCoverage({
+          coverage,
+          internalSegment: creative.operatorPolicy?.segment ?? null,
+          quickFilter: resolveCreativeQuickFilterKey(creative),
+          userFacingSegment: userFacing,
+          oldRuleSegment: challenger?.challengerAction ?? null,
+          baselineReliability: creative.relativeBaseline.reliability,
+          pushReadiness,
+        });
 
         rows.push({
           companyAlias,
@@ -647,10 +797,10 @@ async function main() {
             sanitizeText(item, replacements),
           ),
         });
-        increment(coverage.internalSegments, `quick_filter:${resolveCreativeQuickFilterKey(creative)}`);
       }
 
       if (decisionOs.creatives.length === 0) {
+        zeroRowEligibleCandidates += 1;
         blockers.push(`${companyAlias}: current Decision OS returned zero verifiable rows.`);
       }
     }
@@ -678,6 +828,15 @@ async function main() {
         checkedRows: coverage.creatives,
         tableDecisionMismatches,
         maxMetricDelta,
+        candidateEligibility: {
+          historicalSnapshotCandidates: candidateRows.length,
+          eligibleCandidates: candidateEligibility.eligible.length,
+          skippedCandidates: candidateEligibility.skippedCandidates,
+          skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
+          sampledCandidates: businessRows.length,
+          zeroRowEligibleCandidates,
+        },
+        warehouseCreativeDaily,
       },
       coverage,
       rows,
@@ -702,7 +861,13 @@ async function main() {
     );
 }
 
-main()
+function isDirectRun() {
+  const entry = process.argv[1];
+  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+}
+
+if (isDirectRun()) {
+  runCalibrationLab()
   .catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
@@ -710,3 +875,4 @@ main()
   .finally(() => {
     resetDbClientCache();
   });
+}
