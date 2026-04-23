@@ -213,6 +213,114 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("commercial_truth");
   });
 
+  it("surfaces relative scale review when explicit baseline exists but commercial truth is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "account",
+        sampleSize: 8,
+        medianRoas: 1.8,
+        medianCpa: 30,
+        medianSpend: 180,
+      },
+      supportingMetrics: {
+        spend: 260,
+        purchases: 4,
+        impressions: 18_000,
+        roas: 3.1,
+        cpa: 28,
+        frequency: 1.6,
+        creativeAgeDays: 22,
+      },
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).toContain("commercial_truth");
+    expect(policy.reasons.join(" ")).toContain("Missing commercial input");
+  });
+
+  it("does not invent scale review when commercial truth and baseline are both missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: null,
+    });
+
+    expect(policy.segment).toBe("blocked");
+    expect(policy.state).toBe("blocked");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.missingEvidence).toContain("relative_baseline");
+  });
+
+  it("keeps full Scale stricter than Scale Review", () => {
+    const scale = assessCreativeOperatorPolicy(baseInput());
+    const scaleReview = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "campaign",
+        sampleSize: 6,
+        medianRoas: 1.7,
+        medianCpa: 32,
+        medianSpend: 160,
+      },
+      supportingMetrics: {
+        spend: 300,
+        purchases: 5,
+        impressions: 22_000,
+        roas: 3.2,
+        cpa: 27,
+        frequency: 1.8,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(scale.segment).toBe("scale_ready");
+    expect(scale.pushReadiness).toBe("safe_to_queue");
+    expect(scale.queueEligible).toBe(true);
+    expect(scaleReview.segment).toBe("scale_review");
+    expect(scaleReview.pushReadiness).toBe("operator_review_required");
+    expect(scaleReview.queueEligible).toBe(false);
+  });
+
+  it("keeps cut recognition available without commercial truth while preserving manual safety", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "blocked",
+      primaryAction: "block_deploy",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      economics: {
+        status: "blocked",
+        reasons: ["ROAS is materially weak versus peers."],
+      },
+      supportingMetrics: {
+        spend: 520,
+        purchases: 5,
+        impressions: 34_000,
+        roas: 0.6,
+        cpa: 104,
+        creativeAgeDays: 31,
+      },
+    });
+
+    expect(policy.segment).toBe("kill_candidate");
+    expect(policy.state).toBe("do_now");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).not.toContain("commercial_truth");
+  });
+
   it("treats demo and snapshot evidence as contextual only", () => {
     for (const evidenceSource of ["demo", "snapshot", "fallback"] as const) {
       const policy = assessCreativeOperatorPolicy({

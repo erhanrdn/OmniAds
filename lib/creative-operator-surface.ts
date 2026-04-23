@@ -107,6 +107,47 @@ export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
   return "Refresh";
 }
 
+export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
+  const segment = creative.operatorPolicy?.segment ?? null;
+  switch (segment) {
+    case "scale_ready":
+      return "Scale";
+    case "scale_review":
+      return "Scale Review";
+    case "promising_under_sampled":
+      return "Test More";
+    case "protected_winner":
+    case "no_touch":
+      return "Protect";
+    case "hold_monitor":
+      return "Watch";
+    case "fatigued_winner":
+      return "Refresh";
+    case "needs_new_variant":
+      return creative.primaryAction === "retest_comeback" ? "Retest" : "Refresh";
+    case "kill_candidate":
+    case "spend_waste":
+      return "Cut";
+    case "investigate":
+      return "Campaign Check";
+    case "false_winner_low_evidence":
+    case "creative_learning_incomplete":
+    case "blocked":
+    case "contextual_only":
+      return "Not Enough Data";
+    default:
+      break;
+  }
+
+  if (creative.primaryAction === "promote_to_scaling") return "Scale";
+  if (creative.primaryAction === "keep_in_test") return "Test More";
+  if (creative.primaryAction === "hold_no_touch") return "Protect";
+  if (creative.primaryAction === "refresh_replace") return "Refresh";
+  if (creative.primaryAction === "retest_comeback") return "Retest";
+  if (creative.primaryAction === "block_deploy") return "Cut";
+  return titleFromEnum(creative.primaryAction);
+}
+
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
   return `$${value.toLocaleString(undefined, {
@@ -173,6 +214,9 @@ export function resolveCreativeAuthorityState(creative: CreativeDecisionOsCreati
       creative.operatorPolicy.segment === "needs_new_variant" ||
       creative.operatorPolicy.segment === "spend_waste"
     ) {
+      return "blocked" satisfies OperatorAuthorityState;
+    }
+    if (creative.operatorPolicy.segment === "investigate") {
       return "blocked" satisfies OperatorAuthorityState;
     }
     if (
@@ -242,27 +286,30 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
     switch (creative.operatorPolicy.segment) {
       case "scale_ready":
         return "Scale";
+      case "scale_review":
+        return "Scale Review";
       case "kill_candidate":
-        return "Kill review";
+      case "spend_waste":
+        return "Cut";
       case "fatigued_winner":
-      case "needs_new_variant":
         return "Refresh";
+      case "needs_new_variant":
+        return creative.primaryAction === "retest_comeback" ? "Retest" : "Refresh";
       case "protected_winner":
       case "no_touch":
         return "Protect";
       case "false_winner_low_evidence":
-        return "Do not scale";
-      case "hold_monitor":
-        return "Hold and watch";
-      case "promising_under_sampled":
       case "creative_learning_incomplete":
-        return "Collect signal";
+        return "Not Enough Data";
+      case "hold_monitor":
+        return "Watch";
+      case "promising_under_sampled":
+        return "Test More";
       case "investigate":
-        return "Investigate";
+        return "Campaign Check";
       case "contextual_only":
-        return "Context only";
       case "blocked":
-        return "Blocked";
+        return "Not Enough Data";
       default:
         break;
     }
@@ -311,7 +358,10 @@ function creativeTargetContext(
 ): OperatorInstructionTargetContext {
   const preferredAdSet = creative.deployment.preferredAdSetNames?.[0] ?? null;
   const preferredCampaign = creative.deployment.preferredCampaignNames?.[0] ?? null;
-  if (creative.operatorPolicy?.segment === "scale_ready") {
+  if (
+    creative.operatorPolicy?.segment === "scale_ready" ||
+    creative.operatorPolicy?.segment === "scale_review"
+  ) {
     if (preferredAdSet) {
       return {
         status: "available",
@@ -411,7 +461,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     blocker,
     confidence: operatorConfidenceBand(creative.confidence),
     secondaryLabels: [
-      creative.operatorPolicy?.segment.replaceAll("_", " ") ?? null,
+      creative.operatorPolicy ? creativeOperatorSegmentLabel(creative) : null,
       creative.operatorPolicy?.pushReadiness.replaceAll("_", " ") ?? null,
       previewLabel(creative),
       lifecycleLabel(creative.lifecycleState),
@@ -466,6 +516,9 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
           : null,
         creative.operatorPolicy?.segment === "false_winner_low_evidence"
           ? "Do not scale from ROAS alone."
+          : null,
+        creative.operatorPolicy?.segment === "scale_review"
+          ? "Do not scale until business targets are validated."
           : null,
         creative.operatorPolicy?.segment === "protected_winner"
           ? "Do not kill a protected winner because of short-term volatility."

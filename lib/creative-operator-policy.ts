@@ -18,6 +18,7 @@ export const CREATIVE_OPERATOR_POLICY_VERSION = "creative-operator-policy.v1";
 
 export const CREATIVE_OPERATOR_SEGMENTS = [
   "scale_ready",
+  "scale_review",
   "promising_under_sampled",
   "false_winner_low_evidence",
   "fatigued_winner",
@@ -70,6 +71,13 @@ export interface CreativeOperatorPolicyInput {
   evidenceSource?: CreativeEvidenceSource;
   commercialTruthConfigured?: boolean;
   commercialMissingInputs?: string[];
+  relativeBaseline?: {
+    scope: "account" | "campaign";
+    sampleSize: number;
+    medianRoas?: number | null;
+    medianCpa?: number | null;
+    medianSpend?: number | null;
+  } | null;
   benchmark?: Pick<CreativeDecisionBenchmark, "sampleSize" | "missingContext"> | null;
   fatigue?: Pick<CreativeDecisionFatigue, "status" | "confidence" | "evidence"> | null;
   economics?: Pick<CreativeDecisionEconomics, "status" | "reasons"> | null;
@@ -137,6 +145,44 @@ function hasScaleEvidence(input: CreativeOperatorPolicyInput) {
     hasNumber(metrics.purchases) &&
     metrics.purchases >= 5 &&
     input.economics?.status === "eligible"
+  );
+}
+
+function hasRelativeScaleReviewEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!baseline) return false;
+  const medianSpend = baseline.medianSpend ?? 0;
+  const medianRoas = baseline.medianRoas ?? 0;
+  const medianCpa = baseline.medianCpa ?? null;
+  if (!hasNumber(metrics.spend) || !hasNumber(metrics.purchases) || !hasNumber(metrics.roas)) {
+    return false;
+  }
+  if (metrics.spend < Math.max(80, medianSpend * 0.2)) return false;
+  if (metrics.purchases < 2) return false;
+  if (metrics.roas < medianRoas * 1.4) return false;
+  if (
+    hasNumber(metrics.cpa) &&
+    metrics.cpa > 0 &&
+    hasNumber(medianCpa) &&
+    medianCpa > 0 &&
+    metrics.cpa > medianCpa * 1.2
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function hasRelativeBaselineContext(input: CreativeOperatorPolicyInput) {
+  const baseline = input.relativeBaseline ?? null;
+  return (
+    Boolean(baseline) &&
+    (baseline?.sampleSize ?? 0) >= 3 &&
+    hasNumber(baseline?.medianRoas) &&
+    (baseline?.medianRoas ?? 0) > 0 &&
+    hasNumber(baseline?.medianSpend) &&
+    (baseline?.medianSpend ?? 0) > 0
   );
 }
 
@@ -208,16 +254,20 @@ function resolveSegment(params: {
     if ((input.supportingMetrics?.purchases ?? 0) <= 0 || (input.supportingMetrics?.roas ?? 0) <= 0) {
       return "creative_learning_incomplete";
     }
-    return hasRoasOnlyPositiveSignal(input)
-      ? "false_winner_low_evidence"
-      : input.lifecycleState === "incubating"
-        ? "creative_learning_incomplete"
-        : "promising_under_sampled";
+    return input.lifecycleState === "incubating"
+      ? "creative_learning_incomplete"
+      : "promising_under_sampled";
   }
   if (
     input.primaryAction === "promote_to_scaling" &&
     (!input.commercialTruthConfigured || !hasScaleEvidence(input))
   ) {
+    if (
+      !input.commercialTruthConfigured &&
+      hasRelativeScaleReviewEvidence(input)
+    ) {
+      return "scale_review";
+    }
     return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
   }
   if (input.primaryAction === "promote_to_scaling") {
@@ -229,7 +279,7 @@ function resolveSegment(params: {
       : "needs_new_variant";
   }
   if (input.primaryAction === "block_deploy") {
-    return hasKillEvidence(input) && input.commercialTruthConfigured
+    return hasKillEvidence(input)
       ? "kill_candidate"
       : hasNumber(input.supportingMetrics?.spend) && input.supportingMetrics!.spend! >= 250
         ? "spend_waste"
@@ -253,6 +303,9 @@ function resolveState(input: {
   if (input.segment === "contextual_only") return "contextual_only";
   if (input.segment === "protected_winner" || input.segment === "no_touch") {
     return "do_not_touch";
+  }
+  if (input.segment === "scale_review") {
+    return "investigate";
   }
   if (
     input.segment === "false_winner_low_evidence" ||
@@ -286,7 +339,13 @@ function resolvePushReadiness(input: {
   provenance: OperatorDecisionProvenance | null;
   blockers: string[];
 }) {
-  if (!input.provenance || input.blockers.length > 0 || input.state === "blocked") {
+  if (!input.provenance || input.state === "blocked") {
+    return "blocked_from_push" as const;
+  }
+  if (input.segment === "scale_review") {
+    return "operator_review_required" as const;
+  }
+  if (input.blockers.length > 0) {
     return "blocked_from_push" as const;
   }
   if (input.state === "contextual_only" || input.state === "do_not_touch") {
@@ -317,6 +376,9 @@ export function assessCreativeOperatorPolicy(
   const roasOnly = hasRoasOnlyPositiveSignal(input);
   const scaleAction = SCALE_ACTIONS.has(input.primaryAction);
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
+  const requiresCommercialTruth = scaleAction;
+  const needsRelativeBaseline =
+    scaleAction && !commercialTruthConfigured && !hasRelativeBaselineContext(input);
 
   const requiredEvidence = unique([
     "stable_operator_decision_context",
@@ -324,7 +386,8 @@ export function assessCreativeOperatorPolicy(
     "row_provenance",
     "row_trust",
     "preview_truth",
-    aggressive ? "commercial_truth" : null,
+    requiresCommercialTruth ? "commercial_truth" : null,
+    scaleAction && !commercialTruthConfigured ? "relative_baseline" : null,
     scaleAction || killOrRefreshAction ? "evidence_floor" : null,
     scaleAction ? "campaign_or_adset_context" : null,
     killOrRefreshAction ? "sufficient_negative_evidence" : null,
@@ -335,7 +398,8 @@ export function assessCreativeOperatorPolicy(
     evidenceSource === "unknown" ? "evidence_source" : null,
     !trust ? "row_trust" : null,
     previewState === "missing" ? "preview_truth" : null,
-    aggressive && !commercialTruthConfigured ? "commercial_truth" : null,
+    requiresCommercialTruth && !commercialTruthConfigured ? "commercial_truth" : null,
+    needsRelativeBaseline ? "relative_baseline" : null,
     (scaleAction || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     roasOnly ? "non_roas_evidence" : null,
     scaleAction && weakCampaignContext ? "campaign_or_adset_context" : null,
@@ -351,13 +415,13 @@ export function assessCreativeOperatorPolicy(
       ? `${evidenceSource} evidence is contextual and cannot authorize primary Creative action.`
       : null,
     !trust ? "Decision trust metadata is missing." : null,
-    trust?.truthState === "degraded_missing_truth" && aggressive
+    trust?.truthState === "degraded_missing_truth" && requiresCommercialTruth
       ? "Commercial truth is degraded or missing, so aggressive Creative action is blocked."
       : null,
     trust?.truthState === "inactive_or_immaterial"
       ? "Creative is inactive or immaterial for primary action."
       : null,
-    trust?.evidence?.aggressiveActionBlocked && aggressive
+    trust?.evidence?.aggressiveActionBlocked && requiresCommercialTruth
       ? trust.evidence.aggressiveActionBlockReasons[0] ??
         "Aggressive Creative action is blocked by trust metadata."
       : null,
@@ -371,8 +435,11 @@ export function assessCreativeOperatorPolicy(
     previewState === "metrics_only_degraded" && aggressive
       ? "Preview truth is degraded, so aggressive Creative action requires review."
       : null,
-    aggressive && !commercialTruthConfigured
-      ? "Configured commercial truth is required before Creative scale, kill, or refresh decisions."
+    requiresCommercialTruth && !commercialTruthConfigured
+      ? "Configured commercial truth is required before Creative scale decisions can be validated."
+      : null,
+    needsRelativeBaseline
+      ? "Account or campaign relative baseline is missing, so Scale Review cannot be inferred."
       : null,
     scaleAction && !hasScaleEvidence(input)
       ? "Scale evidence floor is not met; ROAS alone is not enough."
