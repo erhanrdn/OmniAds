@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCreativeDecisionOs, type CreativeDecisionOsInputRow } from "@/lib/creative-decision-os";
 import { buildCreativePreviewManifest } from "@/lib/meta/creatives-preview";
+import { createEmptyBusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 
 const livePreviewManifest = buildCreativePreviewManifest({
   tableSrc: "https://example.com/table.jpg",
@@ -129,6 +130,89 @@ function baselineRows(campaignId = "cmp-1") {
       postId: "peer-3",
     }),
   ];
+}
+
+function strongBaselineRows(campaignId = "cmp-1") {
+  return [
+    ...baselineRows(campaignId),
+    buildRow({
+      creativeId: "peer-4",
+      name: "Peer 4",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 170,
+      purchaseValue: 306,
+      roas: 1.8,
+      cpa: 24,
+      purchases: 7,
+      impressions: 13_500,
+      objectStoryId: "peer-4",
+      effectiveObjectStoryId: "peer-4",
+      postId: "peer-4",
+    }),
+    buildRow({
+      creativeId: "peer-5",
+      name: "Peer 5",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 150,
+      purchaseValue: 255,
+      roas: 1.7,
+      cpa: 25,
+      purchases: 6,
+      impressions: 12_200,
+      objectStoryId: "peer-5",
+      effectiveObjectStoryId: "peer-5",
+      postId: "peer-5",
+    }),
+    buildRow({
+      creativeId: "peer-6",
+      name: "Peer 6",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 140,
+      purchaseValue: 238,
+      roas: 1.7,
+      cpa: 23.33,
+      purchases: 6,
+      impressions: 11_800,
+      objectStoryId: "peer-6",
+      effectiveObjectStoryId: "peer-6",
+      postId: "peer-6",
+    }),
+  ];
+}
+
+function configuredCommercialTruth(businessId = "biz") {
+  const snapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+  snapshot.targetPack = {
+    targetCpa: 30,
+    targetRoas: 2.2,
+    breakEvenCpa: 34,
+    breakEvenRoas: 1.7,
+    contributionMarginAssumption: null,
+    aovAssumption: null,
+    newCustomerWeight: null,
+    defaultRiskPosture: "balanced",
+    sourceLabel: "settings_manual_entry",
+    updatedAt: "2026-04-10T00:00:00.000Z",
+    updatedByUserId: null,
+  };
+  snapshot.sectionMeta.targetPack = {
+    ...snapshot.sectionMeta.targetPack,
+    configured: true,
+    itemCount: 1,
+    sourceLabel: "settings_manual_entry",
+    updatedAt: "2026-04-10T00:00:00.000Z",
+    completeness: "complete",
+    freshness: {
+      status: "fresh",
+      updatedAt: "2026-04-10T00:00:00.000Z",
+      ageHours: 1,
+      reason: null,
+    },
+  };
+  return snapshot;
 }
 
 describe("buildCreativeDecisionOs", () => {
@@ -658,6 +742,90 @@ describe("buildCreativeDecisionOs", () => {
       canApply: false,
     });
     expect(winner?.operatorPolicy.missingEvidence).toContain("commercial_truth");
+    expect(winner?.report.timeframeContext?.coreVerdict).toContain("account-wide benchmark");
+    expect(winner?.report.timeframeContext?.note).toContain("review-only");
+  });
+
+  it("activates true Scale only when account baseline and business validation are both strong", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...buildCampaignContext(),
+      commercialTruth: configuredCommercialTruth(),
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          name: "Scale Winner",
+          previewManifest: livePreviewManifest,
+          spend: 500,
+          purchaseValue: 1700,
+          roas: 3.4,
+          cpa: 22,
+          purchases: 12,
+          impressions: 24_000,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...strongBaselineRows(),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "winner");
+
+    expect(winner?.relativeBaseline.reliability).toBe("strong");
+    expect(winner?.operatorPolicy).toMatchObject({
+      segment: "scale_ready",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+    });
+    expect(winner?.report.timeframeContext?.coreVerdict).toContain("strong reliability");
+    expect(winner?.report.timeframeContext?.note ?? null).toBeNull();
+  });
+
+  it("can activate true Scale inside an explicit campaign benchmark when that cohort is strong", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...buildCampaignContext("cmp-test"),
+      benchmarkScope: {
+        scope: "campaign",
+        scopeId: "cmp-test",
+        scopeLabel: "Test Campaign",
+      },
+      commercialTruth: configuredCommercialTruth(),
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          name: "Campaign Scale Winner",
+          campaignId: "cmp-test",
+          campaignName: "Test Campaign",
+          previewManifest: livePreviewManifest,
+          spend: 460,
+          purchaseValue: 1564,
+          roas: 3.4,
+          cpa: 22,
+          purchases: 11,
+          impressions: 22_000,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...strongBaselineRows("cmp-test"),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "winner");
+
+    expect(winner?.benchmarkScope).toBe("campaign");
+    expect(winner?.benchmarkReliability).toBe("strong");
+    expect(winner?.operatorPolicy.segment).toBe("scale_ready");
+    expect(winner?.report.timeframeContext?.coreVerdict).toContain("test campaign benchmark");
   });
 
   it("uses explicit campaign benchmark scope only when requested", () => {

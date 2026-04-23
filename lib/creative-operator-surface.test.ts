@@ -299,6 +299,7 @@ describe("creative operator surface", () => {
     const watch = buildCreativeOperatorItem(fixture.creatives[3]);
 
     expect(scale.instruction?.headline).toContain("Scale");
+    expect(scale.reason).toContain("Business validation supports a controlled scale move.");
     expect(scale.instruction?.primaryMove).toContain("Scale Ad Set");
     expect(scale.instruction?.amountGuidance.status).toBe("unavailable");
     expect(scale.instruction?.targetContext.status).toBe("available");
@@ -364,6 +365,56 @@ describe("creative operator surface", () => {
     expect(hold.primaryAction).toBe("Watch");
     expect(hold.instruction?.primaryMove).toContain("Keep watching");
     expect(hold.instruction?.nextObservation.join(" ")).toContain("stable next window");
+  });
+
+  it("keeps relative winners in Watch when business validation does not support direct scale", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].relativeBaseline = {
+      scope: "account",
+      benchmarkKey: "account:all",
+      scopeId: null,
+      scopeLabel: "Account-wide",
+      source: "account_default",
+      reliability: "strong",
+      sampleSize: 6,
+      creativeCount: 6,
+      eligibleCreativeCount: 6,
+      spendBasis: 960,
+      purchaseBasis: 30,
+      weightedRoas: 1.75,
+      weightedCpa: 32,
+      medianRoas: 1.7,
+      medianCpa: 24,
+      medianSpend: 160,
+      missingContext: [],
+    };
+    fixture.creatives[0].benchmarkScope = "account";
+    fixture.creatives[0].benchmarkScopeLabel = "Account-wide";
+    fixture.creatives[0].benchmarkReliability = "strong";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "watch",
+      segment: "hold_monitor",
+      actionClass: "monitor",
+      evidenceSource: "live",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Business targets are not cleared yet."],
+      blockers: ["Business validation does not yet support a direct scale move."],
+      missingEvidence: ["business_validation"],
+      requiredEvidence: ["business_validation", "relative_baseline"],
+      explanation: "Business validation does not yet support direct scale.",
+    };
+
+    const watch = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(watch.primaryAction).toBe("Watch");
+    expect(watch.authorityState).toBe("watch");
+    expect(watch.reason).toContain("Promising relative performer against the Account-wide benchmark.");
+    expect(watch.reason).toContain("Business validation does not support a direct scale move yet.");
   });
 
   it("maps internal creative segments to media-buyer labels", () => {

@@ -141,8 +141,14 @@ function creativeNeedsBusinessValidation(creative: CreativeDecisionOsCreative) {
 }
 
 export function creativeBusinessValidationNote(creative: CreativeDecisionOsCreative) {
-  if (!creativeNeedsBusinessValidation(creative)) return null;
-  return "Business validation is still missing, so this stays review-only.";
+  const missingEvidence = creative.operatorPolicy?.missingEvidence ?? [];
+  if (creativeNeedsBusinessValidation(creative)) {
+    return "Business validation is still missing, so this stays review-only.";
+  }
+  if (missingEvidence.includes("business_validation")) {
+    return "Business validation does not support a direct scale move yet.";
+  }
+  return null;
 }
 
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
@@ -377,11 +383,18 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
 }
 
 function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState, muted: boolean, blocker: string | null) {
+  if (creative.operatorPolicy?.segment === "scale_ready") {
+    const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
+    return `Strong relative performer against the ${scopeLabel} benchmark. Business validation supports a controlled scale move.`;
+  }
   if (creative.operatorPolicy?.segment === "scale_review") {
     const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
     const businessValidationNote = creativeBusinessValidationNote(creative);
     if (businessValidationNote) {
       return `Strong relative performer against the ${scopeLabel} benchmark. ${businessValidationNote}`;
+    }
+    if (creative.benchmarkReliability && creative.benchmarkReliability !== "strong") {
+      return `Strong relative performer against the ${scopeLabel} benchmark, but ${creativeBenchmarkReliabilityLabel(creative.benchmarkReliability).toLowerCase()} benchmark reliability keeps this review-only.`;
     }
     if (
       creative.operatorPolicy?.missingEvidence.some((item) =>
@@ -393,6 +406,24 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
       return `Strong relative performer against the ${scopeLabel} benchmark, but campaign placement still needs review.`;
     }
     return `Strong relative performer against the ${scopeLabel} benchmark. Keep it in review until the scale target is confirmed.`;
+  }
+  if (
+    creative.operatorPolicy?.segment === "hold_monitor" &&
+    creative.primaryAction === "promote_to_scaling" &&
+    creative.relativeBaseline
+  ) {
+    const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
+    const businessValidationNote = creativeBusinessValidationNote(creative);
+    if (businessValidationNote) {
+      return `Promising relative performer against the ${scopeLabel} benchmark. ${businessValidationNote}`;
+    }
+    if (
+      creative.operatorPolicy.missingEvidence.includes("relative_baseline") ||
+      creative.benchmarkReliability === "weak" ||
+      creative.benchmarkReliability === "unavailable"
+    ) {
+      return `Promising creative, but the ${scopeLabel.toLowerCase()} benchmark is still too thin for a scale call.`;
+    }
   }
   if (state === "needs_truth" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
