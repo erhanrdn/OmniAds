@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildCreativeDecisionOs, type CreativeDecisionOsInputRow } from "@/lib/creative-decision-os";
+import { buildCreativePreviewManifest } from "@/lib/meta/creatives-preview";
+
+const livePreviewManifest = buildCreativePreviewManifest({
+  tableSrc: "https://example.com/table.jpg",
+  cardSrc: "https://example.com/card.jpg",
+  detailImageSrc: "https://example.com/image.jpg",
+  detailVideoSrc: null,
+  liveHtmlAvailable: true,
+});
 
 function buildRow(overrides: Partial<CreativeDecisionOsInputRow> = {}): CreativeDecisionOsInputRow {
   return {
@@ -47,6 +56,79 @@ function buildRow(overrides: Partial<CreativeDecisionOsInputRow> = {}): Creative
     historicalWindows: null,
     ...overrides,
   };
+}
+
+function buildCampaignContext(campaignId = "cmp-1") {
+  return {
+    campaigns: [
+      {
+        id: campaignId,
+        name: "Scaling Campaign",
+        status: "ACTIVE",
+        objective: "OUTCOME_SALES",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+      },
+    ] as any,
+    adSets: [
+      {
+        id: "adset-1",
+        name: "Scaling Ad Set",
+        campaignId,
+        status: "ACTIVE",
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+      },
+    ] as any,
+  };
+}
+
+function baselineRows(campaignId = "cmp-1") {
+  return [
+    buildRow({
+      creativeId: "peer-1",
+      name: "Peer 1",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 180,
+      purchaseValue: 270,
+      roas: 1.5,
+      cpa: 45,
+      purchases: 4,
+      impressions: 12_000,
+      objectStoryId: "peer-1",
+      effectiveObjectStoryId: "peer-1",
+      postId: "peer-1",
+    }),
+    buildRow({
+      creativeId: "peer-2",
+      name: "Peer 2",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 160,
+      purchaseValue: 272,
+      roas: 1.7,
+      cpa: 40,
+      purchases: 4,
+      impressions: 11_000,
+      objectStoryId: "peer-2",
+      effectiveObjectStoryId: "peer-2",
+      postId: "peer-2",
+    }),
+    buildRow({
+      creativeId: "peer-3",
+      name: "Peer 3",
+      campaignId,
+      previewManifest: livePreviewManifest,
+      spend: 220,
+      purchaseValue: 396,
+      roas: 1.8,
+      cpa: 44,
+      purchases: 5,
+      impressions: 14_000,
+      objectStoryId: "peer-3",
+      effectiveObjectStoryId: "peer-3",
+      postId: "peer-3",
+    }),
+  ];
 }
 
 describe("buildCreativeDecisionOs", () => {
@@ -518,5 +600,210 @@ describe("buildCreativeDecisionOs", () => {
       truthState: "degraded_missing_truth",
       completeness: "partial",
     });
+  });
+
+  it("computes account baseline metadata and allows relative Scale Review without Commercial Truth", () => {
+    const context = buildCampaignContext();
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...context,
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          name: "Relative Winner",
+          previewManifest: livePreviewManifest,
+          spend: 260,
+          purchaseValue: 832,
+          roas: 3.2,
+          cpa: 32.5,
+          purchases: 8,
+          impressions: 18_000,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...baselineRows(),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "winner");
+
+    expect(payload.summary.benchmarkScope).toMatchObject({
+      benchmarkScope: "account",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkSource: "account_default",
+      benchmarkReliability: expect.stringMatching(/medium|strong/),
+    });
+    expect(winner?.relativeBaseline).toMatchObject({
+      scope: "account",
+      reliability: expect.stringMatching(/medium|strong/),
+      eligibleCreativeCount: 3,
+      weightedRoas: expect.any(Number),
+      medianRoas: expect.any(Number),
+    });
+    expect(winner?.operatorPolicy).toMatchObject({
+      segment: "scale_review",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+    });
+    expect(winner?.operatorPolicy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("uses explicit campaign benchmark scope only when requested", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...buildCampaignContext("cmp-test"),
+      benchmarkScope: {
+        scope: "campaign",
+        scopeId: "cmp-test",
+        scopeLabel: "Test Campaign",
+      },
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          name: "Campaign Winner",
+          campaignId: "cmp-test",
+          campaignName: "Test Campaign",
+          previewManifest: livePreviewManifest,
+          spend: 240,
+          purchaseValue: 768,
+          roas: 3.2,
+          cpa: 30,
+          purchases: 8,
+          impressions: 18_000,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...baselineRows("cmp-test"),
+        buildRow({
+          creativeId: "other-campaign",
+          campaignId: "cmp-other",
+          campaignName: "Other Campaign",
+          previewManifest: livePreviewManifest,
+          spend: 800,
+          purchaseValue: 800,
+          roas: 1,
+          purchases: 8,
+          objectStoryId: "other-campaign",
+          effectiveObjectStoryId: "other-campaign",
+          postId: "other-campaign",
+        }),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "winner");
+    const other = payload.creatives.find((creative) => creative.creativeId === "other-campaign");
+
+    expect(payload.summary.benchmarkScope).toMatchObject({
+      benchmarkScope: "campaign",
+      benchmarkScopeLabel: "Test Campaign",
+      benchmarkSource: "explicit_campaign_scope",
+    });
+    expect(winner?.relativeBaseline).toMatchObject({
+      scope: "campaign",
+      scopeId: "cmp-test",
+      scopeLabel: "Test Campaign",
+      reliability: expect.stringMatching(/medium|strong/),
+    });
+    expect(winner?.operatorPolicy.segment).toBe("scale_review");
+    expect(other?.relativeBaseline.reliability).toBe("unavailable");
+    expect(other?.relativeBaseline.missingContext.join(" ")).toContain("outside the explicit campaign");
+  });
+
+  it("does not silently switch to campaign benchmark without explicit scope", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...buildCampaignContext("cmp-test"),
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          campaignId: "cmp-test",
+          campaignName: "Test Campaign",
+          previewManifest: livePreviewManifest,
+          spend: 240,
+          purchaseValue: 768,
+          roas: 3.2,
+          purchases: 4,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...baselineRows("cmp-test"),
+      ],
+    });
+
+    expect(payload.summary.benchmarkScope).toMatchObject({
+      benchmarkScope: "account",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkSource: "account_default",
+    });
+    expect(payload.creatives[0]?.relativeBaseline.scope).toBe("account");
+  });
+
+  it("does not emit Scale Review when baseline is missing or weak", () => {
+    const context = buildCampaignContext();
+    const missing = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...context,
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "solo",
+          previewManifest: livePreviewManifest,
+          spend: 260,
+          purchaseValue: 832,
+          roas: 3.2,
+          purchases: 4,
+        }),
+      ],
+    });
+    const weak = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...context,
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          previewManifest: livePreviewManifest,
+          spend: 260,
+          purchaseValue: 832,
+          roas: 3.2,
+          purchases: 4,
+        }),
+        buildRow({
+          creativeId: "thin-peer",
+          previewManifest: livePreviewManifest,
+          spend: 40,
+          purchaseValue: 60,
+          roas: 1.5,
+          purchases: 1,
+        }),
+      ],
+    });
+
+    expect(missing.creatives[0]?.relativeBaseline.reliability).toBe("unavailable");
+    expect(missing.creatives[0]?.operatorPolicy.segment).not.toBe("scale_review");
+    expect(weak.creatives[0]?.relativeBaseline.reliability).toBe("weak");
+    expect(weak.creatives[0]?.operatorPolicy.segment).not.toBe("scale_review");
   });
 });

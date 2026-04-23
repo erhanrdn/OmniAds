@@ -256,7 +256,7 @@ describe("creative operator surface", () => {
       ["needs_truth", 2],
       ["no_action", 1],
     ]);
-    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Fatigued winners");
+    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("campaign/context diagnosis");
   });
 
   it("adds operator instructions that distinguish watch from scale commands", () => {
@@ -457,6 +457,7 @@ describe("creative operator surface", () => {
     expect(campaignCheck).toMatchObject({
       primaryAction: "Campaign Check",
       authorityState: "blocked",
+      authorityLabel: "Check",
     });
     expect(notEnoughData).toMatchObject({
       primaryAction: "Not Enough Data",
@@ -469,6 +470,59 @@ describe("creative operator surface", () => {
     expect(campaignCheck.authorityState).not.toBe("needs_truth");
     expect(notEnoughData.authorityState).not.toBe("needs_truth");
     expect(protect.authorityState).not.toBe("needs_truth");
+  });
+
+  it("does not label policy or contextual ineligible rows as Not Enough Data", () => {
+    const fixture = creativeDecisionOsFixture();
+    const basePolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      actionClass: "contextual",
+      evidenceSource: "live",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Missing decision provenance."],
+      blockers: ["Missing decision provenance."],
+      missingEvidence: ["row_provenance"],
+      requiredEvidence: ["row_provenance"],
+      explanation: "Missing decision provenance.",
+    };
+
+    fixture.creatives[0].operatorPolicy = {
+      ...basePolicy,
+      state: "blocked",
+      segment: "blocked",
+    };
+    fixture.creatives[1].operatorPolicy = {
+      ...basePolicy,
+      state: "contextual_only",
+      segment: "contextual_only",
+      evidenceSource: "snapshot",
+      blockers: ["snapshot evidence is contextual and cannot authorize primary Creative action."],
+    };
+    fixture.creatives[2].operatorPolicy = {
+      ...basePolicy,
+      state: "watch",
+      segment: "creative_learning_incomplete",
+      actionClass: "test",
+      evidenceSource: "live",
+      blockers: [],
+      missingEvidence: ["evidence_floor"],
+      requiredEvidence: ["evidence_floor"],
+      explanation: "Creative evidence is thin.",
+    };
+
+    const blocked = buildCreativeOperatorItem(fixture.creatives[0]);
+    const contextual = buildCreativeOperatorItem(fixture.creatives[1]);
+    const thin = buildCreativeOperatorItem(fixture.creatives[2]);
+
+    expect(blocked.primaryAction).toBe("Not eligible for evaluation");
+    expect(contextual.primaryAction).toBe("Not eligible for evaluation");
+    expect(thin.primaryAction).toBe("Not Enough Data");
+    expect(blocked.secondaryLabels).toContain("Not eligible for evaluation");
+    expect(contextual.secondaryLabels).toContain("Not eligible for evaluation");
+    expect(thin.secondaryLabels).toContain("Not Enough Data");
   });
 
   it("uses frequency pressure to raise fatigued winner urgency without changing safety gates", () => {
@@ -531,13 +585,13 @@ describe("creative operator surface", () => {
     expect(creativeAuthorityStateLabel("watch")).toBe("Test");
     expect(creativeAuthorityStateLabel("no_action")).toBe("Evergreen");
     expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold: verify");
-    expect(creativeAuthorityStateLabel("blocked")).toBe("Refresh");
+    expect(creativeAuthorityStateLabel("blocked")).toBe("Check");
   });
 
   it("exposes concise labels for performance quick filters in the top toolbar", () => {
     expect(creativeQuickFilterShortLabel("act_now")).toBe("Scale");
     expect(creativeQuickFilterShortLabel("watch")).toBe("Test");
-    expect(creativeQuickFilterShortLabel("blocked")).toBe("Refresh");
+    expect(creativeQuickFilterShortLabel("blocked")).toBe("Check");
     expect(creativeQuickFilterShortLabel("needs_truth")).toBe("Hold");
     expect(creativeQuickFilterShortLabel("no_action")).toBe("Evergreen");
   });
