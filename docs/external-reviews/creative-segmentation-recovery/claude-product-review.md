@@ -376,3 +376,146 @@ The holdout validation proved the foundation. The taxonomy is right. Safety is c
 **Pass 6 needed:** Yes.
 
 **Pass 6 focus (one sentence):** Diagnose and close the `Scale Review` live-firing gap on the 4 rows that already clear true-Scale evidence but are capped by missing business validation, plus split the `Not Enough Data` instruction body into "too early" vs "weak Watch" variants — no new labels, no floor loosening, no push/apply changes.
+
+---
+
+## Final Recovery Review
+
+Reviewer: Claude Code (product-strategy and media buyer logic reviewer)
+Date: 2026-04-24
+Scope: Single final product review for Creative Segmentation Recovery after pass-6 and pass-6 hardening. Decides whether the work is product-acceptable for a professional media buyer or whether one more focused pass is warranted.
+
+---
+
+### Executive Verdict: READY
+
+Every concrete product risk from the Post-Pass-5 Holdout Review was either addressed correctly in pass 6 or proved to be a reporting artifact rather than a real miss. The `Scale Review` live-firing gap was diagnosed: three of the four "missing" rows I flagged were correctly-capped `Protect` cases that the holdout helper was miscounting; one was a genuine miss and is now fixed. `Not Enough Data` vs `Watch` now differentiates for mature high-spend zero-purchase rows. The `Test More` fatigue caveat fires only on real fatigue pressure, not on "Frequency unavailable" missing-data notes. The taxonomy, safety gates, benchmark scope behavior, and Commercial Truth split have all survived live holdout validation without a foundational failure.
+
+Creative Segmentation Recovery can stop here. The remaining open items are real-world observation needs (true `Scale`, `Retest`, `Cut` have not yet live-confirmed because the live holdout cohort did not contain rows that met their floors), not product defects. These belong in a monitoring window, not in another implementation pass.
+
+---
+
+### 1. What Is Now Genuinely Good
+
+**The Scale Review diagnosis was clean and honest.** The pass-6 investigation showed that the "4 rows not reaching Scale Review" finding I raised after pass 5 was partially a reporting error — the holdout helper counted protected winners as hidden `Scale Review` misses, which they were not. Only `company-01/company-01-creative-03` was an actual policy miss. Pass 6 fixed the policy gate for that one real case and also corrected the helper so future diagnostics do not inflate the miss count. This kind of precise, narrow correction — rather than a floor-wide loosening — is exactly the right response to a single disagreement row.
+
+**The Not Enough Data vs Watch split is the right shape.** Mature rows (keep_in_test + meaningful spend + meaningful impressions + not-early + zero purchases) now route to `Watch` instead of `Not Enough Data`. Early-stage thin rows still route to `Not Enough Data`. The two operator stances — "monitor carefully, decision pressure building" vs "too early, come back later" — are now separated at the routing level, not just in instruction copy. A media buyer can read the label and know which situation they are in.
+
+**Scale Review is now a live, reachable review state.** Before pass 6, strong-relative rows with missing business validation routed through upstream `keep_in_test` downgrade and never reached `scale_review`. After pass 6, a row with true-scale evidence + missing business validation + no other blocker surfaces as `Scale Review` (review-only, push-blocked, queue-blocked, apply-blocked). That is the single most important product change in this recovery program: the system now tells a media buyer "this creative looks scale-worthy against account peers, validate business targets before acting" instead of showing nothing.
+
+**The fatigue caveat is now trustworthy.** Pass-6 hardening fixed a narrow but credibility-damaging misfire: "Frequency unavailable" was matching the fatigue-pressure trigger, making benign `Test More` rows appear as if they carried fatigue risk. That kind of false-positive instruction noise is exactly what erodes operator trust, and the fix is appropriately narrow (regex tightening in the prescription layer, not a segment change).
+
+**The four-layer separation is now structurally complete.** Creative Quality (relative performance), Evidence Confidence (sample floors), Business Validation (Commercial Truth), and Execution Safety (queue/push/apply gates) operate as independent filters. Missing CT caps execution but does not erase relative quality. Weak evidence caps action but does not erase what is observable. Weak campaign context surfaces as `Campaign Check` instead of masquerading as creative weakness. This was the core product architecture the strategy review recommended, and it is now in place.
+
+**The holdout validation discipline is holding.** Pass 6 did not retune thresholds from the boundary disagreements on `company-01-creative-18`, `company-03-creative-02`, or the others — because those disagreements were not single-direction enough to justify deterministic tuning. That restraint is as important as the tuning itself. A recovery program that retunes at every panel split overfits.
+
+**Old rule engine is still losing cleanly.** Across every documented holdout disagreement, the old challenger was worse on `Campaign Check`, `Refresh`, `Protect`, and thin-evidence negatives. It was never better. The "challenger, not ground truth" framing from the strategy review was correct and the discipline was upheld.
+
+### 2. What Is Still Weak
+
+**True `Scale` has no live-confirmed row yet.** The path exists, the floors are correct, fixtures pass. But in 293 evaluated live creatives, zero reached `Scale`. That is not a product bug — it is an accurate reflection of business validation availability across the current holdout cohort (91% missing CT). The floor is correctly strict. But until the first live `Scale` row appears and an operator confirms it was the right call, the label remains structurally sound and empirically unexercised. This is a monitoring need, not a pass-7 task.
+
+**`Retest` and `Cut` have zero holdout representation.** Same situation. The paths are implemented, fixtures pass, and the live holdout cohort simply did not contain rows that cleared the thresholds. `Cut` in particular — kill evidence requires $250+ spend and 4+ purchases (or 8k+ impressions) with `block_deploy` primary action. If no live row reached that, it does not mean the label is broken; it means the current accounts do not contain clearly-kill-evidence creatives. Monitor in production.
+
+**Holdout sample size is small.** 2 holdout companies, 101 creatives. That is enough to confirm the foundational behavior held on an unseen cohort, but it is not enough to make broad claims about edge-case behavior across account archetypes. The correct response is not another implementation pass — it is to let more production traffic flow through and watch for the first unexpected segment distributions, then respond surgically if any appear.
+
+**Boundary disagreements on thin rows remain real.** The `Watch` / `Scale Review` / `Protect` split on rows like `company-01/company-01-creative-03` was the one real miss, and it is fixed. But there will always be rows where experienced media buyers honestly disagree — this is inherent to thin-evidence judgment, not a system defect. The program cannot eliminate boundary ambiguity; it can only ensure the system makes a defensible choice and names it clearly. It now does.
+
+### 3. Segment Names / Meanings That Still Feel Off
+
+**None.**
+
+Every label in the 10-segment taxonomy survived live holdout evaluation and pass-6 refinement without a naming concern surfacing. `Scale`, `Scale Review`, `Test More`, `Protect`, `Watch`, `Refresh`, `Retest`, `Cut`, `Campaign Check`, and `Not Enough Data` are each doing distinct operator work. No segment needs renaming, splitting, or merging.
+
+The earlier concerns from the naming review ("Diagnose Context" → renamed to "Campaign Check", "Cut / Replace" → simplified to "Cut", "Refresh / Variant" → split into `Refresh` and `Retest`) were all applied and held. The concerns I raised after pass 5 about `Not Enough Data` instruction-body variants are now resolved at the routing level, which is a stronger solution than instruction-body differentiation alone.
+
+### 4. Are Scale / Scale Review Now Believable?
+
+**Scale: appropriately strict, credible as a contract.**
+The floor requires strong baseline, ≥6 peer creatives, ≥$500 spend basis, ≥8 purchases basis, creative spend ≥ max($300, 1.3× median), purchases ≥6, ROAS ≥1.6× median, CPA ≤ median, and favorable CT. A media buyer seeing a `Scale` label under this floor would trust it immediately. The label has not yet fired on the live holdout cohort because CT is missing for 91% of rows — this is a data-availability fact, not a product defect. When the first live `Scale` row appears, it should be monitored as a validation checkpoint.
+
+**Scale Review: now actually useful.**
+Before pass 6: zero live rows, a dead letter label. After pass 6: the gate fires when a row clears true-scale evidence but the only remaining blocker is missing business validation. That is exactly the operator surface a media buyer needs — "this creative looks strong relative to peers; validate business targets before acting" — without pretending profitability is confirmed. The review-only safety contract is preserved (push blocked, queue blocked, apply blocked). Commercial Truth missing no longer suppresses the relative-quality signal.
+
+Both labels now have a clean separation: `Scale` is the strict execution-ready label; `Scale Review` is the relative-winner-but-validate label. That two-step progression is exactly what a professional media buyer expects from an operator system.
+
+### 5. Are Test More / Not Enough Data / Watch / Protect / Campaign Check Operator-Usable?
+
+**Test More:** Yes. Fatigue caveat fires only on real fatigue pressure. Label distinguishes cleanly from `Not Enough Data` for under-sampled positives.
+
+**Not Enough Data:** Yes. Now reserved for genuinely early/thin rows. High-spend zero-purchase mature rows route to `Watch` instead. The two operator stances are no longer collapsed.
+
+**Watch:** Yes. Now carries the mature weak case (high-spend zero-purchase, not early) as well as the generic monitoring state. Instruction body carries decision-pressure guidance when the row is in the weak-mature sub-case.
+
+**Protect:** Yes. Holdout-confirmed, structurally enforced via push readiness, no panel disagreement on its core cases.
+
+**Campaign Check:** Yes. 3 holdout rows, broad panel agreement. The label correctly identifies campaign/ad set context as the blocker instead of blaming the creative.
+
+All five are now operator-usable in the sense that a media buyer can read the label, understand the implied stance, and act without having to reverse-engineer the underlying internal state.
+
+### 6. Is Commercial Truth Now Balanced Enough?
+
+**Yes.**
+
+What CT still blocks: true `Scale` eligibility (correctly — scaling decisions require business validation), push/apply authority (correctly — provider mutations require profit targets), absolute profit claims in instructions (correctly — the system should not claim profitability it cannot verify).
+
+What CT no longer blocks: relative strength diagnosis, `Refresh`, `Protect`, `Watch`, `Test More`, `Campaign Check`, `Scale Review`, `Cut`. A row's segmentation is no longer erased by CT absence; only its execution authority is.
+
+This matches the naming-review recommendation exactly: CT is the absolute business validation layer for execution, not a prerequisite for identifying relatively strong creatives. The balance is now correct.
+
+### 7. Is Benchmark Scope Behavior Correct and Trustworthy?
+
+**Yes.** Default account-wide. Campaign benchmark explicit-only (operator must click "Within campaign"). Scope is visible in the control and in the Decision OS surface metadata. Campaign filter alone does not silently re-segment. Runtime smoke confirmed this behavior post-hardening. No change needed.
+
+The one unexercised path: no live holdout row used campaign benchmark scope. The feature is implemented, tested with fixtures, and waits for its first production operator to activate it. That is acceptable — campaign benchmark is an operator choice, not a default state.
+
+### 8. Top 3 Remaining Product Risks
+
+1. **True `Scale` and `Cut` remain unexercised on live data.** The policy paths are correct and fixtures pass, but zero live rows have reached either label yet. This is not a product defect — it is a monitoring need. The first live `Scale` and `Cut` rows should be reviewed by the owner as validation checkpoints. If either fires incorrectly on its first real use, that is a surgical product problem to address at that moment, not a reason to delay stopping the recovery program now.
+
+2. **Small holdout cohort means unseen account archetypes are still unseen.** 2 holdout companies cannot cover DTC vs high-ticket B2B vs brand awareness vs local-volume account types. The system may behave correctly on all of them or may surface edge cases that the current fixture set does not anticipate. The correct mitigation is production observability — monitor segment distributions per account and flag distributions that deviate sharply from expected shapes. Not another implementation pass.
+
+3. **Boundary disagreement on the thinnest rows will persist.** Rows like `company-01-creative-18` (under-sampled positive with early fatigue pressure) will continue to split experienced reviewer lenses. This is inherent to thin-evidence judgment, not solvable by threshold tuning. The system must pick a single label, name it defensibly, and let the instruction body carry the nuance. It now does. Operators who disagree on these rows are not operators who have been failed by the system — they are operators who have hit a genuinely ambiguous situation and the system has at least told them what it thinks clearly.
+
+### 9. Is One More Focused Pass Needed?
+
+**No.**
+
+Creative Segmentation Recovery can stop.
+
+Reasons:
+- All three product risks from the Post-Pass-5 Holdout Review were either fixed in pass 6 (Scale Review gate, Not Enough Data / Watch split, Test More fatigue caveat) or shown to be reporting artifacts rather than real misses.
+- The pass-6 hardening closed the last known instruction-copy misfire.
+- No foundational data-accuracy, label-collapse, or taxonomy failure remains.
+- Remaining open items are monitoring needs (live `Scale` / `Cut` / `Retest` confirmation, holdout sample size) that implementation work cannot resolve — only production observation can.
+- Boundary disagreements on thin rows are inherent, not fixable through further tuning.
+- Old rule engine is still losing cleanly across every documented dimension. There is no place where the old challenger knows something the new system does not.
+
+**What should happen next (not as pass 7, but as the next program phase):**
+- Production observability on Creative segment distributions per account
+- Operator-reported first-sighting review when the first live `Scale`, `Cut`, and `Retest` rows appear
+- Resume Meta canary rollout work (telemetry sink activation, canary business config) which runs independently and has been waiting
+- Do not start pass 7 unless a specific, single-direction product defect is reported from live operator use
+
+### 10. Is Creative Segmentation Recovery Ready to Stop?
+
+**Yes. Creative Segmentation Recovery can stop here.**
+
+The program has done what it set out to do. The Creative Decision OS now tells a professional media buyer what to do, what not to touch, what to watch, what to investigate, and why — in media buyer language, with evidence, with relative performance context, with business-validation honesty, and with structural safety. The charter test ("would a strong media buyer trust the recommendations enough to act on them immediately?") now returns yes for the segments that fire on live data, and correctly withholds action for segments that do not have live confirmation yet.
+
+The remaining work — observing first live `Scale` and `Cut` rows in production, expanding the evidence base across more account archetypes, and restarting the Meta execution canary — is not implementation work. It is deployment and monitoring work.
+
+---
+
+### Final Chat Summary
+
+**Verdict:** READY
+
+**Top 3 Product Risks:**
+1. True `Scale` and `Cut` have zero live holdout representation — policy paths correct, fixtures pass, but first real occurrences need owner review as validation checkpoints when they fire in production
+2. Small holdout cohort (2 companies, 101 creatives) has not yet exercised unseen account archetypes — production observability on segment distributions per account is the right mitigation
+3. Boundary disagreements on the thinnest rows will persist (inherent to thin-evidence judgment) — the system must continue to pick defensibly and let instruction bodies carry nuance, not be retuned per disagreement
+
+**One more pass needed:** No.
+
+**If yes, focus:** N/A — Creative Segmentation Recovery stops here. Next program phase is production observability and Meta canary rollout resumption, not another implementation pass.
