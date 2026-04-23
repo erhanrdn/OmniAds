@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyRuntimeCandidateSkip,
   createEmptyCoverageSummary,
+  hasIntegrationTokenDecryptionKey,
   recordCoverage,
   resolveCandidateSkipReason,
+  shouldBlockCalibrationForMissingTokenKey,
   summarizeCandidateEligibility,
   type SourceBusinessRow,
 } from "./creative-segmentation-calibration-lab";
@@ -15,6 +18,7 @@ function candidate(overrides: Partial<SourceBusinessRow>): SourceBusinessRow {
     latest_synced_at: "2026-04-23T00:00:00.000Z",
     connection_status: "connected",
     has_access_token: true,
+    has_encrypted_access_token: true,
     assigned_account_count: 1,
     ...overrides,
   };
@@ -69,5 +73,64 @@ describe("creative segmentation calibration lab helpers", () => {
     expect(coverage.oldRuleSegments).toEqual({ watch: 1 });
     expect(coverage.baselineReliability).toEqual({ strong: 1 });
     expect(coverage.pushReadiness).toEqual({ blocked_from_push: 1 });
+  });
+
+  it("blocks live cohort recovery when encrypted tokens exist but the decryption key is missing", () => {
+    expect(
+      shouldBlockCalibrationForMissingTokenKey({
+        candidates: [candidate({ has_encrypted_access_token: true })],
+        hasTokenKey: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockCalibrationForMissingTokenKey({
+        candidates: [candidate({ has_encrypted_access_token: false })],
+        hasTokenKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      hasIntegrationTokenDecryptionKey({
+        INTEGRATION_TOKEN_ENCRYPTION_KEY: "set",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toBe(true);
+    expect(hasIntegrationTokenDecryptionKey({} as unknown as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it("classifies checkpointed Meta accounts as runtime token skips", () => {
+    expect(
+      classifyRuntimeCandidateSkip({
+        payloadStatus: "no_data",
+        tableRowCount: 0,
+        accountProbes: [
+          {
+            ok: false,
+            status: 400,
+            errorCode: 190,
+            errorSubcode: 459,
+            rows: 0,
+            spendBearingRows: 0,
+          },
+        ],
+      }),
+    ).toBe("meta_token_checkpointed");
+  });
+
+  it("classifies healthy zero-row reads as no current creative activity", () => {
+    expect(
+      classifyRuntimeCandidateSkip({
+        payloadStatus: "no_data",
+        tableRowCount: 0,
+        accountProbes: [
+          {
+            ok: true,
+            status: 200,
+            errorCode: null,
+            errorSubcode: null,
+            rows: 0,
+            spendBearingRows: 0,
+          },
+        ],
+      }),
+    ).toBe("no_current_creative_activity");
   });
 });

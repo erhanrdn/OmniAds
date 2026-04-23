@@ -8,6 +8,7 @@ import {
   creativeOperatorSegmentLabel,
   resolveCreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
+import { getIntegration } from "@/lib/integrations";
 import type {
   CreativeDecisionOsCreative,
 } from "@/lib/creative-decision-os";
@@ -16,6 +17,7 @@ import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source
 import { buildCreativeOldRuleChallenger } from "@/lib/creative-old-rule-challenger";
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { addDaysToIsoDate } from "@/lib/meta/history";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -27,6 +29,7 @@ export type SourceBusinessRow = {
   latest_synced_at: string;
   connection_status: string | null;
   has_access_token: boolean;
+  has_encrypted_access_token: boolean;
   assigned_account_count: number;
 };
 
@@ -35,6 +38,12 @@ export type CandidateSkipReason =
   | "meta_connection_not_connected"
   | "no_access_token"
   | "no_accounts_assigned";
+
+export type RuntimeCandidateSkipReason =
+  | CandidateSkipReason
+  | "meta_token_checkpointed"
+  | "provider_read_failure"
+  | "no_current_creative_activity";
 
 type NumericMetricKey =
   | "spend"
@@ -111,6 +120,21 @@ type SanitizedCalibrationRow = {
   missingEvidence: string[];
 };
 
+type LiveMetaAccountProbe = {
+  ok: boolean;
+  status: number;
+  errorCode: number | null;
+  errorSubcode: number | null;
+  rows: number;
+  spendBearingRows: number;
+};
+
+type FetchCreativePayloadResult = {
+  status: string | null;
+  snapshotSource: string | null;
+  rows: MetaCreativeRow[];
+};
+
 export type DatasetArtifact = {
   generatedAt: string;
   source: "creative_segmentation_calibration_lab";
@@ -130,8 +154,11 @@ export type DatasetArtifact = {
     candidateEligibility: {
       historicalSnapshotCandidates: number;
       eligibleCandidates: number;
+      runtimeEligibleCandidates: number;
       skippedCandidates: number;
       skippedCandidatesByReason: Record<CandidateSkipReason, number>;
+      runtimeSkippedCandidates: number;
+      runtimeSkippedCandidatesByReason: Record<RuntimeCandidateSkipReason, number>;
       sampledCandidates: number;
       zeroRowEligibleCandidates: number;
     };
@@ -176,6 +203,16 @@ const EMPTY_SKIPPED_CANDIDATES_BY_REASON: Record<CandidateSkipReason, number> = 
   meta_connection_not_connected: 0,
   no_access_token: 0,
   no_accounts_assigned: 0,
+};
+
+const EMPTY_RUNTIME_SKIPPED_CANDIDATES_BY_REASON: Record<RuntimeCandidateSkipReason, number> = {
+  no_current_meta_connection: 0,
+  meta_connection_not_connected: 0,
+  no_access_token: 0,
+  no_accounts_assigned: 0,
+  meta_token_checkpointed: 0,
+  provider_read_failure: 0,
+  no_current_creative_activity: 0,
 };
 
 function installSanitizedRuntimeGuards() {
@@ -289,6 +326,71 @@ export function summarizeCandidateEligibility(candidates: SourceBusinessRow[]) {
     skippedCandidatesByReason,
     skippedCandidates: candidates.length - eligible.length,
   };
+}
+
+export function hasIntegrationTokenDecryptionKey(env: NodeJS.ProcessEnv = process.env) {
+  return Boolean(env.INTEGRATION_TOKEN_ENCRYPTION_KEY?.trim());
+}
+
+export function shouldBlockCalibrationForMissingTokenKey(input: {
+  candidates: Pick<SourceBusinessRow, "has_access_token" | "has_encrypted_access_token">[];
+  hasTokenKey: boolean;
+}) {
+  if (input.hasTokenKey) return false;
+  return input.candidates.some(
+    (candidate) => candidate.has_access_token && candidate.has_encrypted_access_token,
+  );
+}
+
+export function classifyRuntimeCandidateSkip(input: {
+  payloadStatus: string | null;
+  tableRowCount: number;
+  accountProbes: LiveMetaAccountProbe[];
+}): RuntimeCandidateSkipReason | null {
+  if (input.tableRowCount > 0) return null;
+  if (input.payloadStatus === "no_connection") return "no_current_meta_connection";
+  if (input.payloadStatus === "no_access_token") return "no_access_token";
+  if (input.payloadStatus === "no_accounts_assigned") return "no_accounts_assigned";
+
+  if (input.accountProbes.some((probe) => probe.errorCode === 190 || probe.errorSubcode === 459)) {
+    return "meta_token_checkpointed";
+  }
+  if (input.accountProbes.some((probe) => !probe.ok)) {
+    return "provider_read_failure";
+  }
+  if (
+    input.accountProbes.length > 0 &&
+    input.accountProbes.every((probe) => probe.ok && probe.rows === 0)
+  ) {
+    return "no_current_creative_activity";
+  }
+  if (
+    input.accountProbes.length > 0 &&
+    input.accountProbes.every((probe) => probe.ok && probe.spendBearingRows === 0)
+  ) {
+    return "no_current_creative_activity";
+  }
+
+  return input.payloadStatus === "no_data" ? "provider_read_failure" : null;
+}
+
+function buildRuntimeSkipWarning(alias: string, reason: RuntimeCandidateSkipReason) {
+  switch (reason) {
+    case "no_current_meta_connection":
+      return `${alias}: skipped because the current creative source could not resolve a connected Meta integration.`;
+    case "meta_connection_not_connected":
+      return `${alias}: skipped because the current creative source reported a non-connected Meta integration state.`;
+    case "no_access_token":
+      return `${alias}: skipped because the current creative source could not decrypt a usable Meta access token.`;
+    case "no_accounts_assigned":
+      return `${alias}: skipped because the current creative source resolved no assigned Meta accounts.`;
+    case "meta_token_checkpointed":
+      return `${alias}: skipped because the assigned Meta account rejected current API reads with an OAuth checkpoint/token error.`;
+    case "provider_read_failure":
+      return `${alias}: skipped because current Meta API reads failed despite a connected assignment record.`;
+    case "no_current_creative_activity":
+      return `${alias}: skipped because the assigned Meta account returned no current creative activity in the decision window.`;
+  }
 }
 
 function median(values: number[]) {
@@ -492,6 +594,17 @@ async function fetchCreativeRows(input: {
   startDate: string;
   endDate: string;
 }) {
+  const payload = await fetchCreativePayload(input);
+  return payload.rows;
+}
+
+async function fetchCreativePayload(input: {
+  request: NextRequest;
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  snapshotBypass?: boolean;
+}): Promise<FetchCreativePayloadResult> {
   const payload = await getMetaCreativesApiPayload({
     request: input.request,
     requestStartedAt: Date.now(),
@@ -505,7 +618,7 @@ async function fetchCreativeRows(input: {
     debugPreview: false,
     debugThumbnail: false,
     debugPerf: false,
-    snapshotBypass: false,
+    snapshotBypass: input.snapshotBypass ?? false,
     snapshotWarm: false,
     enableCopyRecovery: false,
     enableCreativeBasicsFallback: false,
@@ -519,7 +632,73 @@ async function fetchCreativeRows(input: {
     perAccountSampleLimit: 10,
   });
 
-  return ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow);
+  return {
+    status: typeof payload.status === "string" ? payload.status : null,
+    snapshotSource:
+      typeof (payload as { snapshot_source?: unknown }).snapshot_source === "string"
+        ? ((payload as { snapshot_source?: string }).snapshot_source ?? null)
+        : null,
+    rows: ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow),
+  };
+}
+
+async function probeLiveMetaAccountAccess(input: {
+  accessToken: string;
+  accountIds: string[];
+  startDate: string;
+  endDate: string;
+}) {
+  const probes: LiveMetaAccountProbe[] = [];
+
+  for (const accountId of input.accountIds) {
+    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
+    url.searchParams.set("fields", "ad_id,spend");
+    url.searchParams.set("level", "ad");
+    url.searchParams.set(
+      "time_range",
+      JSON.stringify({ since: input.startDate, until: input.endDate }),
+    );
+    url.searchParams.set("limit", "5");
+    url.searchParams.set("access_token", input.accessToken);
+
+    try {
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const body = (await response.json().catch(() => null)) as
+        | {
+            data?: Array<{ spend?: string | number | null }>;
+            error?: { code?: number; error_subcode?: number };
+          }
+        | null;
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      probes.push({
+        ok: response.ok,
+        status: response.status,
+        errorCode:
+          typeof body?.error?.code === "number" ? body.error.code : null,
+        errorSubcode:
+          typeof body?.error?.error_subcode === "number"
+            ? body.error.error_subcode
+            : null,
+        rows: rows.length,
+        spendBearingRows: rows.filter((row) => Number(row?.spend ?? 0) > 0).length,
+      });
+    } catch {
+      probes.push({
+        ok: false,
+        status: 0,
+        errorCode: null,
+        errorSubcode: null,
+        rows: 0,
+        spendBearingRows: 0,
+      });
+    }
+  }
+
+  return probes;
 }
 
 async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
@@ -555,6 +734,7 @@ async function getCandidateBusinesses(): Promise<SourceBusinessRow[]> {
         latest.latest_synced_at,
         pc.status AS connection_status,
         (NULLIF(ic.access_token, '') IS NOT NULL) AS has_access_token,
+        (COALESCE(ic.access_token, '') LIKE 'enc:v1:%') AS has_encrypted_access_token,
         COALESCE(assignment_counts.assigned_account_count, 0)::int AS assigned_account_count
       FROM latest
       LEFT JOIN provider_connections pc
@@ -586,12 +766,32 @@ async function getWarehouseCreativeDailyStatus(): Promise<DatasetArtifact["dataA
   };
 }
 
+async function persistArtifact(artifact: DatasetArtifact) {
+  await mkdir(OUTPUT_DIR, { recursive: true });
+  await writeFile(DATASET_PATH, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  console.log(
+    JSON.stringify(
+      {
+        output: DATASET_PATH,
+        gatePassed: artifact.dataAccuracyGate.passed,
+        checkedCompanies: artifact.dataAccuracyGate.checkedCompanies,
+        checkedRows: artifact.dataAccuracyGate.checkedRows,
+        blockers: artifact.dataAccuracyGate.blockers,
+        warnings: artifact.dataAccuracyGate.warnings,
+        coverage: artifact.coverage,
+      },
+      null,
+      2,
+    ),
+  );
+  return artifact;
+}
+
 export async function runCalibrationLab() {
   installSanitizedRuntimeGuards();
   const generatedAt = new Date().toISOString();
   const candidateRows = await getCandidateBusinesses();
   const candidateEligibility = summarizeCandidateEligibility(candidateRows);
-  const businessRows = candidateEligibility.eligible.slice(0, MAX_COMPANIES);
   const warehouseCreativeDaily = await getWarehouseCreativeDailyStatus();
   const rows: SanitizedCalibrationRow[] = [];
   const warnings: string[] = [
@@ -615,16 +815,95 @@ export async function runCalibrationLab() {
   const coverage = createEmptyCoverageSummary();
   let tableDecisionMismatches = 0;
   let zeroRowEligibleCandidates = 0;
+  const runtimeSkippedCandidatesByReason = {
+    ...EMPTY_RUNTIME_SKIPPED_CANDIDATES_BY_REASON,
+  };
+  const runtimeEligibleBusinesses: Array<{
+    business: SourceBusinessRow;
+    live30d: FetchCreativePayloadResult;
+  }> = [];
   const maxMetricDelta = Object.fromEntries(METRIC_KEYS.map((key) => [key, 0])) as Record<
     NumericMetricKey,
     number
   >;
 
-  if (businessRows.length === 0) {
+  if (
+    shouldBlockCalibrationForMissingTokenKey({
+      candidates: candidateEligibility.eligible,
+      hasTokenKey: hasIntegrationTokenDecryptionKey(),
+    })
+  ) {
+    blockers.push(
+      "Calibration helper runtime is missing the integration token decryption key required to verify current Meta connectivity. DATABASE_URL alone is not enough for live Meta cohort recovery.",
+    );
+  }
+
+  if (candidateEligibility.eligible.length === 0) {
     blockers.push("No currently eligible Meta-connected businesses were available for calibration.");
   }
 
-    for (const [businessIndex, business] of businessRows.entries()) {
+  for (const [candidateIndex, business] of candidateEligibility.eligible.entries()) {
+    if (blockers.length > 0) break;
+    const candidateAlias = `candidate-${String(candidateIndex + 1).padStart(2, "0")}`;
+    const decisionAsOf = business.max_end_date;
+    const startDate = addDaysToIsoDate(decisionAsOf, -29);
+    const endDate = decisionAsOf;
+    const request = new NextRequest(
+      `http://localhost/api/creatives/decision-os?businessId=${encodeURIComponent(
+        business.business_id,
+      )}&startDate=${startDate}&endDate=${endDate}&decisionAsOf=${endDate}`,
+    );
+
+    const live30d = await fetchCreativePayload({
+      request,
+      businessId: business.business_id,
+      startDate,
+      endDate,
+      snapshotBypass: true,
+    }).catch((error) => {
+      warnings.push(
+        `${candidateAlias}: skipped because the live Meta cohort probe failed before rows could be verified (${error instanceof Error ? error.message : "unknown error"}).`,
+      );
+      runtimeSkippedCandidatesByReason.provider_read_failure += 1;
+      return null;
+    });
+    if (!live30d) continue;
+
+    const integration = await getIntegration(business.business_id, "meta").catch(() => null);
+    const assignedAccountIds = await fetchAssignedAccountIds(business.business_id).catch(
+      () => [],
+    );
+    const accountProbes =
+      live30d.rows.length === 0 && integration?.access_token
+        ? await probeLiveMetaAccountAccess({
+            accessToken: integration.access_token,
+            accountIds: assignedAccountIds,
+            startDate,
+            endDate,
+          })
+        : [];
+    const runtimeSkipReason = classifyRuntimeCandidateSkip({
+      payloadStatus: live30d.status,
+      tableRowCount: live30d.rows.length,
+      accountProbes,
+    });
+    if (runtimeSkipReason) {
+      runtimeSkippedCandidatesByReason[runtimeSkipReason] += 1;
+      warnings.push(buildRuntimeSkipWarning(candidateAlias, runtimeSkipReason));
+      continue;
+    }
+
+    runtimeEligibleBusinesses.push({ business, live30d });
+  }
+
+  const businessRows = runtimeEligibleBusinesses.slice(0, MAX_COMPANIES);
+
+  if (runtimeEligibleBusinesses.length === 0) {
+    blockers.push("No live Meta-readable businesses were available for calibration.");
+  }
+
+  for (const [businessIndex, runtimeEligible] of businessRows.entries()) {
+      const business = runtimeEligible.business;
       const companyAlias = `company-${String(businessIndex + 1).padStart(2, "0")}`;
       const decisionAsOf = business.max_end_date;
       const startDate = addDaysToIsoDate(decisionAsOf, -29);
@@ -636,7 +915,7 @@ export async function runCalibrationLab() {
       );
 
       let decisionOs: Awaited<ReturnType<typeof getCreativeDecisionOsForRange>>;
-      let tableRows: MetaCreativeRow[];
+      let tableRows: MetaCreativeRow[] = runtimeEligible.live30d.rows;
       let last7Rows: MetaCreativeRow[];
       let last90Rows: MetaCreativeRow[];
       try {
@@ -649,7 +928,6 @@ export async function runCalibrationLab() {
           analyticsEndDate: endDate,
           decisionAsOf: endDate,
         });
-        tableRows = await fetchCreativeRows({ request, businessId: business.business_id, startDate, endDate });
         last7Rows = await fetchCreativeRows({
           request,
           businessId: business.business_id,
@@ -801,64 +1079,56 @@ export async function runCalibrationLab() {
 
       if (decisionOs.creatives.length === 0) {
         zeroRowEligibleCandidates += 1;
-        blockers.push(`${companyAlias}: current Decision OS returned zero verifiable rows.`);
+        blockers.push(
+          tableRows.length > 0
+            ? `${companyAlias}: current Decision OS returned zero rows despite live creative source rows.`
+            : `${companyAlias}: current Decision OS returned zero verifiable rows.`,
+        );
       }
-    }
+  }
 
-    if (rows.length === 0) {
-      blockers.push("No verifiable current Decision OS creative rows were available; agent calibration must not run.");
-    }
+  if (rows.length === 0) {
+    blockers.push("No verifiable current Decision OS creative rows were available; agent calibration must not run.");
+  }
 
-    const artifact: DatasetArtifact = {
-      generatedAt,
-      source: "creative_segmentation_calibration_lab",
-      sanitization: {
-        rawIdsIncluded: false,
-        rawNamesIncluded: false,
-        notes: [
-          "Business, account, campaign, ad set, and creative identifiers are replaced with deterministic aliases per generated artifact.",
-          "Creative names, campaign names, ad set names, preview URLs, copy text, tokens, and customer names are not exported.",
-        ],
+  const artifact: DatasetArtifact = {
+    generatedAt,
+    source: "creative_segmentation_calibration_lab",
+    sanitization: {
+      rawIdsIncluded: false,
+      rawNamesIncluded: false,
+      notes: [
+        "Business, account, campaign, ad set, and creative identifiers are replaced with deterministic aliases per generated artifact.",
+        "Creative names, campaign names, ad set names, preview URLs, copy text, tokens, and customer names are not exported.",
+      ],
+    },
+    dataAccuracyGate: {
+      passed: blockers.length === 0 && rows.length > 0,
+      blockers,
+      warnings,
+      checkedCompanies: coverage.companies,
+      checkedRows: coverage.creatives,
+      tableDecisionMismatches,
+      maxMetricDelta,
+      candidateEligibility: {
+        historicalSnapshotCandidates: candidateRows.length,
+        eligibleCandidates: candidateEligibility.eligible.length,
+        runtimeEligibleCandidates: runtimeEligibleBusinesses.length,
+        skippedCandidates: candidateEligibility.skippedCandidates,
+        skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
+        runtimeSkippedCandidates:
+          candidateEligibility.eligible.length - runtimeEligibleBusinesses.length,
+        runtimeSkippedCandidatesByReason,
+        sampledCandidates: businessRows.length,
+        zeroRowEligibleCandidates,
       },
-      dataAccuracyGate: {
-        passed: blockers.length === 0 && rows.length > 0,
-        blockers,
-        warnings,
-        checkedCompanies: coverage.companies,
-        checkedRows: coverage.creatives,
-        tableDecisionMismatches,
-        maxMetricDelta,
-        candidateEligibility: {
-          historicalSnapshotCandidates: candidateRows.length,
-          eligibleCandidates: candidateEligibility.eligible.length,
-          skippedCandidates: candidateEligibility.skippedCandidates,
-          skippedCandidatesByReason: candidateEligibility.skippedCandidatesByReason,
-          sampledCandidates: businessRows.length,
-          zeroRowEligibleCandidates,
-        },
-        warehouseCreativeDaily,
-      },
-      coverage,
-      rows,
-    };
+      warehouseCreativeDaily,
+    },
+    coverage,
+    rows,
+  };
 
-    await mkdir(OUTPUT_DIR, { recursive: true });
-    await writeFile(DATASET_PATH, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
-    console.log(
-      JSON.stringify(
-        {
-          output: DATASET_PATH,
-          gatePassed: artifact.dataAccuracyGate.passed,
-          checkedCompanies: artifact.dataAccuracyGate.checkedCompanies,
-          checkedRows: artifact.dataAccuracyGate.checkedRows,
-          blockers: artifact.dataAccuracyGate.blockers,
-          warnings: artifact.dataAccuracyGate.warnings,
-          coverage: artifact.coverage,
-        },
-        null,
-        2,
-      ),
-    );
+  return persistArtifact(artifact);
 }
 
 function isDirectRun() {
