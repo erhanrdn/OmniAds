@@ -20,6 +20,7 @@ import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
+import { CreativeBenchmarkScopeControl } from "@/components/creatives/CreativeBenchmarkScopeControl";
 import {
   applyCreativeFilters,
   formatCreativeDateLabel,
@@ -30,9 +31,15 @@ import {
   CreativesTopSection,
   resolveCreativeDateRange,
 } from "@/components/creatives/CreativesTopSection";
+import {
+  filterRowsForCreativeBenchmarkScope,
+  resolveCreativeBenchmarkCampaignContext,
+  resolveCreativeBenchmarkScopeSelection,
+  type CreativeBenchmarkScopeMode,
+} from "@/components/creatives/creatives-top-section-support";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
-import { getCreativeDecisionOs, type CreativeDecisionOs } from "@/src/services";
+import { getCreativeDecisionOs } from "@/src/services";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
@@ -166,6 +173,8 @@ export default function CreativesPage() {
   const [decisionOsFamilyFilter, setDecisionOsFamilyFilter] = useState<string | null>(null);
   const [activeQuickFilterKey, setActiveQuickFilterKey] = useState<CreativeQuickFilterKey | null>(null);
   const [decisionOsDrawerOpen, setDecisionOsDrawerOpen] = useState(false);
+  const [benchmarkScopeMode, setBenchmarkScopeMode] =
+    useState<CreativeBenchmarkScopeMode>("account");
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -304,15 +313,7 @@ export default function CreativesPage() {
         sort: "spend",
       }),
   });
-  const creativeDecisionOsQuery = useQuery({
-    queryKey: ["creative-decision-os", businessId, drStart, drEnd],
-    enabled: canLoadCreatives,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    queryFn: () => getCreativeDecisionOs(businessId, drStart, drEnd),
-  });
   const activeCreativesPayload = creativesMetadataQuery.data;
-  const creativeDecisionOs = creativeDecisionOsQuery.data ?? null;
 
   const allRows = useMemo(() => {
     const payloadRows = activeCreativesPayload?.rows ?? [];
@@ -375,6 +376,49 @@ export default function CreativesPage() {
     }
     return rows;
   }, [activeCreativesPayload?.media_mode, activeCreativesPayload?.rows]);
+  const filterScopedRows = useMemo(
+    () => applyCreativeFilters(allRows, topFilters),
+    [allRows, topFilters],
+  );
+  const campaignBenchmarkContext = useMemo(
+    () => resolveCreativeBenchmarkCampaignContext(filterScopedRows),
+    [filterScopedRows],
+  );
+  const activeBenchmarkScope = useMemo(
+    () =>
+      resolveCreativeBenchmarkScopeSelection({
+        mode: benchmarkScopeMode,
+        campaignContext: campaignBenchmarkContext,
+      }),
+    [benchmarkScopeMode, campaignBenchmarkContext],
+  );
+  const benchmarkRows = useMemo(
+    () => filterRowsForCreativeBenchmarkScope(allRows, activeBenchmarkScope),
+    [activeBenchmarkScope, allRows],
+  );
+  useEffect(() => {
+    if (benchmarkScopeMode === "campaign" && !campaignBenchmarkContext) {
+      setBenchmarkScopeMode("account");
+    }
+  }, [benchmarkScopeMode, campaignBenchmarkContext]);
+  const creativeDecisionOsQuery = useQuery({
+    queryKey: [
+      "creative-decision-os",
+      businessId,
+      drStart,
+      drEnd,
+      activeBenchmarkScope.scope,
+      activeBenchmarkScope.scopeId,
+    ],
+    enabled: canLoadCreatives,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      getCreativeDecisionOs(businessId, drStart, drEnd, {
+        benchmarkScope: activeBenchmarkScope,
+      }),
+  });
+  const creativeDecisionOs = creativeDecisionOsQuery.data ?? null;
 
   const familyFocusIds = useMemo(() => {
     if (!creativeDecisionOs || !decisionOsFamilyFilter) return null;
@@ -827,6 +871,7 @@ export default function CreativesPage() {
               onSelectedMetricIdsChange={setTopMetricIds}
               selectedRows={topPreviewRows}
               allRowsForHeatmap={filteredRows}
+              benchmarkRows={benchmarkRows}
               defaultCurrency={selectedBusinessCurrency}
               onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
               onShareExport={handleShareExport}
@@ -845,6 +890,11 @@ export default function CreativesPage() {
               showDecisionSupportSurface={false}
               actionsPrefix={
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <CreativeBenchmarkScopeControl
+                    value={benchmarkScopeMode}
+                    campaignContext={campaignBenchmarkContext}
+                    onChange={setBenchmarkScopeMode}
+                  />
                   <Button
                     type="button"
                     variant="outline"

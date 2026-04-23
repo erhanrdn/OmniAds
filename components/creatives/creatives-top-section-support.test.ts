@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
-import { applyCreativeFilters } from "@/components/creatives/creatives-top-section-support";
+import {
+  applyCreativeFilters,
+  filterRowsForCreativeBenchmarkScope,
+  resolveCreativeBenchmarkCampaignContext,
+  resolveCreativeBenchmarkScopeSelection,
+} from "@/components/creatives/creatives-top-section-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
@@ -182,5 +187,64 @@ describe("applyCreativeFilters", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe("ad_1");
+  });
+});
+
+describe("creative benchmark scope helpers", () => {
+  it("keeps account-wide scope until the operator explicitly enables campaign benchmarking", () => {
+    const rows = [
+      mapApiRowToUiRow(buildApiRow()),
+      mapApiRowToUiRow(buildApiRow({ id: "ad_2", creative_id: "cr_2" })),
+    ];
+
+    const campaignContext = resolveCreativeBenchmarkCampaignContext(rows);
+    const benchmarkScope = resolveCreativeBenchmarkScopeSelection({
+      mode: "account",
+      campaignContext,
+    });
+
+    expect(campaignContext).toMatchObject({
+      campaignId: "cmp_1",
+      campaignName: "Campaign 1",
+      rowCount: 2,
+    });
+    expect(benchmarkScope).toMatchObject({
+      scope: "account",
+      scopeId: null,
+      scopeLabel: "Account-wide",
+    });
+  });
+
+  it("uses campaign-relative scope only when a single explicit campaign context exists", () => {
+    const rows = [
+      mapApiRowToUiRow(buildApiRow()),
+      mapApiRowToUiRow(buildApiRow({ id: "ad_2", creative_id: "cr_2" })),
+      mapApiRowToUiRow(buildApiRow({ id: "ad_3", creative_id: "cr_3", campaign_id: "cmp_2", campaign_name: "Campaign 2" })),
+    ];
+    const filteredRows = rows.filter((row) => row.campaignId === "cmp_1");
+    const campaignContext = resolveCreativeBenchmarkCampaignContext(filteredRows);
+    const benchmarkScope = resolveCreativeBenchmarkScopeSelection({
+      mode: "campaign",
+      campaignContext,
+    });
+
+    expect(benchmarkScope).toMatchObject({
+      scope: "campaign",
+      scopeId: "cmp_1",
+      scopeLabel: "Campaign 1",
+    });
+    expect(filterRowsForCreativeBenchmarkScope(rows, benchmarkScope).map((row) => row.id)).toEqual([
+      "ad_1",
+      "ad_2",
+    ]);
+  });
+
+  it("refuses campaign scope when the current context spans multiple campaigns", () => {
+    const rows = [
+      mapApiRowToUiRow(buildApiRow()),
+      mapApiRowToUiRow(buildApiRow({ id: "ad_2", creative_id: "cr_2", campaign_id: "cmp_2", campaign_name: "Campaign 2" })),
+    ];
+
+    expect(resolveCreativeBenchmarkCampaignContext(rows)).toBeNull();
   });
 });

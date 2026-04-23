@@ -28,7 +28,11 @@ import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { CreativeCommercialContextCard } from "@/components/creatives/creative-commercial-context-card";
-import { buildCreativeOperatorItem } from "@/lib/creative-operator-surface";
+import {
+  buildCreativeOperatorItem,
+  creativeBenchmarkReliabilityLabel,
+  creativeBusinessValidationNote,
+} from "@/lib/creative-operator-surface";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -300,6 +304,10 @@ export function CreativeDetailExperience({
   );
   const operatorItem = useMemo(
     () => (decisionOsCreative ? buildCreativeOperatorItem(decisionOsCreative) : null),
+    [decisionOsCreative],
+  );
+  const businessValidationNote = useMemo(
+    () => (decisionOsCreative ? creativeBusinessValidationNote(decisionOsCreative) : null),
     [decisionOsCreative],
   );
   const standardRange = useMemo(
@@ -1117,6 +1125,14 @@ export function CreativeDetailExperience({
                   </p>
                   <div className="mt-2 grid grid-cols-2 gap-1.5">
                     <CompactMetricCell
+                      label="Scope"
+                      value={decisionOsCreative.benchmarkScopeLabel}
+                    />
+                    <CompactMetricCell
+                      label="Reliability"
+                      value={creativeBenchmarkReliabilityLabel(decisionOsCreative.benchmarkReliability)}
+                    />
+                    <CompactMetricCell
                       label="ROAS"
                       value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x / ${decisionOsCreative.benchmark.metrics.roas.status}`}
                     />
@@ -1136,6 +1152,11 @@ export function CreativeDetailExperience({
                   {decisionOsCreative.benchmark.missingContext.length > 0 ? (
                     <p className="mt-2 text-[11px] text-amber-700">
                       Missing context: {decisionOsCreative.benchmark.missingContext.join(" · ")}
+                    </p>
+                  ) : null}
+                  {businessValidationNote ? (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      {businessValidationNote} Relative strength stays visible, but queue/apply remains blocked.
                     </p>
                   ) : null}
                 </div>

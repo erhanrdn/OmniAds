@@ -400,6 +400,18 @@ function defaultPrimaryMove(input: {
     return `Keep watching ${input.targetEntity}; wait for ${input.nextObservation[0] ?? input.missingEvidence[0] ?? "more stable evidence"} before ${action}.`;
   }
   if (input.kind === "investigate") {
+    if (isScaleReviewActionLabel(input.actionLabel)) {
+      const investigationReason = input.missingEvidence.some((item) =>
+        item.toLowerCase().includes("commercial_truth"),
+      )
+        ? "business validation is still missing."
+        : input.missingEvidence.some((item) =>
+              item.toLowerCase().includes("campaign") || item.toLowerCase().includes("adset"),
+            )
+          ? "campaign placement still needs review."
+          : "the supporting context is not command-ready yet.";
+      return `Review ${input.targetEntity} as a relative winner before any scale move; ${investigationReason}`;
+    }
     return `Investigate ${input.targetEntity} before ${action}; the current read is not command-ready.`;
   }
   if (input.kind === "blocked") {
@@ -434,6 +446,10 @@ function buildDoNowPrimaryMove(input: {
 
 function sameOperatorTarget(left: string, right: string) {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function isScaleReviewActionLabel(actionLabel: string) {
+  return actionLabel.trim().toLowerCase() === "scale review";
 }
 
 function isScaleActionLabel(actionLabel: string) {
@@ -560,7 +576,7 @@ export function buildOperatorInstruction(input: {
     instructionKind: kind,
     operatorVerb: operatorVerb(kind),
     headline:
-      kind === "do_now"
+      kind === "do_now" || isScaleReviewActionLabel(input.actionLabel)
         ? `${input.actionLabel}: ${input.targetEntity}`
         : `${operatorVerb(kind)}: ${input.targetEntity}`,
     primaryMove: defaultPrimaryMove({

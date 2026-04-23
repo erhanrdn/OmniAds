@@ -107,6 +107,44 @@ export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
   return "Check";
 }
 
+export function creativeBenchmarkReliabilityLabel(value: string | null | undefined) {
+  switch (value) {
+    case "strong":
+      return "Strong";
+    case "medium":
+      return "Medium";
+    case "weak":
+      return "Thin";
+    default:
+      return "Unavailable";
+  }
+}
+
+function resolvedCreativeBenchmarkScopeLabel(creative: CreativeDecisionOsCreative) {
+  if (creative.benchmarkScopeLabel?.trim()) return creative.benchmarkScopeLabel.trim();
+  if (creative.relativeBaseline?.scopeLabel?.trim()) return creative.relativeBaseline.scopeLabel.trim();
+  if (creative.benchmarkScope === "campaign" || creative.relativeBaseline?.scope === "campaign") {
+    return "Selected campaign";
+  }
+  return "Account-wide";
+}
+
+function creativeNeedsBusinessValidation(creative: CreativeDecisionOsCreative) {
+  const missingEvidence = creative.operatorPolicy?.missingEvidence ?? [];
+  if (missingEvidence.some((item) => item.toLowerCase().includes("commercial_truth"))) {
+    return true;
+  }
+  return (
+    creative.trust.operatorDisposition === "profitable_truth_capped" ||
+    creative.trust.truthState === "degraded_missing_truth"
+  );
+}
+
+export function creativeBusinessValidationNote(creative: CreativeDecisionOsCreative) {
+  if (!creativeNeedsBusinessValidation(creative)) return null;
+  return "Business validation is still missing, so this stays review-only.";
+}
+
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
   const segment = creative.operatorPolicy?.segment ?? null;
   switch (segment) {
@@ -339,6 +377,23 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
 }
 
 function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState, muted: boolean, blocker: string | null) {
+  if (creative.operatorPolicy?.segment === "scale_review") {
+    const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
+    const businessValidationNote = creativeBusinessValidationNote(creative);
+    if (businessValidationNote) {
+      return `Strong relative performer against the ${scopeLabel} benchmark. ${businessValidationNote}`;
+    }
+    if (
+      creative.operatorPolicy?.missingEvidence.some((item) =>
+        item.toLowerCase().includes("campaign") || item.toLowerCase().includes("adset"),
+      ) ||
+      creative.deployment.compatibility.status === "limited" ||
+      creative.deployment.compatibility.status === "blocked"
+    ) {
+      return `Strong relative performer against the ${scopeLabel} benchmark, but campaign placement still needs review.`;
+    }
+    return `Strong relative performer against the ${scopeLabel} benchmark. Keep it in review until the scale target is confirmed.`;
+  }
   if (state === "needs_truth" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
   }

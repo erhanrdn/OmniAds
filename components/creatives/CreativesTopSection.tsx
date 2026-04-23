@@ -157,6 +157,7 @@ interface CreativesTopSectionProps {
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRows: MetaCreativeRow[];
   allRowsForHeatmap: MetaCreativeRow[];
+  benchmarkRows?: MetaCreativeRow[];
   defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
   onShareExport: () => void;
@@ -509,6 +510,7 @@ export function CreativesTopSection({
   onSelectedMetricIdsChange,
   selectedRows,
   allRowsForHeatmap,
+  benchmarkRows,
   defaultCurrency,
   onOpenRow,
   onShareExport,
@@ -707,6 +709,7 @@ export function CreativesTopSection({
           rows={topRows}
           metrics={metricDefs}
           allRowsForHeatmap={allRowsForHeatmap}
+          benchmarkRows={benchmarkRows}
           defaultCurrency={defaultCurrency}
           onOpenRow={onOpenRow}
           previewMode={previewMode}
@@ -1293,6 +1296,7 @@ function PreviewStrip({
   rows,
   metrics,
   allRowsForHeatmap,
+  benchmarkRows,
   defaultCurrency,
   onOpenRow,
   previewMode = "media",
@@ -1305,6 +1309,7 @@ function PreviewStrip({
   rows: MetaCreativeRow[];
   metrics: CreativeMetricDefinition[];
   allRowsForHeatmap: MetaCreativeRow[];
+  benchmarkRows?: MetaCreativeRow[];
   defaultCurrency: string | null;
   onOpenRow: (rowId: string) => void;
   previewMode?: "media" | "copy";
@@ -1330,7 +1335,12 @@ function PreviewStrip({
     [allRowsForHeatmap, rows]
   );
 
-  const heatBenchmarkRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
+  const heatBenchmarkRows =
+    benchmarkRows && benchmarkRows.length > 0
+      ? benchmarkRows
+      : allRowsForHeatmap.length > 0
+        ? allRowsForHeatmap
+        : rows;
   const heatBenchmark = useMemo(
     () => buildCreativeTableHeatBenchmark(heatBenchmarkRows),
     [heatBenchmarkRows]
