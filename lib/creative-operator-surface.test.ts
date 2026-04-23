@@ -305,7 +305,7 @@ describe("creative operator surface", () => {
     expect(scale.instruction?.targetContext.status).toBe("available");
     expect(scale.instruction?.targetContext.label).toContain("Scale Ad Set");
     expect(watch.instruction?.instructionKind).toBe("watch");
-    expect(watch.instruction?.primaryMove).toContain("Keep watching");
+    expect(watch.instruction?.primaryMove).toContain("Keep testing");
     expect(watch.instruction?.urgency).toBe("watch");
     expect(watch.instruction?.invalidActions.join(" ")).toContain("Do not convert this watch read");
   });
@@ -750,6 +750,98 @@ describe("creative operator surface", () => {
       "Hold: verify",
       "Evergreen",
     ]);
+  });
+
+  it("explains mature zero-purchase weak rows as Watch instead of early learning", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 360,
+      roas: 0,
+      purchases: 0,
+      impressions: 18_000,
+      creativeAgeDays: 18,
+      summary: "Still under observation.",
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "watch",
+        segment: "hold_monitor",
+        actionClass: "monitor",
+        evidenceSource: "live",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Conversion proof is still missing."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["row_provenance"],
+        explanation: "Watch this mature weak case.",
+      },
+    };
+
+    const watch = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(watch.primaryAction).toBe("Watch");
+    expect(watch.authorityState).toBe("watch");
+    expect(watch.reason).toContain("move past early learning");
+    expect(watch.reason).toContain("no purchase proof");
+    expect(watch.instruction?.primaryMove).toContain("Confirm purchase evidence before extending this test.");
+  });
+
+  it("adds a fatigue caveat to Test More without changing the main outcome", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 110,
+      roas: 2.4,
+      purchases: 2,
+      impressions: 5_800,
+      creativeAgeDays: 12,
+      summary: "Promising but still light.",
+      fatigue: {
+        status: "watch",
+        confidence: 0.64,
+        ctrDecay: null,
+        clickToPurchaseDecay: null,
+        roasDecay: null,
+        spendConcentration: null,
+        frequencyPressure: 2.4,
+        winnerMemory: false,
+        evidence: ["Frequency pressure is rising."],
+        missingContext: [],
+      },
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "watch",
+        segment: "promising_under_sampled",
+        actionClass: "test",
+        evidenceSource: "live",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Promising but still under-sampled."],
+        blockers: [],
+        missingEvidence: ["evidence_floor"],
+        requiredEvidence: ["evidence_floor"],
+        explanation: "Keep testing while evidence matures.",
+      },
+    };
+
+    const testMore = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(testMore.primaryAction).toBe("Test More");
+    expect(testMore.authorityState).toBe("watch");
+    expect(testMore.reason).toContain("watching fatigue pressure");
+    expect(testMore.instruction?.primaryMove).toContain("watch fatigue pressure");
+    expect(testMore.instruction?.queueEligible).toBe(false);
   });
 
   it("does not label policy or contextual ineligible rows as Not Enough Data", () => {

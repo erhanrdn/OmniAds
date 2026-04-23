@@ -4,9 +4,9 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Implementation pass 5 is complete as a holdout validation and targeted-tuning pass.
+Implementation pass 6 is complete as a focused correction pass.
 
-The immediate next step is a single Claude product review on the current live holdout-backed state.
+The immediate next step is a single final Claude product review on the current pass-6 state.
 
 ## Program Status
 
@@ -19,116 +19,114 @@ The immediate next step is a single Claude product review on the current live ho
 - implementation pass 2: merged
 - implementation pass 3: merged
 - implementation pass 4: merged
-- implementation pass 5: complete on branch, pending normal PR flow
+- implementation pass 5: merged
+- implementation pass 6: complete on branch, pending normal PR flow
 
-## What Pass 5 Implemented
+## What Pass 6 Implemented
 
-Pass 5 added validation infrastructure and decision evidence, not a broad policy rewrite.
+Pass 6 fixed the narrow product gaps identified after holdout validation and Claude review.
 
 Implemented:
 
-- deterministic live-cohort holdout split
-- stable sanitized company alias assignment for holdout reporting
-- current-evaluation artifact for calibration and holdout cohorts
-- holdout-specific 10-role panel rerun on representative live rows
-- raw `[meta-serving]` log suppression in sanitized calibration/holdout runs
-- regression coverage for deterministic split stability and small-cohort fallback
+- review-only `Scale Review` promotion for strong relative keep-in-test rows blocked only by missing business validation
+- mature zero-purchase weak rows now surface as `Watch` instead of collapsing into early/thin `Not Enough Data`
+- `Test More` now adds a fatigue caveat when lifecycle pressure exists
+- holdout reporting now excludes protected winners from the review-only `Scale Review` miss count
+- regression coverage for the corrected scale-review gate, mature weak watch path, fatigue caveat, and holdout helper count
 
 Not implemented:
 
-- no Creative policy threshold change
+- no broad Creative policy rewrite
 - no queue/push/apply loosening
 - no benchmark-scope semantic change
-- no broad scale-path rewrite
+- no queue/apply/push authority expansion
+- no new top-level taxonomy
 
-## Holdout Validation Result
+## Whether The 4 Blocked Scale Review Rows Were Fixed
 
-Holdout validation ran successfully.
+Not as originally phrased, because the original `4-row` reading was not accurate.
 
-Current live cohort:
+Pass-6 diagnosis found:
 
-- runtime-eligible companies: `7`
-- calibration split: `5`
-- holdout split: `2`
-- all evaluated creatives: `293`
-- holdout creatives: `101`
+- `1` real blocked review-only scale row
+- `3` protected winners that were miscounted by the holdout helper
 
-Current holdout user-facing distribution:
+Outcome:
 
-- `Campaign Check = 3`
-- `Refresh = 2`
-- `Protect = 2`
-- `Watch = 11`
-- `Test More = 8`
-- `Not Enough Data = 43`
-- `Not eligible for evaluation = 32`
-- `Scale Review = 0`
-- `Scale = 0`
+- the real review-only scale miss now reaches `Scale Review`
+- the protected winners still correctly remain `Protect`
 
-## Whether Tuning Was Implemented In Pass 5
+Why:
 
-No policy tuning was implemented.
+- `Scale Review` now fires when the only remaining cap is missing business validation / Commercial Truth
+- protected winners no longer get swept into that bucket
 
-Reason:
+## How `Not Enough Data` Was Split
 
-- the holdout rerun did not produce a clean true-`Scale` confirmation
-- it also did not produce a single uncontested `Scale Review` false negative
-- remaining disagreements were real but boundary-only
-- no single deterministic fix was strong enough to justify pass-5 code tuning
+- genuinely early / thin rows still surface as `Not Enough Data`
+- higher-spend, mature, zero-purchase weak rows now surface as `Watch`
 
-## Whether `Scale` / `Scale Review` Look Healthy Enough
+This keeps “too early to know” separate from “already spent enough to worry, but still not converting.”
 
-Current reading:
+## Whether Test More Fatigue Caveat Is Active
 
-- true `Scale` remains appropriately strict
-- `Scale Review` remains review-only and safety-preserving
-- missing Commercial Truth is not erasing most relative diagnoses anymore
-- the live holdout cohort is dominated by missing business validation, so pass 5 did not yield a strong live expansion case for either `Scale` or `Scale Review`
+Yes.
 
-One boundary issue remains:
-
-- one holdout row (`company-01/company-01-creative-03`) split the panel across `Watch`, `Scale Review`, and `Protect`
-
-That is important enough to document, but not strong enough to retune from this pass alone.
+`Test More` remains the single main outcome, but the instruction now explicitly tells the operator to watch fatigue pressure when that pressure is already visible.
 
 ## Remaining Mismatch Clusters
 
-1. `Watch` vs `Scale Review` / `Protect` on a strong relative row with missing business validation and fatigue-watch pressure
-2. `Not Enough Data` vs `Watch` wording for a high-spend zero-purchase row
-3. `Test More` vs `Watch` wording for an under-sampled positive row that still trails strong baselines
+No foundational mismatch cluster remains.
 
-No foundational mismatch cluster remains around:
+The strongest remaining questions are now final product-judgment questions:
 
-- `Campaign Check`
-- `Refresh`
-- `Protect`
-- old-rule challenger overreach
-- evidence-thin rows leaking into action-forward labels
+1. whether the pass-6 `Scale Review` correction is product-complete on the current live cohort
+2. whether the new mature weak `Watch` copy is the best user-facing wording
+3. whether any further `Watch` / `Scale Review` / `Protect` boundary tuning is still warranted after the corrected review-only gate
 
-## Whether Creative Segmentation Recovery Is Ready For A Claude Product Review
+## Whether Watch / Scale Review / Protect Boundary Changed
+
+Yes, but only narrowly.
+
+- strong relative keep-in-test rows blocked only by missing business validation can now reach `Scale Review`
+- protected stable winners still remain `Protect`
+- ambiguous weaker cases still remain `Watch`
+
+## Whether `Scale` / `Scale Review` Look Healthy Enough
 
 Yes.
 
 Reason:
 
-- holdout validation actually ran on the live eligible cohort
-- segmentation is materially better than the original calibration baseline on the important confirmed clusters
-- remaining issues are now boundary/product-judgment questions, not data-accuracy failures
-- the taxonomy is coherent
-- the relative-strength vs business-validation story is coherent
-- no major old-rule-style mismatch cluster remains unaddressed
+- true `Scale` remains strict
+- `Scale Review` remains review-only
+- the missing-business-validation cap no longer hides the identified real review-only winner
+- missing Commercial Truth still blocks true `Scale` and execution authority
 
-## Whether Pass 6 Is Needed
+## Whether Creative Segmentation Recovery Is Ready For A Final Claude Product Review
 
-Not before Claude review.
+Yes.
 
-Pass 6 should be decided only after the single Claude product review lands.
+Reason:
+
+- holdout validation already ran successfully in pass 5
+- pass 6 addressed the remaining focused product corrections Claude identified
+- current segmentation is no longer blocked by basic data-accuracy, label-collapse, or boundary-count errors
+- the taxonomy remains coherent and single-output
+- the relative-strength vs business-validation story remains coherent
+- safety and benchmark-scope rules remain intact
+
+## Whether Another Implementation Pass Is Needed
+
+Not before final Claude review.
+
+Do not start pass 7 until that review lands and identifies a concrete remaining product gap.
 
 ## Next Recommended Action
 
-1. merge implementation pass 5 through normal PR flow
-2. run one Claude product review against the current holdout-backed state
-3. use that review to decide whether a focused pass 6 is warranted for the remaining boundary cases
+1. merge implementation pass 6 through normal PR flow
+2. run one final Claude product review against the pass-6 state
+3. use that review to decide whether any pass 7 is needed at all
 
 ## Reports
 
@@ -144,11 +142,12 @@ Pass 6 should be decided only after the single Claude product review lands.
 - pass 5 agent panel: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-agent-panel.md`
 - pass 5 delta analysis: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-delta-analysis.md`
 - pass 5 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-final.md`
+- pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
 
 ## Last Updated By Codex
 
-- built deterministic holdout validation for the live eligible cohort
-- reran current segmentation on calibration and holdout splits
-- reran the 10-role diagnosis panel on a representative holdout slice
-- documented that no further safe policy tuning was warranted from pass 5 alone
-- prepared the work for one Claude product review before any pass 6
+- fixed the review-only `Scale Review` gate for the one real missing-business-validation miss
+- corrected the holdout helper so protected winners no longer inflate that miss count
+- split mature zero-purchase weak rows away from thin `Not Enough Data`
+- added a fatigue caveat to `Test More` instructions without changing the main label
+- prepared the work for one final Claude product review

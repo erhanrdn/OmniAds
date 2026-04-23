@@ -309,6 +309,27 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("evidence_floor");
   });
 
+  it("routes mature zero-purchase weak cases into Watch instead of Not Enough Data", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 320,
+        purchases: 0,
+        impressions: 14_000,
+        roas: 0,
+        cpa: 0,
+        frequency: 1.5,
+        creativeAgeDays: 18,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.missingEvidence).not.toContain("evidence_floor");
+  });
+
   it("protects winners instead of turning short-term volatility into kill work", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -317,6 +338,25 @@ describe("assessCreativeOperatorPolicy", () => {
       trust: trust({
         surfaceLane: "watchlist",
         operatorDisposition: "protected_watchlist",
+      }),
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.state).toBe("do_not_touch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+  });
+
+  it("keeps protected winners protected even when commercial truth is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      trust: trust({
+        surfaceLane: "watchlist",
+        operatorDisposition: "protected_watchlist",
+        truthState: "degraded_missing_truth",
       }),
     });
 
@@ -568,6 +608,110 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.queueEligible).toBe(false);
     expect(policy.canApply).toBe(false);
     expect(policy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("promotes keep-in-test rows with true-scale evidence and missing business validation into Scale Review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      fatigue: {
+        status: "watch",
+        confidence: 0.64,
+        evidence: ["Frequency pressure is rising."],
+      },
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("does not promote keep-in-test rows with weak baselines into Scale Review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "weak",
+        sampleSize: 2,
+        creativeCount: 2,
+        eligibleCreativeCount: 2,
+        spendBasis: 90,
+        purchaseBasis: 2,
+        weightedRoas: 1.5,
+        weightedCpa: 45,
+        medianRoas: 1.5,
+        medianCpa: 45,
+        medianSpend: 45,
+        missingContext: ["Fewer than 3 eligible peer creatives with spend/revenue signal."],
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.segment).not.toBe("scale_review");
+  });
+
+  it("keeps keep-in-test relative winners in Campaign Check when campaign context is blocked", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      fatigue: {
+        status: "watch",
+        confidence: 0.64,
+        evidence: ["Frequency pressure is rising."],
+      },
+      deployment: {
+        targetLane: "Scaling",
+        queueVerdict: "queue_ready" as const,
+        constraints: ["Target ad set is still limited."],
+        compatibility: {
+          status: "limited",
+          reasons: ["Campaign or ad set context limits this creative interpretation."],
+        },
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+    expect(policy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("keeps keep-in-test review-only scale candidates blocked when provenance is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      provenance: null,
+      fatigue: {
+        status: "watch",
+        confidence: 0.64,
+        evidence: ["Frequency pressure is rising."],
+      },
+    });
+
+    expect(policy.segment).toBe("blocked");
+    expect(policy.state).toBe("blocked");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("row_provenance");
   });
 
   it("keeps medium-baseline winners in Scale Review instead of promoting them straight to Scale", () => {

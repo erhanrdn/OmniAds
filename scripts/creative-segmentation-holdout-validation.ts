@@ -372,6 +372,23 @@ function hasTrueScaleEvidence(creative: CreativeDecisionOsCreative) {
   return true;
 }
 
+export function isReviewOnlyScaleCandidateForHoldout(input: {
+  creative: CreativeDecisionOsCreative;
+  commercialTruthConfigured: boolean;
+}) {
+  const businessValidationStatus = resolveBusinessValidationStatus(input);
+  return (
+    businessValidationStatus === "missing" &&
+    hasTrueScaleEvidence(input.creative) &&
+    input.creative.primaryAction !== "hold_no_touch" &&
+    input.creative.primaryAction !== "refresh_replace" &&
+    input.creative.primaryAction !== "block_deploy" &&
+    input.creative.lifecycleState !== "fatigued_winner" &&
+    input.creative.fatigue.status !== "fatigued" &&
+    !hasWeakCampaignContext(input.creative)
+  );
+}
+
 function isUnderSampled(creative: CreativeDecisionOsCreative) {
   return (
     creative.spend < 120 ||
@@ -741,6 +758,11 @@ export async function runHoldoutValidation() {
         creative,
         commercialTruthConfigured: decisionOs.commercialTruthCoverage.configuredSections.targetPack,
       });
+      const reviewOnlyScaleCandidate = isReviewOnlyScaleCandidateForHoldout({
+        creative,
+        commercialTruthConfigured:
+          decisionOs.commercialTruthCoverage.configuredSections.targetPack,
+      });
       const pushReadiness = creative.operatorPolicy?.pushReadiness ?? null;
       const strongRelativeWinner = hasRelativeScaleReviewEvidence(creative);
       const trueScaleCandidate = hasTrueScaleEvidence(creative);
@@ -788,7 +810,7 @@ export async function runHoldoutValidation() {
         if (trueScaleCandidate && businessValidationStatus === "favorable" && userFacingSegment === "Scale") {
           pushExample(summary.trueScaleConfirmedRows, rowAlias);
         }
-        if (trueScaleCandidate && businessValidationStatus !== "favorable") {
+        if (reviewOnlyScaleCandidate) {
           pushExample(
             summary.trueScaleMissingBusinessValidationRows,
             `${rowAlias} -> ${userFacingSegment}`,
