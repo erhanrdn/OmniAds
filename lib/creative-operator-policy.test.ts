@@ -220,10 +220,20 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
         scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "medium",
         sampleSize: 8,
+        creativeCount: 8,
+        eligibleCreativeCount: 8,
+        spendBasis: 1440,
+        purchaseBasis: 48,
+        weightedRoas: 1.85,
+        weightedCpa: 30,
         medianRoas: 1.8,
         medianCpa: 30,
         medianSpend: 180,
+        missingContext: [],
       },
       supportingMetrics: {
         spend: 260,
@@ -260,6 +270,35 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("relative_baseline");
   });
 
+  it("does not use a weak relative baseline for Scale Review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "weak",
+        sampleSize: 2,
+        creativeCount: 2,
+        eligibleCreativeCount: 2,
+        spendBasis: 90,
+        purchaseBasis: 2,
+        weightedRoas: 1.5,
+        weightedCpa: 45,
+        medianRoas: 1.5,
+        medianCpa: 45,
+        medianSpend: 45,
+        missingContext: ["Fewer than 3 eligible peer creatives with spend/revenue signal."],
+      },
+    });
+
+    expect(policy.segment).not.toBe("scale_review");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("relative_baseline");
+  });
+
   it("keeps full Scale stricter than Scale Review", () => {
     const scale = assessCreativeOperatorPolicy(baseInput());
     const scaleReview = assessCreativeOperatorPolicy({
@@ -268,10 +307,22 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
         scope: "campaign",
+        benchmarkKey: "campaign:cmp-1",
+        scopeId: "cmp-1",
+        scopeLabel: "Campaign",
+        source: "explicit_campaign_scope",
+        reliability: "medium",
         sampleSize: 6,
+        creativeCount: 6,
+        eligibleCreativeCount: 6,
+        spendBasis: 960,
+        purchaseBasis: 30,
+        weightedRoas: 1.75,
+        weightedCpa: 32,
         medianRoas: 1.7,
         medianCpa: 32,
         medianSpend: 160,
+        missingContext: [],
       },
       supportingMetrics: {
         spend: 300,
@@ -319,6 +370,168 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.queueEligible).toBe(false);
     expect(policy.canApply).toBe(false);
     expect(policy.missingEvidence).not.toContain("commercial_truth");
+  });
+
+  it("blocks scale review push readiness when trust metadata is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      trust: null,
+      commercialTruthConfigured: false,
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "strong",
+        sampleSize: 8,
+        creativeCount: 8,
+        eligibleCreativeCount: 8,
+        spendBasis: 1800,
+        purchaseBasis: 60,
+        weightedRoas: 1.8,
+        weightedCpa: 30,
+        medianRoas: 1.8,
+        medianCpa: 30,
+        medianSpend: 180,
+        missingContext: [],
+      },
+    });
+
+    expect(policy.segment).toBe("blocked");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.blockers).toContain("Decision trust metadata is missing.");
+  });
+
+  it("blocks scale review push readiness when provenance is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      provenance: null,
+      commercialTruthConfigured: false,
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "strong",
+        sampleSize: 8,
+        creativeCount: 8,
+        eligibleCreativeCount: 8,
+        spendBasis: 1800,
+        purchaseBasis: 60,
+        weightedRoas: 1.8,
+        weightedCpa: 30,
+        medianRoas: 1.8,
+        medianCpa: 30,
+        medianSpend: 180,
+        missingContext: [],
+      },
+    });
+
+    expect(policy.segment).toBe("blocked");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.blockers).toContain("Missing decision provenance.");
+  });
+
+  it("blocks scale review push readiness on non-live evidence", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      evidenceSource: "snapshot",
+      commercialTruthConfigured: false,
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "strong",
+        sampleSize: 8,
+        creativeCount: 8,
+        eligibleCreativeCount: 8,
+        spendBasis: 1800,
+        purchaseBasis: 60,
+        weightedRoas: 1.8,
+        weightedCpa: 30,
+        medianRoas: 1.8,
+        medianCpa: 30,
+        medianSpend: 180,
+        missingContext: [],
+      },
+    });
+
+    expect(policy.segment).toBe("contextual_only");
+    expect(policy.state).toBe("contextual_only");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.blockers.join(" ")).toContain("snapshot evidence");
+  });
+
+  it("routes scale review with weak campaign or ad set context to Campaign Check instead of review-ready", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      relativeBaseline: {
+        scope: "campaign",
+        benchmarkKey: "campaign:cmp-1",
+        scopeId: "cmp-1",
+        source: "explicit_campaign_scope",
+        reliability: "medium",
+        sampleSize: 6,
+        creativeCount: 6,
+        eligibleCreativeCount: 6,
+        spendBasis: 900,
+        purchaseBasis: 30,
+        weightedRoas: 1.7,
+        weightedCpa: 30,
+        medianRoas: 1.7,
+        medianCpa: 30,
+        medianSpend: 150,
+        missingContext: [],
+      },
+      deployment: {
+        ...baseInput().deployment,
+        compatibility: {
+          status: "limited",
+          reasons: ["No active scaling ad set matched this creative."],
+        },
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
+  it("does not treat low-spend creatives with meaningful purchase evidence as ROAS-only noise", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "medium",
+        sampleSize: 6,
+        creativeCount: 6,
+        eligibleCreativeCount: 6,
+        spendBasis: 480,
+        purchaseBasis: 18,
+        weightedRoas: 1.6,
+        weightedCpa: 26.67,
+        medianRoas: 1.5,
+        medianCpa: 28,
+        medianSpend: 85,
+        missingContext: [],
+      },
+      supportingMetrics: {
+        spend: 95,
+        purchases: 3,
+        impressions: 6_500,
+        roas: 2.8,
+        cpa: 31,
+        frequency: 1.4,
+        creativeAgeDays: 18,
+      },
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.missingEvidence).not.toContain("non_roas_evidence");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
   });
 
   it("treats demo and snapshot evidence as contextual only", () => {

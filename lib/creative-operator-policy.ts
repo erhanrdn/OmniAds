@@ -44,6 +44,32 @@ export type CreativeEvidenceSource =
   | "fallback"
   | "unknown";
 
+export type CreativeRelativeBaselineReliability =
+  | "strong"
+  | "medium"
+  | "weak"
+  | "unavailable";
+
+export interface CreativeOperatorRelativeBaseline {
+  scope: "account" | "campaign";
+  benchmarkKey?: string | null;
+  scopeId?: string | null;
+  scopeLabel?: string | null;
+  source?: string | null;
+  reliability?: CreativeRelativeBaselineReliability;
+  sampleSize: number;
+  creativeCount?: number;
+  eligibleCreativeCount?: number;
+  spendBasis?: number | null;
+  purchaseBasis?: number | null;
+  weightedRoas?: number | null;
+  weightedCpa?: number | null;
+  medianRoas?: number | null;
+  medianCpa?: number | null;
+  medianSpend?: number | null;
+  missingContext?: string[];
+}
+
 export type CreativeOperatorActionClass =
   | "scale"
   | "kill"
@@ -71,13 +97,7 @@ export interface CreativeOperatorPolicyInput {
   evidenceSource?: CreativeEvidenceSource;
   commercialTruthConfigured?: boolean;
   commercialMissingInputs?: string[];
-  relativeBaseline?: {
-    scope: "account" | "campaign";
-    sampleSize: number;
-    medianRoas?: number | null;
-    medianCpa?: number | null;
-    medianSpend?: number | null;
-  } | null;
+  relativeBaseline?: CreativeOperatorRelativeBaseline | null;
   benchmark?: Pick<CreativeDecisionBenchmark, "sampleSize" | "missingContext"> | null;
   fatigue?: Pick<CreativeDecisionFatigue, "status" | "confidence" | "evidence"> | null;
   economics?: Pick<CreativeDecisionEconomics, "status" | "reasons"> | null;
@@ -176,13 +196,26 @@ function hasRelativeScaleReviewEvidence(input: CreativeOperatorPolicyInput) {
 
 function hasRelativeBaselineContext(input: CreativeOperatorPolicyInput) {
   const baseline = input.relativeBaseline ?? null;
+  const reliability = baseline?.reliability ?? "unavailable";
+  const reliable =
+    reliability === "strong" ||
+    reliability === "medium";
   return (
     Boolean(baseline) &&
+    reliable &&
     (baseline?.sampleSize ?? 0) >= 3 &&
     hasNumber(baseline?.medianRoas) &&
     (baseline?.medianRoas ?? 0) > 0 &&
     hasNumber(baseline?.medianSpend) &&
     (baseline?.medianSpend ?? 0) > 0
+  );
+}
+
+function isRelativeScaleReviewIntent(input: CreativeOperatorPolicyInput) {
+  return (
+    !input.commercialTruthConfigured &&
+    (input.primaryAction === "promote_to_scaling" ||
+      input.lifecycleState === "scale_ready")
   );
 }
 
@@ -211,9 +244,12 @@ function isUnderSampled(input: CreativeOperatorPolicyInput) {
 
 function hasRoasOnlyPositiveSignal(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
+  const purchaseCount = hasNumber(metrics.purchases) ? metrics.purchases : 0;
+  const meaningfulPurchaseEvidence = purchaseCount >= 2;
   return (
     hasNumber(metrics.roas) &&
     metrics.roas >= 2 &&
+    !meaningfulPurchaseEvidence &&
     ((hasNumber(metrics.spend) && metrics.spend < 120) ||
       (hasNumber(metrics.purchases) && metrics.purchases < 2))
   );
@@ -235,13 +271,15 @@ function resolveSegment(params: {
 }): CreativeOperatorSegment {
   const { policyInput: input } = params;
   const trust = input.trust ?? null;
+  const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
 
   if (!input.provenance) return "blocked";
+  if (!trust) return "blocked";
   if (input.evidenceSource !== "live") return "contextual_only";
   if (input.previewStatus?.liveDecisionWindow === "missing") return "blocked";
   if (
     input.previewStatus?.liveDecisionWindow === "metrics_only_degraded" &&
-    params.aggressive
+    (params.aggressive || relativeScaleReviewIntent)
   ) {
     return "investigate";
   }
@@ -249,6 +287,12 @@ function resolveSegment(params: {
   if (trust?.operatorDisposition === "archive_only") return "contextual_only";
   if (input.primaryAction === "hold_no_touch") return "protected_winner";
   if (trust?.operatorDisposition === "protected_watchlist") return "protected_winner";
+  if (relativeScaleReviewIntent && hasWeakCampaignContext(input)) {
+    return "investigate";
+  }
+  if (relativeScaleReviewIntent && hasRelativeScaleReviewEvidence(input)) {
+    return "scale_review";
+  }
   if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
   if (isUnderSampled(input)) {
     if ((input.supportingMetrics?.purchases ?? 0) <= 0 || (input.supportingMetrics?.roas ?? 0) <= 0) {
@@ -262,12 +306,6 @@ function resolveSegment(params: {
     input.primaryAction === "promote_to_scaling" &&
     (!input.commercialTruthConfigured || !hasScaleEvidence(input))
   ) {
-    if (
-      !input.commercialTruthConfigured &&
-      hasRelativeScaleReviewEvidence(input)
-    ) {
-      return "scale_review";
-    }
     return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
   }
   if (input.primaryAction === "promote_to_scaling") {
@@ -338,8 +376,12 @@ function resolvePushReadiness(input: {
   actionClass: CreativeOperatorActionClass;
   provenance: OperatorDecisionProvenance | null;
   blockers: string[];
+  hardBlockers: string[];
 }) {
   if (!input.provenance || input.state === "blocked") {
+    return "blocked_from_push" as const;
+  }
+  if (input.hardBlockers.length > 0) {
     return "blocked_from_push" as const;
   }
   if (input.segment === "scale_review") {
@@ -375,10 +417,14 @@ export function assessCreativeOperatorPolicy(
   const lowEvidence = isUnderSampled(input);
   const roasOnly = hasRoasOnlyPositiveSignal(input);
   const scaleAction = SCALE_ACTIONS.has(input.primaryAction);
+  const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline =
-    scaleAction && !commercialTruthConfigured && !hasRelativeBaselineContext(input);
+    relativeScaleReviewIntent &&
+    !commercialTruthConfigured &&
+    !hasRelativeBaselineContext(input);
+  const requiresCampaignContext = scaleAction || relativeScaleReviewIntent;
 
   const requiredEvidence = unique([
     "stable_operator_decision_context",
@@ -387,9 +433,9 @@ export function assessCreativeOperatorPolicy(
     "row_trust",
     "preview_truth",
     requiresCommercialTruth ? "commercial_truth" : null,
-    scaleAction && !commercialTruthConfigured ? "relative_baseline" : null,
-    scaleAction || killOrRefreshAction ? "evidence_floor" : null,
-    scaleAction ? "campaign_or_adset_context" : null,
+    relativeScaleReviewIntent && !commercialTruthConfigured ? "relative_baseline" : null,
+    relativeScaleReviewIntent || killOrRefreshAction ? "evidence_floor" : null,
+    requiresCampaignContext ? "campaign_or_adset_context" : null,
     killOrRefreshAction ? "sufficient_negative_evidence" : null,
   ]);
 
@@ -400,9 +446,9 @@ export function assessCreativeOperatorPolicy(
     previewState === "missing" ? "preview_truth" : null,
     requiresCommercialTruth && !commercialTruthConfigured ? "commercial_truth" : null,
     needsRelativeBaseline ? "relative_baseline" : null,
-    (scaleAction || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
+    (scaleAction || relativeScaleReviewIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     roasOnly ? "non_roas_evidence" : null,
-    scaleAction && weakCampaignContext ? "campaign_or_adset_context" : null,
+    requiresCampaignContext && weakCampaignContext ? "campaign_or_adset_context" : null,
     input.benchmark?.sampleSize === 0 ? "benchmark_context" : null,
   ]);
 
@@ -447,7 +493,35 @@ export function assessCreativeOperatorPolicy(
     killOrRefreshAction && !hasKillEvidence(input)
       ? "Kill or refresh evidence floor is not met."
       : null,
-    scaleAction && weakCampaignContext
+    requiresCampaignContext && weakCampaignContext
+      ? "Campaign or ad set context limits this creative interpretation."
+      : null,
+  ]);
+  const hardBlockers = unique([
+    !provenance ? "Missing decision provenance." : null,
+    evidenceSource !== "live"
+      ? evidenceSource === "unknown"
+        ? "Evidence source is missing, so Creative action remains contextual."
+        : `${evidenceSource} evidence is contextual and cannot authorize primary Creative action.`
+      : null,
+    !trust ? "Decision trust metadata is missing." : null,
+    previewState === "missing"
+      ? "Preview truth is missing, so queue and push eligibility are blocked."
+      : null,
+    previewState === "metrics_only_degraded" && relativeScaleReviewIntent
+      ? "Preview truth is degraded, so relative Scale Review cannot become push-review ready."
+      : null,
+    trust?.truthState === "inactive_or_immaterial"
+      ? "Creative is inactive or immaterial for primary action."
+      : null,
+    trust?.operatorDisposition === "archive_only"
+      ? "Creative is archive-only and not eligible for live evaluation."
+      : null,
+    trust?.evidence?.suppressed
+      ? trust.evidence.suppressionReasons[0] ??
+        "Creative decision is suppressed from primary action."
+      : null,
+    requiresCampaignContext && weakCampaignContext
       ? "Campaign or ad set context limits this creative interpretation."
       : null,
   ]);
@@ -472,6 +546,7 @@ export function assessCreativeOperatorPolicy(
     actionClass,
     provenance,
     blockers,
+    hardBlockers,
   });
   const queueEligible = pushReadiness === "safe_to_queue";
   const reasons = unique([

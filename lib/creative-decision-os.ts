@@ -25,6 +25,8 @@ import {
   assessCreativeOperatorPolicy,
   type CreativeEvidenceSource,
   type CreativeOperatorPolicyAssessment,
+  type CreativeOperatorRelativeBaseline,
+  type CreativeRelativeBaselineReliability,
 } from "@/lib/creative-operator-policy";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
@@ -230,6 +232,46 @@ export interface CreativeDecisionBenchmark {
   };
 }
 
+export type CreativeDecisionBenchmarkScope = "account" | "campaign";
+export type CreativeDecisionBenchmarkSource =
+  | "account_default"
+  | "explicit_campaign_scope";
+
+export interface CreativeDecisionBenchmarkScopeInput {
+  scope: CreativeDecisionBenchmarkScope;
+  scopeId?: string | null;
+  scopeLabel?: string | null;
+}
+
+export interface CreativeDecisionBenchmarkScopeMetadata {
+  benchmarkScope: CreativeDecisionBenchmarkScope;
+  benchmarkScopeLabel: string;
+  benchmarkSource: CreativeDecisionBenchmarkSource;
+  benchmarkScopeId: string | null;
+  benchmarkReliability: CreativeRelativeBaselineReliability;
+}
+
+export interface CreativeDecisionRelativeBaseline
+  extends CreativeOperatorRelativeBaseline {
+  scope: CreativeDecisionBenchmarkScope;
+  benchmarkKey: string;
+  scopeId: string | null;
+  scopeLabel: string;
+  source: CreativeDecisionBenchmarkSource;
+  reliability: CreativeRelativeBaselineReliability;
+  sampleSize: number;
+  creativeCount: number;
+  eligibleCreativeCount: number;
+  spendBasis: number | null;
+  purchaseBasis: number | null;
+  weightedRoas: number | null;
+  weightedCpa: number | null;
+  medianRoas: number | null;
+  medianCpa: number | null;
+  medianSpend: number | null;
+  missingContext: string[];
+}
+
 export interface CreativeDecisionFatigue {
   status: CreativeFatigueStatus;
   confidence: number;
@@ -398,6 +440,11 @@ export interface CreativeDecisionOsCreative {
   legacyLifecycleState: LegacyCreativeLifecycleState;
   decisionSignals: string[];
   summary: string;
+  relativeBaseline: CreativeDecisionRelativeBaseline;
+  benchmarkScope: CreativeDecisionBenchmarkScope;
+  benchmarkScopeLabel: string;
+  benchmarkSource: CreativeDecisionBenchmarkSource;
+  benchmarkReliability: CreativeRelativeBaselineReliability;
   benchmark: CreativeDecisionBenchmark;
   fatigue: CreativeDecisionFatigue;
   economics: CreativeDecisionEconomics;
@@ -593,6 +640,7 @@ export interface CreativeDecisionOsV1Response {
       familyScaleCount: number;
       headline: string;
     };
+    benchmarkScope: CreativeDecisionBenchmarkScopeMetadata;
   };
   creatives: CreativeDecisionOsCreative[];
   families: CreativeDecisionOsFamily[];
@@ -622,6 +670,7 @@ interface BuildCreativeDecisionOsInput {
   breakdowns?: { location?: MetaBreakdownRow[] | null } | null;
   commercialTruth?: BusinessCommercialTruthSnapshot | null;
   operatingMode?: AccountOperatingModePayload | null;
+  benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
   generatedAt?: string;
 }
 
@@ -978,6 +1027,190 @@ function buildMetricContext(rows: CreativeDecisionOsInputRow[]) {
     accountAttentionAvg: average(rows.map((row) => pickAttentionMetric(row).value).filter((value) => value > 0)),
     clickToPurchaseAvg: average(rows.map((row) => row.clickToPurchaseRate).filter((value) => value > 0)),
   };
+}
+
+function benchmarkScopeKey(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.replace(/[^a-z0-9_-]/g, "-").slice(0, 80) : "all";
+}
+
+function resolveBenchmarkScopeMetadata(
+  input: BuildCreativeDecisionOsInput,
+  rows: CreativeDecisionOsInputRow[],
+): CreativeDecisionBenchmarkScopeMetadata {
+  const scope = input.benchmarkScope?.scope === "campaign" ? "campaign" : "account";
+  if (scope === "campaign") {
+    const scopeId = input.benchmarkScope?.scopeId?.trim() || null;
+    const firstCampaignName =
+      scopeId
+        ? rows.find((row) => row.campaignId === scopeId)?.campaignName ?? null
+        : null;
+    return {
+      benchmarkScope: "campaign",
+      benchmarkScopeId: scopeId,
+      benchmarkScopeLabel:
+        input.benchmarkScope?.scopeLabel?.trim() ||
+        firstCampaignName ||
+        (scopeId ? `Campaign ${scopeId}` : "Selected campaign"),
+      benchmarkSource: "explicit_campaign_scope",
+      benchmarkReliability: "unavailable",
+    };
+  }
+
+  return {
+    benchmarkScope: "account",
+    benchmarkScopeId: null,
+    benchmarkScopeLabel: "Account-wide",
+    benchmarkSource: "account_default",
+    benchmarkReliability: "unavailable",
+  };
+}
+
+function buildUnavailableRelativeBaseline(input: {
+  scopeMetadata: CreativeDecisionBenchmarkScopeMetadata;
+  row: CreativeDecisionOsInputRow;
+  reason: string;
+}): CreativeDecisionRelativeBaseline {
+  const scopeKey =
+    input.scopeMetadata.benchmarkScope === "campaign"
+      ? benchmarkScopeKey(input.scopeMetadata.benchmarkScopeId ?? input.row.campaignId)
+      : "account";
+  return {
+    scope: input.scopeMetadata.benchmarkScope,
+    benchmarkKey: `${input.scopeMetadata.benchmarkScope}:${scopeKey}`,
+    scopeId:
+      input.scopeMetadata.benchmarkScope === "campaign"
+        ? input.scopeMetadata.benchmarkScopeId ?? input.row.campaignId ?? null
+        : null,
+    scopeLabel: input.scopeMetadata.benchmarkScopeLabel,
+    source: input.scopeMetadata.benchmarkSource,
+    reliability: "unavailable",
+    sampleSize: 0,
+    creativeCount: 0,
+    eligibleCreativeCount: 0,
+    spendBasis: null,
+    purchaseBasis: null,
+    weightedRoas: null,
+    weightedCpa: null,
+    medianRoas: null,
+    medianCpa: null,
+    medianSpend: null,
+    missingContext: [input.reason],
+  };
+}
+
+function buildRelativeBaseline(input: {
+  row: CreativeDecisionOsInputRow;
+  rows: CreativeDecisionOsInputRow[];
+  scopeMetadata: CreativeDecisionBenchmarkScopeMetadata;
+}): CreativeDecisionRelativeBaseline {
+  const { row, scopeMetadata } = input;
+  if (scopeMetadata.benchmarkScope === "campaign") {
+    if (!scopeMetadata.benchmarkScopeId) {
+      return buildUnavailableRelativeBaseline({
+        scopeMetadata,
+        row,
+        reason: "Explicit campaign benchmark scope is missing a campaign id.",
+      });
+    }
+    if (row.campaignId !== scopeMetadata.benchmarkScopeId) {
+      return buildUnavailableRelativeBaseline({
+        scopeMetadata,
+        row,
+        reason: "Creative is outside the explicit campaign benchmark scope.",
+      });
+    }
+  }
+
+  const scopeRows = input.rows.filter((candidate) => {
+    if (candidate.creativeId === row.creativeId) return false;
+    if (scopeMetadata.benchmarkScope === "campaign") {
+      return candidate.campaignId === scopeMetadata.benchmarkScopeId;
+    }
+    return true;
+  });
+  const eligibleRows = scopeRows.filter(
+    (candidate) =>
+      candidate.spend > 0 &&
+      (candidate.purchaseValue > 0 || candidate.roas > 0 || candidate.purchases > 0),
+  );
+  const spendBasis = sumBy(eligibleRows, (candidate) => candidate.spend);
+  const purchaseBasis = sumBy(eligibleRows, (candidate) => candidate.purchases);
+  const purchaseValueBasis = sumBy(eligibleRows, (candidate) => candidate.purchaseValue);
+  const roasValues = eligibleRows
+    .map((candidate) => candidate.roas)
+    .filter((value) => value > 0)
+    .sort((left, right) => left - right);
+  const cpaValues = eligibleRows
+    .map((candidate) => candidate.cpa)
+    .filter((value) => value > 0)
+    .sort((left, right) => left - right);
+  const spendValues = eligibleRows
+    .map((candidate) => candidate.spend)
+    .filter((value) => value > 0)
+    .sort((left, right) => left - right);
+  const weightedRoas = spendBasis > 0 && purchaseValueBasis > 0
+    ? purchaseValueBasis / spendBasis
+    : null;
+  const weightedCpa = purchaseBasis > 0 && spendBasis > 0
+    ? spendBasis / purchaseBasis
+    : null;
+  const medianRoas = roasValues.length > 0 ? percentile(roasValues, 0.5) : null;
+  const medianCpa = cpaValues.length > 0 ? percentile(cpaValues, 0.5) : null;
+  const medianSpend = spendValues.length > 0 ? percentile(spendValues, 0.5) : null;
+  const missingContext = [
+    scopeRows.length < 3 ? "Fewer than 3 peer creatives in benchmark scope." : null,
+    eligibleRows.length < 3 ? "Fewer than 3 eligible peer creatives with spend/revenue signal." : null,
+    spendBasis < 150 ? "Benchmark spend basis below 150." : null,
+    purchaseBasis < 3 ? "Benchmark purchase basis below 3." : null,
+    weightedRoas === null || medianRoas === null ? "Benchmark ROAS basis unavailable." : null,
+    medianSpend === null ? "Benchmark spend distribution unavailable." : null,
+  ].filter((value): value is string => Boolean(value));
+
+  const reliability: CreativeRelativeBaselineReliability =
+    missingContext.length > 0
+      ? eligibleRows.length === 0
+        ? "unavailable"
+        : "weak"
+      : eligibleRows.length >= 6 && spendBasis >= 500 && purchaseBasis >= 8
+        ? "strong"
+        : "medium";
+  const scopeKey =
+    scopeMetadata.benchmarkScope === "campaign"
+      ? benchmarkScopeKey(scopeMetadata.benchmarkScopeId)
+      : "account";
+
+  return {
+    scope: scopeMetadata.benchmarkScope,
+    benchmarkKey: `${scopeMetadata.benchmarkScope}:${scopeKey}`,
+    scopeId:
+      scopeMetadata.benchmarkScope === "campaign"
+        ? scopeMetadata.benchmarkScopeId
+        : null,
+    scopeLabel: scopeMetadata.benchmarkScopeLabel,
+    source: scopeMetadata.benchmarkSource,
+    reliability,
+    sampleSize: eligibleRows.length,
+    creativeCount: scopeRows.length,
+    eligibleCreativeCount: eligibleRows.length,
+    spendBasis: spendBasis > 0 ? round(spendBasis, 2) : null,
+    purchaseBasis: purchaseBasis > 0 ? round(purchaseBasis, 2) : null,
+    weightedRoas: weightedRoas === null ? null : round(weightedRoas, 4),
+    weightedCpa: weightedCpa === null ? null : round(weightedCpa, 4),
+    medianRoas: medianRoas === null ? null : round(medianRoas, 4),
+    medianCpa: medianCpa === null ? null : round(medianCpa, 4),
+    medianSpend: medianSpend === null ? null : round(medianSpend, 2),
+    missingContext,
+  };
+}
+
+function aggregateBenchmarkReliability(
+  baselines: CreativeDecisionRelativeBaseline[],
+): CreativeRelativeBaselineReliability {
+  if (baselines.some((baseline) => baseline.reliability === "strong")) return "strong";
+  if (baselines.some((baseline) => baseline.reliability === "medium")) return "medium";
+  if (baselines.some((baseline) => baseline.reliability === "weak")) return "weak";
+  return "unavailable";
 }
 
 function buildHistoricalSummary(row: CreativeDecisionOsInputRow) {
@@ -2673,6 +2906,7 @@ export function buildCreativeDecisionOs(
     .filter((row) => row.creativeId);
 
   if (rows.length === 0) {
+    const emptyBenchmarkScope = resolveBenchmarkScopeMetadata(input, []);
     const commercialTruthCoverage = buildCommercialTruthCoverage(
       input.commercialTruth,
       input.operatingMode,
@@ -2772,6 +3006,7 @@ export function buildCreativeDecisionOs(
           familyScaleCount: 0,
           headline: "No opportunity-board item is available yet.",
         },
+        benchmarkScope: emptyBenchmarkScope,
         message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
         sourceHealth: emptySourceHealth,
@@ -2818,6 +3053,7 @@ export function buildCreativeDecisionOs(
   const locationRows = input.breakdowns?.location ?? [];
   const familySeeds = buildCreativeFamilySeeds(rows);
   const metricContext = buildMetricContext(rows);
+  const benchmarkScopeMetadata = resolveBenchmarkScopeMetadata(input, rows);
   const familyRowsById = new Map<string, CreativeDecisionOsInputRow[]>();
 
   for (const row of rows) {
@@ -2837,6 +3073,11 @@ export function buildCreativeDecisionOs(
     const familyProvenance = buildFamilyProvenance(familySeed, familyRows);
     const metaFamily = metaFamilyFromRow(row, campaignsById);
     const benchmark = selectBenchmark(row, familyRows, rows, metaFamily);
+    const relativeBaseline = buildRelativeBaseline({
+      row,
+      rows,
+      scopeMetadata: benchmarkScopeMetadata,
+    });
     const fatigue = buildFatigue(row, familyRows, benchmark);
     const historical = buildHistoricalSummary(row);
     const lifecycleState = classifyLifecycle({
@@ -2892,13 +3133,22 @@ export function buildCreativeDecisionOs(
       confidence,
     });
     const legacyLifecycleState = legacyLifecycleFromState(lifecycleState, legacyAction);
+    const commercialTruthConfigured =
+      commercialTruthCoverage.configuredSections.targetPack;
+    const relativeScaleReviewCandidate =
+      !commercialTruthConfigured &&
+      lifecycleState === "scale_ready" &&
+      (relativeBaseline.reliability === "strong" ||
+        relativeBaseline.reliability === "medium");
     const deployment = buildDeployment(row, {
       campaignsById,
       campaigns: input.campaigns ?? [],
       adSets: input.adSets ?? [],
       locationRows,
       operatingMode: input.operatingMode,
-      primaryAction: resolvedPrimaryAction,
+      primaryAction: relativeScaleReviewCandidate
+        ? "promote_to_scaling"
+        : resolvedPrimaryAction,
       lifecycleState,
       metaFamily,
       confidence,
@@ -2953,9 +3203,9 @@ export function buildCreativeDecisionOs(
       trust,
       provenance,
       evidenceSource,
-      commercialTruthConfigured:
-        commercialTruthCoverage.configuredSections.targetPack,
+      commercialTruthConfigured,
       commercialMissingInputs: commercialTruthCoverage.missingInputs,
+      relativeBaseline,
       benchmark,
       fatigue,
       economics,
@@ -3100,6 +3350,11 @@ export function buildCreativeDecisionOs(
         deployment,
       }),
       summary,
+      relativeBaseline,
+      benchmarkScope: relativeBaseline.scope,
+      benchmarkScopeLabel: relativeBaseline.scopeLabel,
+      benchmarkSource: relativeBaseline.source,
+      benchmarkReliability: relativeBaseline.reliability,
       benchmark,
       fatigue,
       economics,
@@ -3112,6 +3367,12 @@ export function buildCreativeDecisionOs(
       trust,
     };
   });
+  const resolvedBenchmarkScopeMetadata: CreativeDecisionBenchmarkScopeMetadata = {
+    ...benchmarkScopeMetadata,
+    benchmarkReliability: aggregateBenchmarkReliability(
+      creatives.map((creative) => creative.relativeBaseline),
+    ),
+  };
 
   const families = Array.from(familyRowsById.entries()).map(([familyId, familyRows]) => {
     const creativeEntries = creatives.filter((creative) => creative.familyId === familyId);
@@ -3407,6 +3668,7 @@ export function buildCreativeDecisionOs(
             ? `${opportunityBoard.filter((item) => item.queue.eligible).length} creative opportunity${opportunityBoard.filter((item) => item.queue.eligible).length > 1 ? " items are" : " item is"} ready once evidence floors stay intact.`
             : "Creative opportunity board is populated, but nothing is queue-ready yet.",
       },
+      benchmarkScope: resolvedBenchmarkScopeMetadata,
       message:
         input.operatingMode?.recommendedMode === "Recovery"
           ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and stop outcomes."

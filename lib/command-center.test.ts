@@ -56,6 +56,38 @@ function readReliabilityFixture() {
   };
 }
 
+function benchmarkScopeFixture() {
+  return {
+    benchmarkScope: "account" as const,
+    benchmarkScopeLabel: "Account-wide",
+    benchmarkSource: "account_default" as const,
+    benchmarkScopeId: null,
+    benchmarkReliability: "medium" as const,
+  };
+}
+
+function relativeBaselineFixture() {
+  return {
+    scope: "account" as const,
+    benchmarkKey: "account:all",
+    scopeId: null,
+    scopeLabel: "Account-wide",
+    source: "account_default" as const,
+    reliability: "medium" as const,
+    sampleSize: 8,
+    creativeCount: 8,
+    eligibleCreativeCount: 8,
+    spendBasis: 1200,
+    purchaseBasis: 40,
+    weightedRoas: 2.1,
+    weightedCpa: 30,
+    medianRoas: 2,
+    medianCpa: 30,
+    medianSpend: 150,
+    missingContext: [],
+  };
+}
+
 function queueEligibilityFixture(input?: {
   eligible?: boolean;
   blockedReasons?: string[];
@@ -681,6 +713,7 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         familyScaleCount: 1,
         headline: "1 opportunity-board item is ready before it needs queue promotion.",
       },
+      benchmarkScope: benchmarkScopeFixture(),
     },
     creatives: [
       {
@@ -740,6 +773,11 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         legacyLifecycleState: "emerging_winner",
         decisionSignals: ["Benchmark beat on ROAS."],
         summary: "Promote this concept into scaling.",
+        relativeBaseline: relativeBaselineFixture(),
+        benchmarkScope: "account",
+        benchmarkScopeLabel: "Account-wide",
+        benchmarkSource: "account_default",
+        benchmarkReliability: "medium",
         benchmark: {
           selectedCohort: "family",
           selectedCohortLabel: "Family",
@@ -910,6 +948,11 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         legacyLifecycleState: "volatile",
         decisionSignals: ["Needs more clean learning."],
         summary: "Keep this out of the primary queue.",
+        relativeBaseline: relativeBaselineFixture(),
+        benchmarkScope: "account",
+        benchmarkScopeLabel: "Account-wide",
+        benchmarkSource: "account_default",
+        benchmarkReliability: "medium",
         benchmark: {
           selectedCohort: "account",
           selectedCohortLabel: "Account",

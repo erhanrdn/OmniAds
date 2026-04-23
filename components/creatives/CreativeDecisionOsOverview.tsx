@@ -39,8 +39,8 @@ function formatLifecycleLabel(value: string) {
     creative_learning_incomplete: "Not Enough Data",
     spend_waste: "Cut",
     investigate: "Campaign Check",
-    contextual_only: "Not Enough Data",
-    blocked: "Not Enough Data",
+    contextual_only: "Not eligible for evaluation",
+    blocked: "Not eligible for evaluation",
   };
   if (labels[value]) return labels[value];
   return value.replaceAll("_", " ");
@@ -287,7 +287,7 @@ export function CreativeDecisionOsOverview({
               <span>Protect {operatorPolicyCounts.do_not_touch ?? 0}</span>
               <span>Watch {operatorPolicyCounts.watch ?? 0}</span>
               <span>Investigate {operatorPolicyCounts.investigate ?? 0}</span>
-              <span>Blocked/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
+              <span>Ineligible/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
             </div>
           </div>
           <div className="mt-3 grid gap-3 xl:grid-cols-2">

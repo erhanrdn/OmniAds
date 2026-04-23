@@ -54,8 +54,8 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   },
   blocked: {
     key: "blocked",
-    label: "REFRESH",
-    summary: "Fatigued winners that need a new angle, cut, or replacement before more spend.",
+    label: "CHECK",
+    summary: "Rows that need a refresh, cut, retest, or campaign/context diagnosis before more spend.",
     tone: "blocked",
   },
   needs_truth: {
@@ -89,7 +89,7 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
     case "watch":
       return "Test";
     case "blocked":
-      return "Refresh";
+      return "Check";
     case "needs_truth":
       return "Hold";
     case "no_action":
@@ -104,7 +104,7 @@ export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
   if (state === "no_action") return "Evergreen";
   if (state === "act_now") return "Scale";
   if (state === "needs_truth") return "Hold: verify";
-  return "Refresh";
+  return "Check";
 }
 
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
@@ -130,10 +130,11 @@ export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreativ
       return "Cut";
     case "investigate":
       return "Campaign Check";
+    case "contextual_only":
+    case "blocked":
+      return "Not eligible for evaluation";
     case "false_winner_low_evidence":
     case "creative_learning_incomplete":
-    case "blocked":
-    case "contextual_only":
       return "Not Enough Data";
     default:
       break;
@@ -309,7 +310,7 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
         return "Campaign Check";
       case "contextual_only":
       case "blocked":
-        return "Not Enough Data";
+        return "Not eligible for evaluation";
       default:
         break;
     }
@@ -587,14 +588,14 @@ export function buildCreativeOperatorSurfaceModel(
   const buckets = buildOperatorBuckets(items, {
     labels: {
       watch: "Test",
-      blocked: "Refresh",
+      blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
     summaries: {
       act_now: "Winner signals are strong enough for the next decisive move.",
       watch: "Challengers are still collecting evidence before they earn winner budget.",
-      blocked: "Fatigued winners need a new cut, angle, or replacement before more spend.",
+      blocked: "Rows need a refresh, cut, retest, or campaign/context diagnosis before more spend.",
       needs_truth: "Creatives are held back by preview, commercial truth, deployment fit, or stop-level constraints.",
       no_action: "Stable winners to keep live without forcing them back into churn.",
     },
@@ -643,7 +644,7 @@ export function buildCreativeOperatorSurfaceModel(
     authorityLabels: {
       act_now: "Scale",
       watch: "Test",
-      blocked: "Refresh",
+      blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
