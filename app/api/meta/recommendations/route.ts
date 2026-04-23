@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
+import type { CreativeDecisionBenchmarkScopeInput } from "@/lib/creative-decision-os";
 import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
@@ -64,6 +65,22 @@ function attachAnalysisSource(
   };
 }
 
+function parseCreativeBenchmarkScope(
+  request: NextRequest,
+): CreativeDecisionBenchmarkScopeInput | null {
+  const scope = request.nextUrl.searchParams.get("benchmarkScope");
+  if (scope !== "account" && scope !== "campaign") return null;
+
+  const scopeId = request.nextUrl.searchParams.get("benchmarkScopeId");
+  const scopeLabel = request.nextUrl.searchParams.get("benchmarkScopeLabel");
+
+  return {
+    scope,
+    ...(scopeId?.trim() ? { scopeId: scopeId.trim() } : {}),
+    ...(scopeLabel?.trim() ? { scopeLabel: scopeLabel.trim() } : {}),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const language = await resolveRequestLanguage(request);
@@ -73,6 +90,7 @@ export async function GET(request: NextRequest) {
   const analyticsStartDate = searchParams.get("analyticsStartDate") ?? startDate;
   const analyticsEndDate = searchParams.get("analyticsEndDate") ?? endDate;
   const decisionAsOf = searchParams.get("decisionAsOf");
+  const benchmarkScope = parseCreativeBenchmarkScope(request);
 
   const access = await requireBusinessAccess({
     request,
@@ -147,6 +165,7 @@ export async function GET(request: NextRequest) {
             analyticsStartDate: analyticsStartDate ?? undefined,
             analyticsEndDate: analyticsEndDate ?? undefined,
             decisionAsOf,
+            benchmarkScope,
           });
           unifiedDecisionOs = attachCreativeLinkage(unifiedDecisionOs, creativeDecisionOs);
         } catch {

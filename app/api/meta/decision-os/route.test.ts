@@ -31,6 +31,18 @@ vi.mock("@/lib/meta/decision-os-config", () => ({
   isMetaDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
 
+vi.mock("@/lib/creative-decision-os-config", () => ({
+  isCreativeDecisionOsV1EnabledForBusiness: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/creative-decision-os-source", () => ({
+  getCreativeDecisionOsForRange: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decision-os-linkage", () => ({
+  attachCreativeLinkage: vi.fn((payload) => payload),
+}));
+
 vi.mock("@/lib/meta/decision-os", () => ({
   buildMetaDecisionOs: vi.fn(),
   META_DECISION_OS_V1_CONTRACT: "meta-decision-os.v1",
@@ -40,6 +52,9 @@ const access = await import("@/lib/access");
 const businessCommercial = await import("@/lib/business-commercial");
 const decisionWindowSource = await import("@/lib/meta/operator-decision-source");
 const decisionOsConfig = await import("@/lib/meta/decision-os-config");
+const creativeDecisionOsConfig = await import("@/lib/creative-decision-os-config");
+const creativeDecisionOsSource = await import("@/lib/creative-decision-os-source");
+const decisionOsLinkage = await import("@/lib/meta/decision-os-linkage");
 const decisionOs = await import("@/lib/meta/decision-os");
 const { GET } = await import("@/app/api/meta/decision-os/route");
 
@@ -51,6 +66,7 @@ describe("GET /api/meta/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(creativeDecisionOsConfig.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(false);
     vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockResolvedValue({
       analyticsWindow: {
         startDate: "2026-04-01",
@@ -210,6 +226,10 @@ describe("GET /api/meta/decision-os", () => {
         notes: [],
       },
     } as never);
+    vi.mocked(creativeDecisionOsSource.getCreativeDecisionOsForRange).mockResolvedValue({
+      contractVersion: "creative-decision-os.v1",
+      creatives: [],
+    } as never);
 
   });
 
@@ -288,6 +308,34 @@ describe("GET /api/meta/decision-os", () => {
         analyticsEndDate: "2026-04-05",
       }),
     );
+  });
+
+  it("passes explicit benchmark scope into additive Creative linkage when enabled", async () => {
+    vi.mocked(creativeDecisionOsConfig.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10&benchmarkScope=campaign&benchmarkScopeId=cmp_1&benchmarkScopeLabel=Campaign%201",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(creativeDecisionOsSource.getCreativeDecisionOsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-05",
+        analyticsStartDate: "2026-03-01",
+        analyticsEndDate: "2026-03-31",
+        decisionAsOf: "2026-04-10",
+        benchmarkScope: {
+          scope: "campaign",
+          scopeId: "cmp_1",
+          scopeLabel: "Campaign 1",
+        },
+      }),
+    );
+    expect(decisionOsLinkage.attachCreativeLinkage).toHaveBeenCalled();
   });
 
   it("returns 404 when the feature gate is disabled for the workspace", async () => {

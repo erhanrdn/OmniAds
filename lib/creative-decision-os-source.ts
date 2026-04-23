@@ -11,6 +11,7 @@ import {
 import {
   buildCreativeDecisionOs,
   buildEmptyCreativeHistoricalAnalysis,
+  type CreativeDecisionBenchmarkScopeInput,
   type CreativeDecisionOsHistoricalWindows,
   type CreativeDecisionOsInputRow,
   type CreativeDecisionOsV1Response,
@@ -311,6 +312,7 @@ export async function getCreativeDecisionOsForRange(input: {
   analyticsStartDate?: string | null;
   analyticsEndDate?: string | null;
   decisionAsOf?: string | null;
+  benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
 }): Promise<CreativeDecisionOsV1Response> {
   const timeline = resolveCreativeDecisionTimeline({
     startDate: input.startDate,
@@ -475,6 +477,7 @@ export async function getCreativeDecisionOsForRange(input: {
       },
       commercialTruth: snapshot,
       operatingMode,
+      benchmarkScope: input.benchmarkScope ?? null,
     }),
     historicalAnalysis,
   };

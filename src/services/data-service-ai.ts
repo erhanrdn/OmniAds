@@ -1,5 +1,6 @@
 import type { AiDailyInsightSnapshot } from "@/src/types";
 import type {
+  CreativeDecisionBenchmarkScopeInput,
   CreativeDecisionOperatorQueue as CreativeDecisionOperatorQueueContract,
   CreativeDecisionOsCreative,
   CreativeDecisionOsV1Response,
@@ -245,12 +246,24 @@ export const getAiCreativeDecisions = getCreativeDecisions;
 export async function getCreativeDecisionOs(
   businessId: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  options?: {
+    benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
+  },
 ): Promise<CreativeDecisionOsV1Response> {
   const url = getClientApiUrl("/api/creatives/decision-os");
   url.searchParams.set("businessId", businessId);
   url.searchParams.set("startDate", startDate);
   url.searchParams.set("endDate", endDate);
+  if (options?.benchmarkScope?.scope) {
+    url.searchParams.set("benchmarkScope", options.benchmarkScope.scope);
+    if (options.benchmarkScope.scopeId?.trim()) {
+      url.searchParams.set("benchmarkScopeId", options.benchmarkScope.scopeId.trim());
+    }
+    if (options.benchmarkScope.scopeLabel?.trim()) {
+      url.searchParams.set("benchmarkScopeLabel", options.benchmarkScope.scopeLabel.trim());
+    }
+  }
 
   const response = await fetch(url.toString(), {
     method: "GET",

@@ -4,11 +4,13 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Deterministic Creative Segmentation implementation pass 1 is complete on the working branch. The next step is to merge pass 1 and then begin pass 2 for the deferred scale and baseline work.
+Deterministic Creative Segmentation implementation pass 2 is complete on the working branch.
+
+The next step is to merge pass 2 through normal PR flow and then start pass 3 on the remaining scale, baseline, and Commercial Truth gaps.
 
 ## Calibration Status
 
-Foundation, hardening, data-gate recovery, and the 10-agent calibration panel are all complete.
+Foundation, hardening, data-gate recovery, and the 10-agent calibration panel are complete.
 
 Current calibration status:
 
@@ -29,55 +31,88 @@ Real issues that were fixed in PR #37:
 
 Gate status after hardening remained `passed`.
 
-## Pass 1 Implementation Result
+## Pass 1 Result
 
-Implemented in pass 1:
+Pass 1 remained the narrow clarity pass:
 
-- `Campaign Check` remains the explicit user-facing outcome when campaign/ad set context is the primary blocker
-- `Not Enough Data` vs `Test More` is tighter for under-sampled rows
-- `Refresh` remains explicit for fatigued winners
-- `Protect` remains explicit for stable winners
-- `Watch` survives partial Commercial Truth when relative diagnosis is still valid
-- row-label / bucket alignment is improved so `Check` and `Watch` read less misleadingly
+- `Campaign Check` stayed explicit
+- `Not Enough Data` vs `Test More` tightened
+- `Refresh` and `Protect` stayed explicit
+- `Watch` survived partial Commercial Truth where relative diagnosis was still valid
+- first-pass label and bucket alignment improved
 
-Concrete code changes:
+## What Was Implemented In Pass 2
 
-- under-sampled positives now require meaningful support before they surface as `Test More`
-- readable relative-baseline rows with missing commercial truth can remain `Watch` without unlocking queue/apply
-- Creative watch bucket label is now `Watch`, not `Test`
-- blocked/check headline is now neutral instead of refresh-specific
-- `Scale Review` is pinned as review-only in the `Watch` bucket
+Pass 2 implemented the deferred baseline-backed and benchmark-scope work:
 
-## What Was Intentionally Left For Later
+- account-relative baseline admission is now stricter before policy can use it for `Scale Review`
+- explicit campaign benchmark scope is active in the Creative Decision OS read contract
+- benchmark-scope metadata is now propagated through current Creative and additive Meta linkage routes
+- default benchmark scope remains account-wide
+- a selected campaign filter alone still does not silently change benchmark authority
+- `Scale Review` is now live when relative strength, evidence, and baseline reliability are strong enough
+- `Scale Review` remains review-only and cannot queue/apply
+- low-spend rows with meaningful purchase/value evidence are no longer auto-dismissed as ROAS-only noise
+- the review-oriented bucket label is now `Review`, so `Scale Review` is not hidden under misleading watch-only wording
 
-Still deferred:
+## Whether `Scale Review` Is Live
 
-- direct `Scale` / `Scale Review` expansion
-- cut retuning
-- account-baseline rewrites
-- campaign-benchmark rewrites beyond the current context-gap guardrails
-- any old-rule behavior import as policy truth
+Yes.
+
+`Scale Review` is now live under conservative conditions:
+
+- live evidence only
+- provenance and trust metadata must be present
+- campaign/ad set context cannot be the primary blocker
+- relative baseline must be readable enough for deterministic comparison
+- evidence must be materially positive enough for a relative winner diagnosis
+- missing Commercial Truth may still allow `Scale Review`, but only as review-only
+
+Still true:
+
+- `Scale Review` is `operator_review_required`
+- `Scale Review` is not queue-eligible
+- `Scale Review` is not apply-eligible
+- missing Commercial Truth still blocks absolute-profit claims and execution authority
+
+## Whether Campaign Benchmark Support Is Active
+
+Yes.
+
+Campaign benchmark support is active through explicit contract input, not through silent selection state.
+
+Active path:
+
+- `benchmarkScope: account | campaign`
+- `benchmarkScopeId`
+- `benchmarkScopeLabel`
+
+Current behavior:
+
+- safe default remains account-wide benchmarking
+- explicit campaign benchmarking is available in the route and client contract
+- no new UI control was added in this pass
+
+Minimal later UI step, if product wants it:
+
+- an explicit operator control such as `Evaluate within this campaign`
 
 ## Fixture Summary
 
-Pass-1 fixture coverage now includes:
+Fixture-backed coverage now includes:
 
-- `Campaign Check` context-gap row
-- `Not Enough Data` thin-evidence row
-- `Test More` under-sampled positive row
-- `Refresh` fatigued-winner row
-- `Protect` stable-winner row
+- `Campaign Check` context-gap rows
+- `Not Enough Data` thin-evidence rows
+- `Test More` under-sampled positive rows
+- `Refresh` fatigued-winner rows
+- `Protect` stable-winner rows
 - `Watch` with partial Commercial Truth
-- blocked/system-ineligible row that must not read like `Not Enough Data`
-- scale-review review-only bucket placement
-- label/bucket alignment assertions across implemented clusters
-
-Still needed later:
-
-- scale-ready review-only fixtures
-- stronger campaign-relative scale fixtures
-- low-spend but meaningfully supported positive counterexamples beyond current pass
-- any future case where old rule truly outperforms current Decision OS
+- blocked/system-ineligible rows that must not look like `Not Enough Data`
+- account-relative `Scale Review` rows
+- explicit campaign-scope `Scale Review` rows
+- weak-baseline and low-basis no-`Scale Review` guards
+- low-spend meaningful-evidence counterexample coverage
+- row-label and bucket alignment assertions across the implemented taxonomy
 
 ## Safety Status
 
@@ -87,39 +122,52 @@ Still preserved:
 - `Scale Review` remains review-only
 - missing provenance still blocks queue/apply/push
 - non-live/demo/snapshot/fallback evidence stays non-push eligible
+- missing Commercial Truth still blocks push/apply and absolute-profit claims
 - selected reporting range remains analysis context only
-- Creative segmentation changes in pass 1 did not loosen Command Center safety
+- Command Center safety was not loosened
 
-## Claude Review Status
+## What Still Remains
 
-Not yet.
+Still deferred for pass 3 or later:
 
-This pass stayed within the already approved calibration direction and did not introduce a broad product-direction change.
+- direct `Scale` expansion beyond the current review-only path
+- broader account-baseline rewrites
+- broader campaign-benchmark rewrites beyond the explicit current contract
+- broader Commercial Truth policy changes beyond diagnosis-vs-action separation
+- any threshold retuning
+- any policy import from the old challenger
+- any UI work beyond a minimal explicit benchmark-scope control, if later needed
 
 ## Remaining Blockers
 
-No correctness blocker is currently known for implementation pass 1 itself.
+No correctness blocker is currently known for implementation pass 2 itself.
 
 Non-blocking follow-up remains:
 
 - reconnect or refresh the Meta credential for `candidate-01`
 - `meta_creative_daily` is still empty, so warehouse-level creative verification remains unavailable
 
-## Whether Pass 2 Is Needed
+## Whether Pass 3 Is Needed
 
 Yes.
 
-Pass 2 should focus on:
+Pass 3 should focus on:
 
-1. narrow `Scale Review` / scale-ready fixture-backed expansion
-2. stronger campaign-relative benchmark handling
-3. any remaining label or reason-code clarity gaps without widening action authority
+1. any additional fixture-backed scale-path expansion beyond `Scale Review`
+2. deeper baseline and benchmark quality work without widening authority
+3. Commercial Truth and campaign-context gaps that still suppress explainability or confidence
+
+## Claude Review Status
+
+Not yet.
+
+This pass stayed inside the already approved calibration direction and did not introduce a broad product-direction change.
 
 ## Exact Next Action
 
-1. merge implementation pass 1 through normal PR flow
-2. start deterministic implementation pass 2 on the deferred scale/baseline clusters
-3. keep calibration fixtures growing before any threshold retuning
+1. merge implementation pass 2 through normal PR flow
+2. start deterministic implementation pass 3 on the remaining fixture-backed gaps
+3. keep `Scale Review` review-only until stronger baseline and Commercial Truth coverage justify anything broader
 
 ## Reports
 
@@ -129,9 +177,12 @@ Pass 2 should focus on:
 - fixture candidate plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
 - current decision trace: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/current-decision-trace.md`
 - implementation pass 1 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-1-final.md`
+- implementation pass 2 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-2-final.md`
 
 ## Last Updated By Codex
 
-- completed deterministic Creative Segmentation implementation pass 1 on a narrow, fixture-backed scope
+- completed deterministic Creative Segmentation implementation pass 2 on a narrow, fixture-backed scope
+- made baseline-backed `Scale Review` live as review-only
+- activated explicit benchmark-scope contract support without silent re-segmentation
 - kept calibration safety intact
-- left scale expansion and broader baseline work for pass 2
+- left broader scale-path expansion and broader baseline work for pass 3
