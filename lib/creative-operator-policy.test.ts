@@ -185,6 +185,85 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("blocked_from_push");
   });
 
+  it("keeps one-purchase positives in Not Enough Data instead of Test More", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "medium",
+        sampleSize: 6,
+        creativeCount: 6,
+        eligibleCreativeCount: 6,
+        spendBasis: 720,
+        purchaseBasis: 18,
+        weightedRoas: 1.7,
+        weightedCpa: 28,
+        medianRoas: 1.7,
+        medianCpa: 28,
+        medianSpend: 120,
+        missingContext: [],
+      },
+      supportingMetrics: {
+        spend: 78,
+        purchases: 1,
+        impressions: 4_200,
+        roas: 1.9,
+        cpa: 41,
+        frequency: 1.2,
+        creativeAgeDays: 8,
+      },
+    });
+
+    expect(policy.segment).toBe("creative_learning_incomplete");
+    expect(policy.state).toBe("watch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("evidence_floor");
+  });
+
+  it("keeps under-sampled two-purchase positives in Test More", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "campaign",
+        benchmarkKey: "campaign:cmp-1",
+        scopeId: "cmp-1",
+        source: "explicit_campaign_scope",
+        reliability: "medium",
+        sampleSize: 5,
+        creativeCount: 5,
+        eligibleCreativeCount: 5,
+        spendBasis: 600,
+        purchaseBasis: 15,
+        weightedRoas: 1.5,
+        weightedCpa: 30,
+        medianRoas: 1.45,
+        medianCpa: 31,
+        medianSpend: 120,
+        missingContext: [],
+      },
+      supportingMetrics: {
+        spend: 96,
+        purchases: 2,
+        impressions: 4_800,
+        roas: 1.8,
+        cpa: 36,
+        frequency: 1.3,
+        creativeAgeDays: 12,
+      },
+    });
+
+    expect(policy.segment).toBe("promising_under_sampled");
+    expect(policy.state).toBe("watch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("evidence_floor");
+  });
+
   it("protects winners instead of turning short-term volatility into kill work", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -199,6 +278,77 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.segment).toBe("protected_winner");
     expect(policy.state).toBe("do_not_touch");
     expect(policy.pushReadiness).toBe("blocked_from_push");
+  });
+
+  it("keeps partial-commercial-truth rows in Watch when relative strength exists but review floors are not met", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack", "site_health"],
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "medium",
+        sampleSize: 8,
+        creativeCount: 8,
+        eligibleCreativeCount: 8,
+        spendBasis: 1_440,
+        purchaseBasis: 48,
+        weightedRoas: 1.85,
+        weightedCpa: 30,
+        medianRoas: 1.8,
+        medianCpa: 30,
+        medianSpend: 180,
+        missingContext: [],
+      },
+      supportingMetrics: {
+        spend: 180,
+        purchases: 3,
+        impressions: 14_000,
+        roas: 1.95,
+        cpa: 31,
+        frequency: 1.6,
+        creativeAgeDays: 20,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).toContain("commercial_truth");
+    expect(policy.segment).not.toBe("blocked");
+  });
+
+  it("keeps fatigued winners in Refresh review even when commercial truth is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      fatigue: {
+        status: "fatigued",
+        confidence: 0.84,
+        evidence: ["Frequency pressure is high."],
+      },
+      supportingMetrics: {
+        spend: 360,
+        purchases: 7,
+        impressions: 20_000,
+        roas: 1.8,
+        cpa: 34,
+        frequency: 3.4,
+        creativeAgeDays: 28,
+      },
+    });
+
+    expect(policy.segment).toBe("fatigued_winner");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
   });
 
   it("blocks aggressive creative action when commercial truth is missing", () => {

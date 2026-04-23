@@ -4,154 +4,134 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Creative Segmentation Calibration Lab data-gate hardening is merged and the 10-agent calibration panel is complete. The next step may be deterministic policy implementation backed by fixtures.
+Deterministic Creative Segmentation implementation pass 1 is complete on the working branch. The next step is to merge pass 1 and then begin pass 2 for the deferred scale and baseline work.
+
+## Calibration Status
+
+Foundation, hardening, data-gate recovery, and the 10-agent calibration panel are all complete.
+
+Current calibration status:
+
+- Data Accuracy Gate: `passed`
+- live Meta connectivity recovery: confirmed
+- active eligible zero-row case: resolved
+- 10-agent panel: complete
+- deterministic implementation may proceed: yes
 
 ## PR #37 Hardening Result
 
 Merged.
 
-What changed:
+Real issues that were fixed in PR #37:
 
-- strengthened runtime readability handling for encrypted Meta credentials
-- distinguished missing key vs unreadable key vs readable runtime
-- prevented false `0 live businesses` conclusions from unreadable credentials
-- forced runtime skip totals to equal classified runtime skip reasons
+- encrypted runtime readability classification was too weak
+- runtime skip totals could drift from classified skip reasons
 
-Review issues:
+Gate status after hardening remained `passed`.
 
-- decryption-key presence check was a real issue
-- runtime skip total drift was a real issue
+## Pass 1 Implementation Result
 
-Updated gate status after hardening: still `passed`
+Implemented in pass 1:
 
-## Live Meta Connectivity Status
+- `Campaign Check` remains the explicit user-facing outcome when campaign/ad set context is the primary blocker
+- `Not Enough Data` vs `Test More` is tighter for under-sampled rows
+- `Refresh` remains explicit for fatigued winners
+- `Protect` remains explicit for stable winners
+- `Watch` survives partial Commercial Truth when relative diagnosis is still valid
+- row-label / bucket alignment is improved so `Check` and `Watch` read less misleadingly
 
-Live Meta connectivity was real in the checked production-equivalent runtime.
+Concrete code changes:
 
-Recovered status:
+- under-sampled positives now require meaningful support before they surface as `Test More`
+- readable relative-baseline rows with missing commercial truth can remain `Watch` without unlocking queue/apply
+- Creative watch bucket label is now `Watch`, not `Test`
+- blocked/check headline is now neutral instead of refresh-specific
+- `Scale Review` is pinned as review-only in the `Watch` bucket
 
-- DB-eligible Meta-connected candidates: 8
-- Runtime-eligible live-readable candidates: 7
-- Runtime-skipped candidates: 1
+## What Was Intentionally Left For Later
 
-The runtime-skipped candidate is `candidate-01`, which failed live Meta reads with an OAuth checkpoint/token error.
+Still deferred:
 
-## Helper / Environment Mismatch Status
-
-Real.
-
-The earlier local `0 eligible businesses` diagnosis came from running the helper with `DATABASE_URL` only. That was insufficient to verify encrypted Meta credentials.
-
-The helper now protects against that mismatch:
-
-- it distinguishes missing token decryption env from present-but-unreadable encrypted credentials
-- it screens candidates through live Meta readability before sampling
-- it keeps runtime skip totals equal to the classified runtime skip reasons
-
-## Current Data Accuracy Gate Status
-
-Passed.
-
-Latest corrected gate result:
-
-- historical snapshot candidates inspected: 8
-- DB-eligible candidates: 8
-- runtime-eligible candidates: 7
-- runtime-skipped candidates: 1
-- sampled candidates: 3
-- sampled rows exported: 32
-- active eligible zero-row candidates: 0
-- gate passed: true
-
-## Agent Panel Status
-
-Completed.
-
-Panel coverage:
-
-- sampled companies reviewed: 3
-- sanitized rows in dataset: 32
-- representative creative rows reviewed by all 10 roles: 12
-
-High-level result:
-
-- all 10 roles converged on the current Decision OS segment for all 12 representative rows
-- the panel did not expose a new source-health blocker
-- the strongest deterministic targets are `Campaign Check`, `Not Enough Data`, `Test More`, `Refresh`, `Protect`, and commercial-truth split behavior
-
-Important:
-
-- agent consensus did not become policy
-- this pass produced diagnosis, rule candidates, and fixture candidates only
-
-## Remaining Blockers
-
-No remaining Data Accuracy Gate blocker.
-
-No blocker preventing deterministic implementation work from starting next.
-
-Non-blocking follow-up:
-
-- reconnect or refresh the Meta credential for `candidate-01`
-- `meta_creative_daily` is still empty, so independent warehouse-level creative verification remains unavailable
-
-## Mismatch Summary
-
-Top mismatch clusters:
-
-- `Campaign Check` missing when campaign context is weak or unavailable
-- `Not Enough Data` vs `Test More` confusion in thin-evidence rows
-- fatigued-winner `Refresh` paths that old rule misread as `pause` or `scale`
-- protected-winner `Protect` paths that old rule misread as `scale`
-- commercial-truth over-gating
-- weak or missing campaign benchmark
-- UI label reason-class ambiguity
+- direct `Scale` / `Scale Review` expansion
+- cut retuning
+- account-baseline rewrites
+- campaign-benchmark rewrites beyond the current context-gap guardrails
+- any old-rule behavior import as policy truth
 
 ## Fixture Summary
 
-Immediate direct fixtures are available from the validated panel for:
+Pass-1 fixture coverage now includes:
 
-- `Campaign Check` context-gap rows
-- `Not Enough Data` false-winner rows
-- `Test More` under-sampled positive rows
-- `Refresh` fatigued-winner rows
-- `Protect` stable-winner rows
-- `Watch` under partial commercial truth
+- `Campaign Check` context-gap row
+- `Not Enough Data` thin-evidence row
+- `Test More` under-sampled positive row
+- `Refresh` fatigued-winner row
+- `Protect` stable-winner row
+- `Watch` with partial Commercial Truth
+- blocked/system-ineligible row that must not read like `Not Enough Data`
+- scale-review review-only bucket placement
+- label/bucket alignment assertions across implemented clusters
 
 Still needed later:
 
-- true scale-ready review-only fixtures
-- low-spend but meaningfully supported positive fixtures
-- any case where old rule cleanly outperforms current Decision OS
+- scale-ready review-only fixtures
+- stronger campaign-relative scale fixtures
+- low-spend but meaningfully supported positive counterexamples beyond current pass
+- any future case where old rule truly outperforms current Decision OS
 
-## meta_creative_daily Confidence Limitation
+## Safety Status
 
-Current verification confidence remains API/payload parity only.
+Still preserved:
 
-`meta_creative_daily` is not the immediate blocker for Calibration Lab progression in the current Creative product pipeline.
+- old-rule challenger is non-authoritative
+- `Scale Review` remains review-only
+- missing provenance still blocks queue/apply/push
+- non-live/demo/snapshot/fallback evidence stays non-push eligible
+- selected reporting range remains analysis context only
+- Creative segmentation changes in pass 1 did not loosen Command Center safety
+
+## Claude Review Status
+
+Not yet.
+
+This pass stayed within the already approved calibration direction and did not introduce a broad product-direction change.
+
+## Remaining Blockers
+
+No correctness blocker is currently known for implementation pass 1 itself.
+
+Non-blocking follow-up remains:
+
+- reconnect or refresh the Meta credential for `candidate-01`
+- `meta_creative_daily` is still empty, so warehouse-level creative verification remains unavailable
+
+## Whether Pass 2 Is Needed
+
+Yes.
+
+Pass 2 should focus on:
+
+1. narrow `Scale Review` / scale-ready fixture-backed expansion
+2. stronger campaign-relative benchmark handling
+3. any remaining label or reason-code clarity gaps without widening action authority
 
 ## Exact Next Action
 
-Start deterministic policy implementation against the validated fixture plan:
-
-1. add fixture coverage for context gaps, false winners, under-sampled positives, fatigued winners, and protected winners
-2. implement deterministic gates for those clusters without changing thresholds yet
-3. preserve queue/push/apply safety and keep commercial-truth action gating intact
+1. merge implementation pass 1 through normal PR flow
+2. start deterministic implementation pass 2 on the deferred scale/baseline clusters
+3. keep calibration fixtures growing before any threshold retuning
 
 ## Reports
 
-- Data gate: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/data-accuracy-gate.md`
-- Live Meta recovery: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/live-meta-connectivity-recovery.md`
-- Live Meta final: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/live-meta-cohort-final.md`
-- Agent judgments: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/agent-panel-judgments.md`
-- Mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
-- Fixture plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
-- Final lab report: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
-- Sanitized artifact: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/artifacts/sanitized-calibration-dataset.json`
+- calibration final: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
+- agent panel judgments: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/agent-panel-judgments.md`
+- mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
+- fixture candidate plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
+- current decision trace: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/current-decision-trace.md`
+- implementation pass 1 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-1-final.md`
 
 ## Last Updated By Codex
 
-- merged PR #37 hardening after fixing encrypted-runtime readability and runtime skip-count issues
-- ran the 10-agent calibration panel on the validated sanitized dataset
-- produced mismatch synthesis and fixture candidate plan
-- confirmed that deterministic implementation may start next without changing thresholds or rewriting segmentation
+- completed deterministic Creative Segmentation implementation pass 1 on a narrow, fixture-backed scope
+- kept calibration safety intact
+- left scale expansion and broader baseline work for pass 2

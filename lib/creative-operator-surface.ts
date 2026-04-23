@@ -48,8 +48,8 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   },
   watch: {
     key: "watch",
-    label: "TEST",
-    summary: "Challengers still collecting signal before they earn winner budget.",
+    label: "WATCH",
+    summary: "Rows worth monitoring while signal matures or confidence stays review-only.",
     tone: "watch",
   },
   blocked: {
@@ -87,7 +87,7 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
     case "act_now":
       return "Scale";
     case "watch":
-      return "Test";
+      return "Watch";
     case "blocked":
       return "Check";
     case "needs_truth":
@@ -100,7 +100,7 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
 }
 
 export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
-  if (state === "watch") return "Test";
+  if (state === "watch") return "Watch";
   if (state === "no_action") return "Evergreen";
   if (state === "act_now") return "Scale";
   if (state === "needs_truth") return "Hold: verify";
@@ -587,15 +587,15 @@ export function buildCreativeOperatorSurfaceModel(
   const previewTruth = buildCreativePreviewTruthSummary({ creatives });
   const buckets = buildOperatorBuckets(items, {
     labels: {
-      watch: "Test",
+      watch: "Watch",
       blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
     summaries: {
       act_now: "Winner signals are strong enough for the next decisive move.",
-      watch: "Challengers are still collecting evidence before they earn winner budget.",
-      blocked: "Rows need a refresh, cut, retest, or campaign/context diagnosis before more spend.",
+      watch: "Rows stay visible while evidence matures, confidence stays review-only, or upside remains observational.",
+      blocked: "Rows need a campaign check, refresh review, cut review, or retest before the next move.",
       needs_truth: "Creatives are held back by preview, commercial truth, deployment fit, or stop-level constraints.",
       no_action: "Stable winners to keep live without forcing them back into churn.",
     },
@@ -604,8 +604,8 @@ export function buildCreativeOperatorSurfaceModel(
 
   const counts = {
     scale: buckets.find((bucket) => bucket.key === "act_now")?.rows.length ?? 0,
-    test: buckets.find((bucket) => bucket.key === "watch")?.rows.length ?? 0,
-    refresh: buckets.find((bucket) => bucket.key === "blocked")?.rows.length ?? 0,
+    watch: buckets.find((bucket) => bucket.key === "watch")?.rows.length ?? 0,
+    check: buckets.find((bucket) => bucket.key === "blocked")?.rows.length ?? 0,
     hold: buckets.find((bucket) => bucket.key === "needs_truth")?.rows.length ?? 0,
     evergreen: buckets.find((bucket) => bucket.key === "no_action")?.rows.length ?? 0,
   };
@@ -619,12 +619,12 @@ export function buildCreativeOperatorSurfaceModel(
   if (counts.scale > 0) {
     emphasis = "act_now";
     headline = `${counts.scale} creative ${counts.scale === 1 ? "is" : "are"} ready to scale.`;
-  } else if (counts.refresh > 0) {
+  } else if (counts.check > 0) {
     emphasis = "blocked";
-    headline = `${counts.refresh} creative ${counts.refresh === 1 ? "needs" : "need"} a refresh before fatigue spreads.`;
-  } else if (counts.test > 0) {
+    headline = `${counts.check} creative ${counts.check === 1 ? "needs" : "need"} a check before the next move.`;
+  } else if (counts.watch > 0) {
     emphasis = "watch";
-    headline = `${counts.test} creative ${counts.test === 1 ? "stays" : "stay"} in test for now.`;
+    headline = `${counts.watch} creative ${counts.watch === 1 ? "stays" : "stay"} in watch for now.`;
   } else if (counts.hold > 0) {
     emphasis = "needs_truth";
     headline = `${counts.hold} creative ${counts.hold === 1 ? "is" : "are"} on hold until the next gate clears.`;
@@ -643,7 +643,7 @@ export function buildCreativeOperatorSurfaceModel(
     emphasis,
     authorityLabels: {
       act_now: "Scale",
-      watch: "Test",
+      watch: "Watch",
       blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",
