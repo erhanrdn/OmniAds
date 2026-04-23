@@ -180,6 +180,9 @@ function buildDecisionOsRow(rowId: string, overrides: Record<string, unknown> = 
     legacyLifecycleState: "blocked",
     decisionSignals: ["Preview truth missing"],
     summary: "Preview truth is missing, so this creative cannot move authoritatively.",
+    benchmarkScope: "account",
+    benchmarkScopeLabel: "Account-wide",
+    benchmarkReliability: "medium",
     benchmark: {
       selectedCohort: "family",
       selectedCohortLabel: "Family",
@@ -510,5 +513,117 @@ describe("CreativeDetailExperience", () => {
     expect(html).toContain("Support only");
     expect(html).toContain("Support only. AI commentary does not change the deterministic decision.");
     expect(html).toContain("Generate AI interpretation");
+  });
+
+  it("shows benchmark scope, reliability, and business-validation notes without hiding relative strength", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: "creative_scale_review",
+        creative_id: "cr_scale_review",
+        name: "Scale Review Creative",
+        preview_url: "https://example.com/preview.jpg",
+        preview_source: "snapshot",
+        thumbnail_url: "https://example.com/thumb.jpg",
+        image_url: "https://example.com/image.jpg",
+        table_thumbnail_url: "https://example.com/table.jpg",
+        card_preview_url: "https://example.com/card.jpg",
+        preview_manifest: {
+          table_src: "https://example.com/table.jpg",
+          card_src: "https://example.com/card.jpg",
+          detail_image_src: "https://example.com/image.jpg",
+          detail_video_src: null,
+          render_state: "renderable_high_quality",
+          card_state: "ready",
+          waiting_reason: null,
+          table_source_kind: "thumbnail_static",
+          card_source_kind: "non_thumbnail_static",
+          resolution_class: "high_res",
+          thumbnail_like: false,
+          source_reason: "card_prefer_non_thumbnail",
+          needs_card_enrichment: false,
+          live_html_available: true,
+        },
+        preview_state: "preview",
+        preview: {
+          render_mode: "image",
+          image_url: "https://example.com/image.jpg",
+          video_url: null,
+          poster_url: null,
+          source: "image_url",
+          is_catalog: false,
+        },
+        preview_status: "ready",
+      }),
+    );
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{
+          creatives: [
+            buildDecisionOsRow(row.id, {
+              name: "Scale Review Creative",
+              summary:
+                "Strong relative performer against the Account-wide benchmark. Business validation is still missing, so this stays review-only.",
+              previewStatus: {
+                selectedWindow: "ready",
+                liveDecisionWindow: "ready",
+                reason: "Live preview media is available for the live decision window.",
+              },
+              benchmarkScope: "account",
+              benchmarkScopeLabel: "Account-wide",
+              benchmarkReliability: "medium",
+              trust: {
+                surfaceLane: "watchlist",
+                truthState: "degraded_missing_truth",
+                operatorDisposition: "profitable_truth_capped",
+                reasons: ["Business validation is still missing."],
+                evidence: {
+                  materiality: "material",
+                },
+              },
+              operatorPolicy: {
+                contractVersion: "operator-policy.v1",
+                policyVersion: "creative-operator-policy.v1",
+                state: "investigate",
+                segment: "scale_review",
+                actionClass: "scale",
+                evidenceSource: "live",
+                pushReadiness: "operator_review_required",
+                queueEligible: false,
+                canApply: false,
+                reasons: ["Business validation is still missing."],
+                blockers: [],
+                missingEvidence: ["commercial_truth"],
+                requiredEvidence: ["commercial_truth", "relative_baseline"],
+                explanation: "Review manually before any scale move.",
+              },
+            }),
+          ],
+        } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Scope");
+    expect(html).toContain("Account-wide");
+    expect(html).toContain("Reliability");
+    expect(html).toContain("Medium");
+    expect(html).toContain("Business validation is still missing, so this stays review-only.");
+    expect(html).toContain("Relative strength stays visible, but queue/apply remains blocked.");
   });
 });

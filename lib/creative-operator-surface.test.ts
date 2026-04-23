@@ -5,6 +5,8 @@ import {
   buildCreativePreviewTruthSummary,
   buildCreativeQuickFilters,
   creativeAuthorityStateLabel,
+  creativeBenchmarkReliabilityLabel,
+  creativeBusinessValidationNote,
   creativeOperatorSegmentLabel,
   creativeQuickFilterShortLabel,
   resolveCreativeQuickFilterKey,
@@ -429,15 +431,59 @@ describe("creative operator surface", () => {
       requiredEvidence: ["commercial_truth", "relative_baseline"],
       explanation: "Review manually before any scale move.",
     };
+    fixture.creatives[0].benchmarkScope = "account";
+    fixture.creatives[0].benchmarkScopeLabel = "Account-wide";
+    fixture.creatives[0].benchmarkReliability = "strong";
+    fixture.creatives[0].trust.truthState = "degraded_missing_truth";
+    fixture.creatives[0].trust.operatorDisposition = "profitable_truth_capped";
 
     const review = buildCreativeOperatorItem(fixture.creatives[0]);
 
     expect(review.primaryAction).toBe("Scale Review");
     expect(review.authorityState).toBe("watch");
     expect(review.authorityLabel).toBe("Review");
+    expect(review.reason).toContain("Strong relative performer against the Account-wide benchmark.");
+    expect(review.reason).toContain("Business validation is still missing");
     expect(review.instruction?.queueEligible).toBe(false);
     expect(review.instruction?.canApply).toBe(false);
+    expect(review.instruction?.headline).toBe("Scale Review: Promote Winner");
+    expect(review.instruction?.primaryMove).toContain("relative winner before any scale move");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("watch");
+  });
+
+  it("formats benchmark reliability and business-validation messaging without hiding relative strength", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "investigate",
+      segment: "scale_review",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Missing commercial input: target_pack"],
+      blockers: [],
+      missingEvidence: ["commercial_truth"],
+      requiredEvidence: ["commercial_truth", "relative_baseline"],
+      explanation: "Review manually before any scale move.",
+    };
+    fixture.creatives[0].benchmarkScope = "campaign";
+    fixture.creatives[0].benchmarkScopeLabel = "Spring Prospecting";
+    fixture.creatives[0].benchmarkReliability = "medium";
+    fixture.creatives[0].trust.truthState = "degraded_missing_truth";
+    fixture.creatives[0].trust.operatorDisposition = "profitable_truth_capped";
+
+    expect(creativeBenchmarkReliabilityLabel("strong")).toBe("Strong");
+    expect(creativeBenchmarkReliabilityLabel("medium")).toBe("Medium");
+    expect(creativeBenchmarkReliabilityLabel("weak")).toBe("Thin");
+    expect(creativeBusinessValidationNote(fixture.creatives[0])).toBe(
+      "Business validation is still missing, so this stays review-only.",
+    );
+    expect(buildCreativeOperatorItem(fixture.creatives[0]).reason).toContain(
+      "Spring Prospecting benchmark",
+    );
   });
 
   it("keeps Campaign Check, Not Enough Data, and Protect out of the hold bucket", () => {

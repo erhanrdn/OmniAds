@@ -234,6 +234,34 @@ describe("operator prescription adapter", () => {
     expect(instruction.evidenceStrength).toBe("limited");
   });
 
+  it("keeps Scale Review framed as a relative winner with manual validation still required", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "investigate",
+        actionClass: "scale",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        missingEvidence: ["commercial_truth"],
+        requiredEvidence: ["commercial_truth", "relative_baseline"],
+      }),
+      targetScope: "creative",
+      targetEntity: "Relative Winner",
+      actionLabel: "Scale Review",
+      reason: "Strong relative performer against the Account-wide benchmark. Business validation is still missing, so this stays review-only.",
+      confidenceScore: 0.78,
+      evidenceSource: "live",
+    });
+
+    expect(instruction.headline).toBe("Scale Review: Relative Winner");
+    expect(instruction.primaryMove).toBe(
+      "Review Relative Winner as a relative winner before any scale move; business validation is still missing.",
+    );
+    expect(instruction.queueEligible).toBe(false);
+    expect(instruction.canApply).toBe(false);
+  });
+
   it("keeps non-live evidence contextual and push blocked", () => {
     const instruction = buildOperatorInstruction({
       sourceSystem: "creative",

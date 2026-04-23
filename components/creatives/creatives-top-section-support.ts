@@ -54,6 +54,20 @@ export const DEFAULT_COPY_TOP_METRIC_IDS = [
   "seeMoreRate",
 ];
 
+export type CreativeBenchmarkScopeMode = "account" | "campaign";
+
+export interface CreativeBenchmarkCampaignContext {
+  campaignId: string;
+  campaignName: string;
+  rowCount: number;
+}
+
+export interface CreativeBenchmarkScopeSelection {
+  scope: CreativeBenchmarkScopeMode;
+  scopeId: string | null;
+  scopeLabel: string;
+}
+
 export function resolveCreativeDateRange(value: CreativeDateRangeValue): {
   start: string;
   end: string;
@@ -398,6 +412,61 @@ export function mapCreativeGroupByToApi(
   if (groupBy === "landingPage") return "adSet";
   if (groupBy === "copy" || groupBy === "headline") return "creative";
   return "adName";
+}
+
+export function resolveCreativeBenchmarkCampaignContext(
+  rows: MetaCreativeRow[],
+): CreativeBenchmarkCampaignContext | null {
+  const campaigns = new Map<string, CreativeBenchmarkCampaignContext>();
+
+  for (const row of rows) {
+    const campaignId = row.campaignId?.trim();
+    if (!campaignId) continue;
+    const campaignName = row.campaignName?.trim() || "Selected campaign";
+    const existing = campaigns.get(campaignId);
+    if (existing) {
+      existing.rowCount += 1;
+      if (existing.campaignName === "Selected campaign" && campaignName !== "Selected campaign") {
+        existing.campaignName = campaignName;
+      }
+      continue;
+    }
+    campaigns.set(campaignId, {
+      campaignId,
+      campaignName,
+      rowCount: 1,
+    });
+  }
+
+  if (campaigns.size !== 1) return null;
+  return campaigns.values().next().value ?? null;
+}
+
+export function resolveCreativeBenchmarkScopeSelection(input: {
+  mode: CreativeBenchmarkScopeMode;
+  campaignContext: CreativeBenchmarkCampaignContext | null;
+}): CreativeBenchmarkScopeSelection {
+  if (input.mode === "campaign" && input.campaignContext) {
+    return {
+      scope: "campaign",
+      scopeId: input.campaignContext.campaignId,
+      scopeLabel: input.campaignContext.campaignName,
+    };
+  }
+
+  return {
+    scope: "account",
+    scopeId: null,
+    scopeLabel: "Account-wide",
+  };
+}
+
+export function filterRowsForCreativeBenchmarkScope(
+  rows: MetaCreativeRow[],
+  scope: CreativeBenchmarkScopeSelection,
+): MetaCreativeRow[] {
+  if (scope.scope !== "campaign" || !scope.scopeId) return rows;
+  return rows.filter((row) => row.campaignId === scope.scopeId);
 }
 
 export function normalizeRange(range: CreativeDateRangeValue): CreativeDateRangeValue {

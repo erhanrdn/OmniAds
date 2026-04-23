@@ -5,6 +5,7 @@ import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/Deci
 import {
   buildCreativeOperatorItem,
   buildCreativePreviewTruthSummary,
+  creativeBenchmarkReliabilityLabel,
   creativeOperatorSegmentLabel,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
@@ -181,6 +182,10 @@ export function CreativeDecisionOsOverview({
   const configuredSectionCount = Object.values(
     decisionOs.commercialTruthCoverage.configuredSections,
   ).filter(Boolean).length;
+  const benchmarkScope = decisionOs.summary.benchmarkScope;
+  const businessValidationMissing =
+    decisionOs.commercialTruthCoverage.missingInputs.length > 0 ||
+    decisionOs.authority?.truthState === "degraded_missing_truth";
   const readiness = decisionOs.summary.readiness ?? decisionOs.authority?.readiness ?? null;
   const previewTruthSummary = buildCreativePreviewTruthSummary(decisionOs);
   const policyCreatives = decisionOs.creatives
@@ -218,6 +223,25 @@ export function CreativeDecisionOsOverview({
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
               {decisionOs.summary.message}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+              <span
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700"
+                data-testid="creative-decision-os-benchmark-scope"
+              >
+                Benchmark: {benchmarkScope.benchmarkScopeLabel}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
+                Baseline: {creativeBenchmarkReliabilityLabel(benchmarkScope.benchmarkReliability)}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700">
+                {businessValidationMissing ? "Business validation missing" : "Business validation configured"}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              {businessValidationMissing
+                ? "Relative winners stay visible in this scope, but missing business validation keeps scale-style moves in review only."
+                : "Relative strength and business validation are both available in this scope."}
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Decisions use live windows. Selected period affects analysis only.

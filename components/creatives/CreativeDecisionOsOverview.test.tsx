@@ -86,6 +86,13 @@ function payload() {
         archiveCount: 2,
         degradedCount: 1,
       },
+      benchmarkScope: {
+        benchmarkScope: "account",
+        benchmarkScopeLabel: "Account-wide",
+        benchmarkSource: "account_default",
+        benchmarkScopeId: null,
+        benchmarkReliability: "strong",
+      },
     },
     creatives: [
       {
@@ -442,6 +449,12 @@ describe("CreativeDecisionOsOverview", () => {
 
     expect(html).toContain("Operator Review");
     expect(html).toContain("Creative Operator Console");
+    expect(html).toContain("Benchmark: Account-wide");
+    expect(html).toContain("Baseline: Strong");
+    expect(html).toContain("Business validation missing");
+    expect(html).toContain(
+      "Relative winners stay visible in this scope, but missing business validation keeps scale-style moves in review only.",
+    );
     expect(html).toContain("Decisions use live windows. Selected period affects analysis only.");
     expect(html).toContain("Preview Truth");
     expect(html).toContain("Preview truth is ready across this review scope.");
