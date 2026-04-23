@@ -1,12 +1,12 @@
 # Creative Segmentation Recovery State
 
-Last updated: 2026-04-23 by Codex
+Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Implementation pass 6 is complete as a focused correction pass.
+Implementation pass 6 hardening is complete as a narrow follow-up to merged pass 6.
 
-The immediate next step is a single final Claude product review on the current pass-6 state.
+The immediate next steps are to merge the hardening PR through normal flow, then run a single final Claude product review on the hardened pass-6 state.
 
 ## Program Status
 
@@ -20,88 +20,61 @@ The immediate next step is a single final Claude product review on the current p
 - implementation pass 3: merged
 - implementation pass 4: merged
 - implementation pass 5: merged
-- implementation pass 6: complete on branch, pending normal PR flow
+- implementation pass 6: merged
+- implementation pass 6 hardening: complete on branch, pending normal PR flow
 
-## What Pass 6 Implemented
+## What Pass 6 Hardening Implemented
 
-Pass 6 fixed the narrow product gaps identified after holdout validation and Claude review.
+Pass 6 hardening fixed a narrow instruction-layer issue without changing policy scope.
 
 Implemented:
 
-- review-only `Scale Review` promotion for strong relative keep-in-test rows blocked only by missing business validation
-- mature zero-purchase weak rows now surface as `Watch` instead of collapsing into early/thin `Not Enough Data`
-- `Test More` now adds a fatigue caveat when lifecycle pressure exists
-- holdout reporting now excludes protected winners from the review-only `Scale Review` miss count
-- regression coverage for the corrected scale-review gate, mature weak watch path, fatigue caveat, and holdout helper count
+- narrowed the `Test More` fatigue-caveat trigger to real fatigue / frequency-pressure signals
+- excluded missing-data notes like `Frequency unavailable` from fatigue caveat matching
+- added deterministic regression coverage at both prescription and creative-surface layers
 
 Not implemented:
 
 - no broad Creative policy rewrite
+- no taxonomy change
 - no queue/push/apply loosening
 - no benchmark-scope semantic change
-- no queue/apply/push authority expansion
-- no new top-level taxonomy
+- no Commercial Truth logic change
+- no benchmark scope change
+- no new labels
 
-## Whether The 4 Blocked Scale Review Rows Were Fixed
-
-Not as originally phrased, because the original `4-row` reading was not accurate.
-
-Pass-6 diagnosis found:
-
-- `1` real blocked review-only scale row
-- `3` protected winners that were miscounted by the holdout helper
-
-Outcome:
-
-- the real review-only scale miss now reaches `Scale Review`
-- the protected winners still correctly remain `Protect`
-
-Why:
-
-- `Scale Review` now fires when the only remaining cap is missing business validation / Commercial Truth
-- protected winners no longer get swept into that bucket
-
-## How `Not Enough Data` Was Split
-
-- genuinely early / thin rows still surface as `Not Enough Data`
-- higher-spend, mature, zero-purchase weak rows now surface as `Watch`
-
-This keeps “too early to know” separate from “already spent enough to worry, but still not converting.”
-
-## Whether Test More Fatigue Caveat Is Active
+## Whether The Fatigue-Caveat Issue Was Real
 
 Yes.
 
-`Test More` remains the single main outcome, but the instruction now explicitly tells the operator to watch fatigue pressure when that pressure is already visible.
+Root cause:
+
+- the instruction layer previously treated any `nextObservation` text containing `frequency` as fatigue evidence
+- surface rendering can include missing-context notes such as `Frequency unavailable`
+- that made some `Test More` instructions look like they had true fatigue pressure when they only had missing frequency data
+
+## What Was Changed
+
+- fatigue caveat matching now requires real fatigue / frequency-pressure wording
+- missing or unavailable frequency notes no longer count as fatigue evidence
+
+This keeps:
+
+- actual fatigue-caveat `Test More` rows intact
+- non-fatigue `Test More` rows clean
+- all safety behavior unchanged
 
 ## Remaining Mismatch Clusters
 
-No foundational mismatch cluster remains.
+No new foundational mismatch cluster was introduced by this issue.
 
-The strongest remaining questions are now final product-judgment questions:
+The hardening pass closed an instruction-copy misfire, not a policy-logic gap.
 
-1. whether the pass-6 `Scale Review` correction is product-complete on the current live cohort
-2. whether the new mature weak `Watch` copy is the best user-facing wording
-3. whether any further `Watch` / `Scale Review` / `Protect` boundary tuning is still warranted after the corrected review-only gate
-
-## Whether Watch / Scale Review / Protect Boundary Changed
-
-Yes, but only narrowly.
-
-- strong relative keep-in-test rows blocked only by missing business validation can now reach `Scale Review`
-- protected stable winners still remain `Protect`
-- ambiguous weaker cases still remain `Watch`
-
-## Whether `Scale` / `Scale Review` Look Healthy Enough
+## Whether Pass 6 Is Now Fully Hardened
 
 Yes.
 
-Reason:
-
-- true `Scale` remains strict
-- `Scale Review` remains review-only
-- the missing-business-validation cap no longer hides the identified real review-only winner
-- missing Commercial Truth still blocks true `Scale` and execution authority
+The known merged-PR fatigue-caveat misfire is fixed, tested, and smoke-checked.
 
 ## Whether Creative Segmentation Recovery Is Ready For A Final Claude Product Review
 
@@ -111,7 +84,8 @@ Reason:
 
 - holdout validation already ran successfully in pass 5
 - pass 6 addressed the remaining focused product corrections Claude identified
-- current segmentation is no longer blocked by basic data-accuracy, label-collapse, or boundary-count errors
+- pass-6 hardening removed the remaining known instruction-copy misfire
+- current segmentation is no longer blocked by basic data-accuracy, label-collapse, boundary-count, or instruction-copy errors
 - the taxonomy remains coherent and single-output
 - the relative-strength vs business-validation story remains coherent
 - safety and benchmark-scope rules remain intact
@@ -124,8 +98,8 @@ Do not start pass 7 until that review lands and identifies a concrete remaining 
 
 ## Next Recommended Action
 
-1. merge implementation pass 6 through normal PR flow
-2. run one final Claude product review against the pass-6 state
+1. merge pass 6 hardening through normal PR flow
+2. run one final Claude product review against the hardened pass-6 state
 3. use that review to decide whether any pass 7 is needed at all
 
 ## Reports
@@ -143,11 +117,12 @@ Do not start pass 7 until that review lands and identifies a concrete remaining 
 - pass 5 delta analysis: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-delta-analysis.md`
 - pass 5 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-final.md`
 - pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
+- pass 6 hardening final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-hardening-final.md`
 
 ## Last Updated By Codex
 
-- fixed the review-only `Scale Review` gate for the one real missing-business-validation miss
-- corrected the holdout helper so protected winners no longer inflate that miss count
-- split mature zero-purchase weak rows away from thin `Not Enough Data`
-- added a fatigue caveat to `Test More` instructions without changing the main label
-- prepared the work for one final Claude product review
+- verified the merged-PR fatigue caveat review comment was real
+- narrowed fatigue caveat matching so missing frequency data does not misfire
+- added direct prescription and surface regressions for the hardened trigger
+- kept pass-6 behavior otherwise unchanged
+- prepared the hardened state for one final Claude product review

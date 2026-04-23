@@ -844,6 +844,58 @@ describe("creative operator surface", () => {
     expect(testMore.instruction?.queueEligible).toBe(false);
   });
 
+  it("does not attach a fatigue caveat to Test More when frequency is only unavailable", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 110,
+      roas: 2.4,
+      purchases: 2,
+      impressions: 5_800,
+      creativeAgeDays: 12,
+      summary: "Promising but still light.",
+      fatigue: {
+        status: "none",
+        confidence: 0.18,
+        ctrDecay: null,
+        clickToPurchaseDecay: null,
+        roasDecay: null,
+        spendConcentration: null,
+        frequencyPressure: null,
+        winnerMemory: false,
+        evidence: [],
+        missingContext: ["Frequency unavailable"],
+      },
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "watch",
+        segment: "promising_under_sampled",
+        actionClass: "test",
+        evidenceSource: "live",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Promising but still under-sampled."],
+        blockers: [],
+        missingEvidence: ["evidence_floor"],
+        requiredEvidence: ["evidence_floor"],
+        explanation: "Keep testing while evidence matures.",
+      },
+    };
+
+    const testMore = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(testMore.primaryAction).toBe("Test More");
+    expect(testMore.authorityState).toBe("watch");
+    expect(testMore.reason).not.toContain("watching fatigue pressure");
+    expect(testMore.instruction?.primaryMove).not.toContain("watch fatigue pressure");
+    expect(testMore.instruction?.nextObservation.join(" ")).toContain("Frequency unavailable");
+  });
+
   it("does not label policy or contextual ineligible rows as Not Enough Data", () => {
     const fixture = creativeDecisionOsFixture();
     const basePolicy = {

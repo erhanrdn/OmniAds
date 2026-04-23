@@ -457,7 +457,26 @@ function sameOperatorTarget(left: string, right: string) {
 }
 
 function findFatigueObservation(observations: string[]) {
-  return observations.find((observation) => /fatigue|frequency/i.test(observation));
+  return observations.find((observation) => isFatigueSignalObservation(observation));
+}
+
+function isFatigueSignalObservation(observation: string) {
+  const normalized = observation.trim().toLowerCase();
+  if (!normalized) return false;
+  if (isMissingOrUnavailableObservation(normalized)) return false;
+  return (
+    /\bfatigue\b/.test(normalized) ||
+    /\bfatigued\b/.test(normalized) ||
+    /\bfrequency\b.*\bpressure\b/.test(normalized) ||
+    /\bpressure\b.*\bfrequency\b/.test(normalized) ||
+    /\belevated frequency\b/.test(normalized) ||
+    /\brising frequency\b/.test(normalized) ||
+    /\bfrequency is rising\b/.test(normalized)
+  );
+}
+
+function isMissingOrUnavailableObservation(observation: string) {
+  return /\b(unavailable|missing|unknown|not available|unreadable)\b/.test(observation);
 }
 
 function isScaleReviewActionLabel(actionLabel: string) {

@@ -291,6 +291,58 @@ describe("operator prescription adapter", () => {
     expect(instruction.canApply).toBe(false);
   });
 
+  it("does not treat missing frequency data as a fatigue caveat for Test More", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "watch",
+        actionClass: "test",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        missingEvidence: ["evidence_floor"],
+        requiredEvidence: ["conversion_volume"],
+      }),
+      targetScope: "creative",
+      targetEntity: "Promising Hook",
+      actionLabel: "Test More",
+      reason: "Promising relative signal, but the sample is still light. Keep testing until the evidence matures.",
+      confidenceScore: 0.67,
+      evidenceSource: "live",
+      nextObservation: ["Frequency unavailable"],
+    });
+
+    expect(instruction.instructionKind).toBe("watch");
+    expect(instruction.primaryMove).toContain("Keep testing Promising Hook;");
+    expect(instruction.primaryMove).not.toContain("watch fatigue pressure");
+  });
+
+  it("keeps Test More clean when no fatigue-related observation exists", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "watch",
+        actionClass: "test",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        missingEvidence: ["evidence_floor"],
+        requiredEvidence: ["conversion_volume"],
+      }),
+      targetScope: "creative",
+      targetEntity: "Promising Hook",
+      actionLabel: "Test More",
+      reason: "Promising relative signal, but the sample is still light. Keep testing until the evidence matures.",
+      confidenceScore: 0.67,
+      evidenceSource: "live",
+      nextObservation: ["Wait for one more conversion before changing the recommendation."],
+    });
+
+    expect(instruction.instructionKind).toBe("watch");
+    expect(instruction.primaryMove).toContain("Keep testing Promising Hook;");
+    expect(instruction.primaryMove).not.toContain("watch fatigue pressure");
+  });
+
   it("keeps non-live evidence contextual and push blocked", () => {
     const instruction = buildOperatorInstruction({
       sourceSystem: "creative",
