@@ -4,7 +4,25 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Creative Segmentation Calibration Lab is now unblocked at the Data Accuracy Gate. The next step may be the 10-agent media-buyer panel, but that panel was not started in this pass.
+Creative Segmentation Calibration Lab data-gate hardening is merged and the 10-agent calibration panel is complete. The next step may be deterministic policy implementation backed by fixtures.
+
+## PR #37 Hardening Result
+
+Merged.
+
+What changed:
+
+- strengthened runtime readability handling for encrypted Meta credentials
+- distinguished missing key vs unreadable key vs readable runtime
+- prevented false `0 live businesses` conclusions from unreadable credentials
+- forced runtime skip totals to equal classified runtime skip reasons
+
+Review issues:
+
+- decryption-key presence check was a real issue
+- runtime skip total drift was a real issue
+
+Updated gate status after hardening: still `passed`
 
 ## Live Meta Connectivity Status
 
@@ -45,20 +63,66 @@ Latest corrected gate result:
 - active eligible zero-row candidates: 0
 - gate passed: true
 
-## Whether Calibration Lab May Start
+## Agent Panel Status
 
-Yes, the Calibration Lab may proceed to the 10-agent media-buyer panel next.
+Completed.
 
-The panel was intentionally not run in this pass.
+Panel coverage:
+
+- sampled companies reviewed: 3
+- sanitized rows in dataset: 32
+- representative creative rows reviewed by all 10 roles: 12
+
+High-level result:
+
+- all 10 roles converged on the current Decision OS segment for all 12 representative rows
+- the panel did not expose a new source-health blocker
+- the strongest deterministic targets are `Campaign Check`, `Not Enough Data`, `Test More`, `Refresh`, `Protect`, and commercial-truth split behavior
+
+Important:
+
+- agent consensus did not become policy
+- this pass produced diagnosis, rule candidates, and fixture candidates only
 
 ## Remaining Blockers
 
 No remaining Data Accuracy Gate blocker.
 
+No blocker preventing deterministic implementation work from starting next.
+
 Non-blocking follow-up:
 
 - reconnect or refresh the Meta credential for `candidate-01`
 - `meta_creative_daily` is still empty, so independent warehouse-level creative verification remains unavailable
+
+## Mismatch Summary
+
+Top mismatch clusters:
+
+- `Campaign Check` missing when campaign context is weak or unavailable
+- `Not Enough Data` vs `Test More` confusion in thin-evidence rows
+- fatigued-winner `Refresh` paths that old rule misread as `pause` or `scale`
+- protected-winner `Protect` paths that old rule misread as `scale`
+- commercial-truth over-gating
+- weak or missing campaign benchmark
+- UI label reason-class ambiguity
+
+## Fixture Summary
+
+Immediate direct fixtures are available from the validated panel for:
+
+- `Campaign Check` context-gap rows
+- `Not Enough Data` false-winner rows
+- `Test More` under-sampled positive rows
+- `Refresh` fatigued-winner rows
+- `Protect` stable-winner rows
+- `Watch` under partial commercial truth
+
+Still needed later:
+
+- true scale-ready review-only fixtures
+- low-spend but meaningfully supported positive fixtures
+- any case where old rule cleanly outperforms current Decision OS
 
 ## meta_creative_daily Confidence Limitation
 
@@ -68,21 +132,26 @@ Current verification confidence remains API/payload parity only.
 
 ## Exact Next Action
 
-Run the 10-agent media-buyer panel on the newly validated calibration artifact, or hand the recovered artifact to the owner for the next panel pass.
+Start deterministic policy implementation against the validated fixture plan:
+
+1. add fixture coverage for context gaps, false winners, under-sampled positives, fatigued winners, and protected winners
+2. implement deterministic gates for those clusters without changing thresholds yet
+3. preserve queue/push/apply safety and keep commercial-truth action gating intact
 
 ## Reports
 
 - Data gate: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/data-accuracy-gate.md`
 - Live Meta recovery: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/live-meta-connectivity-recovery.md`
 - Live Meta final: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/live-meta-cohort-final.md`
+- Agent judgments: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/agent-panel-judgments.md`
+- Mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
+- Fixture plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
 - Final lab report: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
 - Sanitized artifact: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/artifacts/sanitized-calibration-dataset.json`
 
 ## Last Updated By Codex
 
-- verified that live Meta connectivity exists in the production-equivalent runtime
-- diagnosed the earlier `0 eligible` result as environment mismatch
-- patched the calibration helper to preflight encrypted-token env parity and unreadable-key runtime mismatches
-- added live Meta runtime screening before sampling
-- fixed runtime skip count consistency in the sanitized gate artifact
-- reran the sanitized calibration helper and recovered a passing cohort
+- merged PR #37 hardening after fixing encrypted-runtime readability and runtime skip-count issues
+- ran the 10-agent calibration panel on the validated sanitized dataset
+- produced mismatch synthesis and fixture candidate plan
+- confirmed that deterministic implementation may start next without changing thresholds or rewriting segmentation
