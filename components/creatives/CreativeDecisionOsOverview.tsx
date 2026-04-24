@@ -5,6 +5,7 @@ import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/Deci
 import {
   buildCreativeOperatorItem,
   buildCreativePreviewTruthSummary,
+  buildCreativeTaxonomyCounts,
   creativeBenchmarkReliabilityLabel,
   creativeOperatorSegmentLabel,
   type CreativeQuickFilter,
@@ -188,6 +189,9 @@ export function CreativeDecisionOsOverview({
     decisionOs.authority?.truthState === "degraded_missing_truth";
   const readiness = decisionOs.summary.readiness ?? decisionOs.authority?.readiness ?? null;
   const previewTruthSummary = buildCreativePreviewTruthSummary(decisionOs);
+  const taxonomyCounts = buildCreativeTaxonomyCounts(decisionOs, {
+    quickFilters,
+  });
   const policyCreatives = decisionOs.creatives
     .filter((creative) => creative.policy?.explanation)
     .slice(0, 4);
@@ -259,38 +263,59 @@ export function CreativeDecisionOsOverview({
         </div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-6">
-        {[
-          ["Total creatives", decisionOs.summary.totalCreatives],
-          ["Scale", decisionOs.summary.scaleReadyCount],
-          ["Test More", decisionOs.summary.keepTestingCount],
-          ["Refresh", decisionOs.summary.fatiguedCount],
-          ["Cut / Campaign Check", decisionOs.summary.blockedCount],
-          ["Retest", decisionOs.summary.comebackCount],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-            <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
-          </div>
-        ))}
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Operator Segment Counts
+          </p>
+          <p className="text-xs text-slate-500">
+            Same resolved segment mapping as the Creative filters.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {taxonomyCounts.map((filter) => (
+            <div
+              key={filter.key}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+              data-testid={`creative-taxonomy-count-${filter.key}`}
+            >
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{filter.label}</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-950">{filter.count}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {[
-          ["Action core", decisionOs.summary.surfaceSummary.actionCoreCount],
-          ["Watchlist", decisionOs.summary.surfaceSummary.watchlistCount],
-          ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
-          ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
-          ["Validation needed", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
-          ["Protect", decisionOs.summary.protectedWinnerCount],
-          ["Supply plan", decisionOs.summary.supplyPlanCount],
-          ["Opportunities", decisionOs.summary.opportunitySummary.totalCount],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-            <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
-          </div>
-        ))}
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Aggregate Health Counts
+          </p>
+          <p className="text-xs text-slate-500">
+            Cross-segment aggregates, not primary segment labels.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-6">
+          {[
+            ["Total creatives", decisionOs.summary.totalCreatives],
+            ["Action core aggregate", decisionOs.summary.surfaceSummary.actionCoreCount],
+            ["Watchlist aggregate", decisionOs.summary.surfaceSummary.watchlistCount],
+            ["Archive aggregate", decisionOs.summary.surfaceSummary.archiveCount],
+            ["Degraded aggregate", decisionOs.summary.surfaceSummary.degradedCount],
+            ["Validation needed aggregate", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
+            ["Supply plan aggregate", decisionOs.summary.supplyPlanCount],
+            ["Opportunity aggregate", decisionOs.summary.opportunitySummary.totalCount],
+          ].map(([label, value]) => (
+            <div
+              key={String(label)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+              data-testid={`creative-aggregate-count-${String(label).toLowerCase().replaceAll(" ", "-")}`}
+            >
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {operatorPolicyCreatives.length > 0 ? (

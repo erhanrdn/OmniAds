@@ -122,11 +122,11 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
 }
 
 export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
-  if (state === "watch") return "Watch / Test More";
+  if (state === "watch") return "Scale Review / Test More / Watch / Not Enough Data";
   if (state === "no_action") return "Protect";
   if (state === "act_now") return "Scale";
   if (state === "needs_truth") return "Not eligible";
-  return "Refresh / Cut / Campaign Check";
+  return "Refresh / Retest / Cut / Campaign Check";
 }
 
 export function creativeBenchmarkReliabilityLabel(value: string | null | undefined) {
@@ -605,7 +605,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     subtitle: creative.familyLabel,
     primaryAction,
     authorityState,
-    authorityLabel: creativeAuthorityStateLabel(authorityState),
+    authorityLabel: primaryAction,
     reason,
     blocker,
     confidence: operatorConfidenceBand(creative.confidence),
@@ -752,6 +752,38 @@ export function buildCreativeQuickFilters(
     .filter((filter) => includeZeroCounts || filter.count > 0);
 }
 
+export function buildCreativeTaxonomyCounts(
+  decisionOs: CreativeDecisionOsV1Response | null | undefined,
+  options?: {
+    visibleIds?: Set<string> | null;
+    quickFilters?: CreativeQuickFilter[] | null;
+  },
+): CreativeQuickFilter[] {
+  const baseFilters = buildCreativeQuickFilters(decisionOs, {
+    visibleIds: options?.visibleIds,
+    includeZeroCounts: true,
+  });
+  const overrideCountsByKey = new Map(
+    (options?.quickFilters ?? []).map((filter) => [
+      filter.key,
+      {
+        count: filter.count,
+        creativeIds: filter.creativeIds,
+      },
+    ]),
+  );
+
+  return baseFilters.map((filter) => {
+    const override = overrideCountsByKey.get(filter.key);
+    if (!override) return filter;
+    return {
+      ...filter,
+      count: override.count,
+      creativeIds: override.creativeIds,
+    };
+  });
+}
+
 export function buildCreativeOperatorSurfaceModel(
   decisionOs: CreativeDecisionOsV1Response | null | undefined,
   options?: {
@@ -826,8 +858,8 @@ export function buildCreativeOperatorSurfaceModel(
     emphasis,
     authorityLabels: {
       act_now: "Scale",
-      watch: "Watch / Test More",
-      blocked: "Refresh / Cut / Campaign Check",
+      watch: "Scale Review / Test More / Watch / Not Enough Data",
+      blocked: "Refresh / Retest / Cut / Campaign Check",
       needs_truth: "Not eligible",
       no_action: "Protect",
     },
