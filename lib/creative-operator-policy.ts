@@ -305,7 +305,6 @@ function isReviewOnlyScaleCandidate(
   return (
     businessValidationStatus === "missing" &&
     hasTrueScaleEvidence(input) &&
-    input.primaryAction !== "hold_no_touch" &&
     input.primaryAction !== "refresh_replace" &&
     input.primaryAction !== "block_deploy" &&
     input.lifecycleState !== "fatigued_winner" &&
@@ -374,11 +373,17 @@ function isMatureZeroPurchaseWeakCase(input: CreativeOperatorPolicyInput) {
   );
 }
 
-function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
+function isMatureZeroPurchaseCutCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
   return (
-    input.deployment?.compatibility.status === "limited" ||
-    input.deployment?.compatibility.status === "blocked"
+    isMatureZeroPurchaseWeakCase(input) &&
+    hasNumber(metrics.impressions) &&
+    metrics.impressions >= 8_000
   );
+}
+
+function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
+  return input.deployment?.compatibility.status === "blocked";
 }
 
 function resolveSegment(params: {
@@ -411,8 +416,12 @@ function resolveSegment(params: {
   }
   if (trust?.truthState === "inactive_or_immaterial") return "contextual_only";
   if (trust?.operatorDisposition === "archive_only") return "contextual_only";
-  if (input.primaryAction === "hold_no_touch") return "protected_winner";
-  if (trust?.operatorDisposition === "protected_watchlist") return "protected_winner";
+  if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
+    return "protected_winner";
+  }
+  if (trust?.operatorDisposition === "protected_watchlist" && !reviewOnlyScaleCandidate) {
+    return "protected_winner";
+  }
   if (scaleIntent && hasWeakCampaignContext(input)) {
     return "investigate";
   }
@@ -430,6 +439,9 @@ function resolveSegment(params: {
     return "scale_review";
   }
   if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
+  if (isMatureZeroPurchaseCutCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
   if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
   if (isUnderSampled(input)) {
     if (
@@ -567,9 +579,11 @@ export function assessCreativeOperatorPolicy(
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) || reviewOnlyScaleCandidate;
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
+  const matureZeroPurchaseCutCandidate = isMatureZeroPurchaseCutCandidate(input);
+  const negativeActionIntent = killOrRefreshAction || matureZeroPurchaseCutCandidate;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
-  const requiresCampaignContext = scaleIntent;
+  const requiresCampaignContext = scaleIntent || matureZeroPurchaseCutCandidate;
   const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
   const businessValidationUnfavorable =
     scaleIntent && businessValidationStatus === "unfavorable";
@@ -583,9 +597,9 @@ export function assessCreativeOperatorPolicy(
     requiresCommercialTruth ? "commercial_truth" : null,
     scaleIntent ? "relative_baseline" : null,
     scaleIntent ? "business_validation" : null,
-    scaleIntent || killOrRefreshAction ? "evidence_floor" : null,
+    scaleIntent || negativeActionIntent ? "evidence_floor" : null,
     requiresCampaignContext ? "campaign_or_adset_context" : null,
-    killOrRefreshAction ? "sufficient_negative_evidence" : null,
+    negativeActionIntent ? "sufficient_negative_evidence" : null,
   ]);
 
   const missingEvidence = unique([
@@ -597,6 +611,7 @@ export function assessCreativeOperatorPolicy(
     needsRelativeBaseline ? "relative_baseline" : null,
     businessValidationUnfavorable ? "business_validation" : null,
     (scaleIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
+    matureZeroPurchaseCutCandidate && !hasKillEvidence(input) ? "evidence_floor" : null,
     roasOnly ? "non_roas_evidence" : null,
     requiresCampaignContext && weakCampaignContext ? "campaign_or_adset_context" : null,
     input.benchmark?.sampleSize === 0 ? "benchmark_context" : null,
@@ -646,7 +661,7 @@ export function assessCreativeOperatorPolicy(
     scaleAction && !hasScaleEvidence(input)
       ? "Scale evidence floor is not met; ROAS alone is not enough."
       : null,
-    killOrRefreshAction && !hasKillEvidence(input)
+    negativeActionIntent && !hasKillEvidence(input)
       ? "Kill or refresh evidence floor is not met."
       : null,
     requiresCampaignContext && weakCampaignContext

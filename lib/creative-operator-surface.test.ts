@@ -603,6 +603,42 @@ describe("creative operator surface", () => {
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale_review");
   });
 
+  it("keeps protected expansion candidates visible as Scale Review instead of passive Protect", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].primaryAction = "hold_no_touch";
+    fixture.creatives[0].lifecycleState = "stable_winner";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "investigate",
+      segment: "scale_review",
+      actionClass: "protect",
+      evidenceSource: "live",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Missing commercial input: target_pack"],
+      blockers: [],
+      missingEvidence: ["commercial_truth"],
+      requiredEvidence: ["commercial_truth", "relative_baseline"],
+      explanation: "Review protected winner before any scale move.",
+    };
+    fixture.creatives[0].benchmarkScope = "account";
+    fixture.creatives[0].benchmarkScopeLabel = "Account-wide";
+    fixture.creatives[0].benchmarkReliability = "strong";
+    fixture.creatives[0].trust.truthState = "degraded_missing_truth";
+    fixture.creatives[0].trust.operatorDisposition = "protected_watchlist";
+
+    const review = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(review.primaryAction).toBe("Scale Review");
+    expect(review.authorityState).toBe("watch");
+    expect(review.authorityLabel).toBe("Scale Review");
+    expect(review.reason).toContain("Strong relative performer against the Account-wide benchmark.");
+    expect(review.instruction?.primaryMove).toContain("relative winner before any scale move");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale_review");
+  });
+
   it("formats benchmark reliability and business-validation messaging without hiding relative strength", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives[0].operatorPolicy = {
@@ -913,6 +949,51 @@ describe("creative operator surface", () => {
     expect(watch.reason).toContain("move past early learning");
     expect(watch.reason).toContain("no purchase proof");
     expect(watch.instruction?.primaryMove).toContain("Confirm purchase evidence before extending this test.");
+  });
+
+  it("labels high-exposure zero-purchase test losers as Cut review work", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 360,
+      roas: 0,
+      purchases: 0,
+      impressions: 18_000,
+      creativeAgeDays: 18,
+      summary: "Spend is mature without conversion proof.",
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "spend_waste",
+        actionClass: "test",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Conversion proof is still missing."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["sufficient_negative_evidence"],
+        explanation: "Review this mature weak case as spend waste.",
+      },
+    };
+
+    const cut = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(cut.primaryAction).toBe("Cut");
+    expect(cut.authorityState).toBe("blocked");
+    expect(cut.authorityLabel).toBe("Cut");
+    expect(cut.reason).toContain("Cut candidate for operator review");
+    expect(cut.instruction?.primaryMove).toContain("before cut");
+    expect(cut.instruction?.nextObservation.join(" ")).toContain(
+      "Confirm there is no purchase evidence",
+    );
+    expect(cut.instruction?.queueEligible).toBe(false);
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("cut");
   });
 
   it("adds a fatigue caveat to Test More without changing the main outcome", () => {
