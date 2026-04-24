@@ -4,7 +4,7 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Send the completed equal-segment gate-fix work for Claude equal-segment re-review.
+Send the completed final equal-segment fix work for Claude equal-segment re-review.
 
 Creative Recovery is still not accepted as final until that review completes.
 
@@ -24,46 +24,36 @@ Creative Recovery is still not accepted as final until that review completes.
 - critical fix hardening: merged
 - equal-segment scoring audit: complete
 - equal-segment gate fixes: merged through PR #59
+- final equal-segment fixes: in progress on `feature/adsecute-creative-equal-segment-final-fixes`
 
-## Equal-Segment PR Flow
+## Claude Equal-Segment Re-Review Result
 
-Status: complete.
+Claude's independent re-review found the PR #59 score claim was overstated:
 
-- PR: `https://github.com/erhanrdn/OmniAds/pull/59`
-- title: `Fix Creative equal-segment gate misses`
-- branch: `feature/adsecute-creative-equal-segment-gate-fixes`
-- checks: passed
-- merge method: squash
-- merged commit: `76d82420c93b4fa567d35cc40d65509b2b9080e1`
-- merged to: `main`
+- macro segment score: about `83/100`, not `86/100`
+- raw row accuracy: about `83%`, not `90%`
+- Watch score: `55/100`
+- Refresh score: `73/100`
+- Cut recall: below target because Cut-shaped rows were still hiding in Refresh
+- IwaStore: about `80/100`
+- TheSwaf: about `82/100`
 
-No further policy changes were made after PR #59. This state update only records the final PR/merge status.
+Decision: Creative Recovery remains not accepted until the final fixes are reviewed.
 
-## Equal-Segment Baseline
-
-The equal-segment audit scored Creative Decision OS with equal weight by user-facing segment:
-
-- macro segment score: `76/100`
-- raw row accuracy: `81%`
-- IwaStore score: `78/100`
-- TheSwaf score: `90/100`
-
-Weakest segments:
-
-- `Watch`: `50/100`
-- `Protect`: `60/100`
-- `Refresh`: `78/100`
-
-## Equal-Segment Gate Fixes
+## Final Equal-Segment Fixes
 
 Implemented in this pass:
 
-1. `Protect` trend-collapse extension
-   - stable/fatigued winners can now leave `Protect` for `Refresh` when recent ROAS collapses below the active benchmark.
-2. blocked lifecycle CPA blowout extension
-   - blocked rows with CPA at least `2.0x` peer median and ROAS at most `0.5x` benchmark now route to review-safe `Cut` instead of early `Not Enough Data`.
-3. high-spend below-baseline Cut admission without 7d data
-   - mature validating rows can route to review-safe `Cut` when spend is at least `max(5000, 5x peer median spend)`, purchases are at least `4`, and ROAS is at most `0.80x` benchmark.
+1. catastrophic CPA `fatigued_winner` / `refresh_replace` rows now route to review-safe `Cut`
+   - fixes the Refresh-as-Cut hiding pattern from Claude Round 2
+   - queue/push/apply authority remains review-gated
+2. validating `keep_in_test` rows with at-benchmark 30-day ROAS and near-zero 7-day ROAS now route to `Refresh`
+   - fixes the strongest Watch-as-Refresh miss
+   - missing/unavailable 7-day or frequency evidence does not trigger the rule
+3. high-relative Watch case traced and documented as defensible under current Scale Review floors
+   - `company-05 / creative-04` remains `Watch`
+   - reason: not explicit test-campaign context and spend is below the true-scale peer-spend floor for that account
+   - Scale / Scale Review floors were intentionally unchanged
 
 Preserved:
 
@@ -75,65 +65,49 @@ Preserved:
 - benchmark scope remains explicit
 - selected reporting range remains non-authoritative
 
-## Equal-Segment After Score
+## Before / After Scores
 
-Post-fix deterministic replay on the reviewed mismatch set:
+Before uses Claude Round 2 independent review. After uses deterministic replay of the fixed gates over the same reviewed live cohort.
 
-- macro segment score: `86/100`
-- raw row accuracy: `90%`
-- Watch score: `75/100`
-- Protect score: `86/100`
-- Cut score: `91/100`
-- Cut recall: `100%` for the three reviewed gate-miss classes
-- IwaStore score: `87/100`
-- TheSwaf score: `100/100`
+| Metric | Before | After |
+|---|---:|---:|
+| Macro segment score | `83/100` | `87/100` |
+| Raw row accuracy | `83%` | `87%` |
+| Watch score | `55/100` | `75/100` |
+| Refresh score | `73/100` | `84/100` |
+| Cut recall | `~77%` | `~92%` |
+| IwaStore | `80/100` | `80/100` |
+| TheSwaf | `82/100` | `82/100` |
 
-Acceptance targets from this pass are met on the reviewed mismatch set:
+## Latest Segment Replay
 
-- macro `>= 85`: met
-- Watch `>= 75`: met
-- Protect `>= 80`: met
-- Cut recall `>= 85`: met
-- raw accuracy does not regress: met
-- IwaStore and TheSwaf do not regress: met
+Post-fix deterministic replay on the reviewed live artifact:
 
-## Latest Live Rerun
-
-Production-equivalent runtime path with corrected current Decision OS source:
-
-- readable businesses: `8`
-- sampled creatives: `78`
 - `Scale`: `0`
 - `Scale Review`: `6`
 - `Test More`: `13`
 - `Protect`: `6`
-- `Watch`: `10`
-- `Refresh`: `17`
+- `Watch`: `9`
+- `Refresh`: `16`
 - `Retest`: `1`
-- `Cut`: `12`
+- `Cut`: `14`
 - `Campaign Check`: `0`
 - `Not Enough Data`: `8`
 - `Not eligible for evaluation`: `5`
 
-Notes:
-
-- the three target gate classes no longer show obvious remaining misses in the latest sanitized artifact
-- the audit wrote the sanitized artifact and local private artifact
-- the command then exited non-zero because a background snapshot warm attempted to fetch `localhost:3000` while no dev server was running; the artifact itself was generated
-
 ## Remaining Weakest Segments
 
-After the targeted fixes:
+After the final targeted fixes:
 
 - `Watch`: `75/100`
-- `Refresh`: `84/100`
-- `Test More`: `85/100`
+- `Test More`: `83/100`
+- `Protect`: `83/100`
 
 No additional implementation pass should start until Claude reruns the equal-segment review.
 
 ## Reports
 
-- equal-segment gate fixes: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-gate-fixes/final.md`
+- final equal-segment fixes: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-final-fixes/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -141,6 +115,8 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Request a Claude equal-segment re-review against `main` after PR #59.
+Open the PR for `feature/adsecute-creative-equal-segment-final-fixes`, wait for checks, and merge only if the gates pass.
+
+After merge, request Claude equal-segment re-review against `main`.
 
 Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.

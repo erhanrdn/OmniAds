@@ -2,37 +2,43 @@
 
 Date: 2026-04-25
 
-This matrix summarizes the equal-segment review confusion clusters before and after the gate-fix pass. It uses sanitized aliases only.
+This matrix summarizes the equal-segment confusion clusters after Claude's Round 2 review and this final targeted gate-fix pass. Sanitized aliases only.
 
-## Fixed Confusions
+## Newly Fixed Confusions
 
 | Expected | Before actual | Before count | After actual | After count | Status |
 |---|---|---:|---|---:|---|
-| Refresh | Protect | 3 | Refresh | 3 | fixed |
-| Cut | Not Enough Data | 2 | Cut | 2 | fixed |
-| Cut | Watch | 1 | Cut | 1 | fixed |
+| Cut | Refresh | 2 | Cut | 2 | fixed |
+| Refresh | Watch | 1 | Refresh | 1 | fixed |
+
+## Previously Fixed Confusions Preserved
+
+| Expected | Before earlier actual | Count | Current actual | Status |
+|---|---|---:|---|---|
+| Refresh | Protect | 3 | Refresh | preserved |
+| Cut | Not Enough Data | 2 | Cut | preserved |
+| Cut | Watch | 1 | Cut | preserved |
 
 ## Remaining Confusion Classes
 
 | Expected | Actual | Status |
 |---|---|---|
-| Watch | Refresh | still monitored; mostly lifecycle/fatigue wording boundary |
-| Not Enough Data | Test More | still monitored; thin-spend positive-signal boundary |
-| Cut | Refresh | still monitored; severe CPA/fatigue boundary |
+| Refresh or Cut | Watch | still monitored for lower-spend below-baseline rows that remain below safe Cut/Refresh floors |
+| Scale Review or Protect | Watch | documented high-relative case remains below current true-scale peer-spend floor |
+| Not Enough Data | Test More | still monitored; thin positive-signal boundary |
 
 ## Interpretation
 
-The fixed confusions were the high-confidence, cross-account classes from the equal-segment audit:
+The final fixed confusions are the high-confidence classes from Claude's Round 2 review:
 
-- trend-collapsed protected winners should not remain `Protect`
-- blocked CPA blowouts should not remain `Not Enough Data`
-- high-spend mature below-baseline rows should not remain `Watch` only because 7d data is unavailable
+- catastrophic CPA `fatigued_winner` / `refresh_replace` rows should not remain `Refresh`
+- validating rows with at-benchmark 30-day performance and zero 7-day ROAS should not remain generic `Watch`
 
-The remaining confusion classes are lower-confidence product-boundary issues and were intentionally not bundled into this pass.
+The high-relative Watch trace was intentionally not patched because doing so would broaden Scale Review floors, which was out of scope for this pass.
 
 ## Business Impact
 
-- The `Protect` segment is safer for operators because recent collapse can now break out into `Refresh`.
-- The `Watch` segment is less likely to hide mature high-spend losers.
-- `Not Enough Data` is less likely to hide blocked lifecycle rows with enough CPA/ROAS evidence to call a review-safe `Cut`.
-- Queue/push/apply authority remains unchanged.
+- `Refresh` no longer hides the two clearest Cut-shaped CPA blowouts.
+- `Watch` is less likely to hide a mature validating trend-collapse row.
+- `Cut` recall improves without loosening queue/push/apply safety.
+- `Scale` and `Scale Review` policy floors remain unchanged.
