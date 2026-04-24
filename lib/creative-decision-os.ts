@@ -2439,13 +2439,13 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
     {
       key: "promotion" as const,
       label: "Queue-ready",
-      summary: "Scale-ready creatives with compatible deployment lanes.",
+      summary: "Scale creatives with compatible deployment lanes.",
       match: (creative: CreativeDecisionOsCreative) =>
         creative.operatorPolicy.segment === "scale_ready",
     },
     {
       key: "keep_testing" as const,
-      label: "Board-only / test",
+      label: "Board-only / Test More",
       summary: "Incubating and validating creatives that stay visible but out of the default queue.",
       match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "keep_in_test",
     },
@@ -3690,8 +3690,8 @@ export function buildCreativeDecisionOs(
       benchmarkScope: resolvedBenchmarkScopeMetadata,
       message:
         input.operatingMode?.recommendedMode === "Recovery"
-          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and stop outcomes."
-          : "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
+          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer Watch and Cut outcomes."
+          : "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
       operatingMode: input.operatingMode?.recommendedMode ?? null,
       sourceHealth,
       readReliability,

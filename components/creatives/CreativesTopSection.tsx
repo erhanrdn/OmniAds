@@ -8,6 +8,7 @@ import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurf
 import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
 import {
   buildCreativePreviewTruthSummary,
+  creativeOperatorSegmentLabel,
   creativeQuickFilterShortLabel,
   type CreativePreviewTruthSummary,
   type CreativeQuickFilter,
@@ -608,6 +609,7 @@ export function CreativesTopSection({
                     key={filter.key}
                     type="button"
                     onClick={() => onToggleQuickFilter(filter.key)}
+                    data-count={filter.count}
                     data-testid={`creative-performance-filter-${filter.key}`}
                     className={cn(
                       "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition-colors",
@@ -717,6 +719,7 @@ export function CreativesTopSection({
           previewStripState={previewStripState}
           previewStripSummary={previewStripSummary}
           previewTruthSummary={selectedPreviewTruthSummary}
+          decisionOs={decisionOs}
         />
       </div>
     </section>
@@ -1304,6 +1307,7 @@ function PreviewStrip({
   previewStripState = "ready",
   previewStripSummary,
   previewTruthSummary,
+  decisionOs,
 }: {
   businessId?: string;
   rows: MetaCreativeRow[];
@@ -1323,6 +1327,7 @@ function PreviewStrip({
     minimumReady: number;
   };
   previewTruthSummary?: CreativePreviewTruthSummary | null;
+  decisionOs?: CreativeDecisionOsV1Response | null;
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
@@ -1406,6 +1411,13 @@ function PreviewStrip({
   const visiblePreviewCardCount = previewColumnCount * visiblePreviewRowCount;
   const visibleRows = rows.slice(0, visiblePreviewCardCount);
   const hasMoreRows = rows.length > visiblePreviewCardCount;
+  const operatorSegmentByCreativeId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const creative of decisionOs?.creatives ?? []) {
+      map.set(creative.creativeId, creativeOperatorSegmentLabel(creative));
+    }
+    return map;
+  }, [decisionOs]);
 
   if (previewStripState === "data_loading") {
     return (
@@ -1479,6 +1491,7 @@ function PreviewStrip({
             creative_secondary_label: row.creativeSecondaryLabel,
             taxonomy_source: row.taxonomySource ?? null,
           });
+          const operatorSegmentLabel = operatorSegmentByCreativeId.get(row.id) ?? null;
           return (
             <button
               key={row.id}
@@ -1513,11 +1526,24 @@ function PreviewStrip({
                       {creativeTypeLabel}
                     </span>
                   ) : null}
+                  {operatorSegmentLabel ? (
+                    <span
+                      className="pointer-events-none absolute right-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-900 shadow-sm backdrop-blur-sm"
+                      data-testid="creative-preview-card-operator-segment"
+                    >
+                      {operatorSegmentLabel}
+                    </span>
+                  ) : null}
                 </div>
               )}
 
               <div className="px-3 pb-3 pt-2.5">
                 <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>
+                {operatorSegmentLabel ? (
+                  <p className="mt-1 text-[11px] font-semibold text-slate-700">
+                    {operatorSegmentLabel}
+                  </p>
+                ) : null}
                 <div className="mt-2 space-y-0.5">
                   {metrics.map((metric) => {
                     const value = metric.getValue(row, context);

@@ -52,7 +52,7 @@ function operatorVerb(kind: OperatorInstructionKind) {
     case "contextual_only":
       return "Use as context";
     default:
-      return "Review";
+      return "Watch";
   }
 }
 
@@ -262,10 +262,10 @@ function defaultInvalidActions(input: {
     values.push("Do not queue, apply, or push until policy readiness changes.");
   }
   if (input.kind === "do_not_touch") {
-    values.push("Do not pause, refresh, resize, or reset this protected row from short-term volatility.");
+    values.push("Do not cut, refresh, resize, or reset this protected row from short-term volatility.");
   }
   if (input.kind === "watch") {
-    values.push("Do not convert this watch read into a scale, kill, budget, or bid command yet.");
+    values.push("Do not convert this watch read into a scale, cut, budget, or bid command yet.");
   }
   if (input.kind === "investigate") {
     values.push("Do not make the primary move until the investigation evidence is resolved.");
@@ -418,11 +418,18 @@ function defaultPrimaryMove(input: {
             )
           ? "campaign placement still needs review."
           : "the supporting context is not command-ready yet.";
-      return `Review ${input.targetEntity} as a relative winner before any scale move; ${investigationReason}`;
+      return `Scale Review ${input.targetEntity} as a relative winner before any scale move; ${investigationReason}`;
     }
     return `Investigate ${input.targetEntity} before ${action}; the current read is not command-ready.`;
   }
   if (input.kind === "blocked") {
+    if (
+      ["refresh", "retest", "cut", "campaign check"].includes(
+        input.actionLabel.trim().toLowerCase(),
+      )
+    ) {
+      return `${input.actionLabel} ${input.targetEntity}; resolve ${input.missingEvidence[0] ?? input.reason} before execution.`;
+    }
     return `Do not act on ${input.targetEntity}; resolve ${input.missingEvidence[0] ?? input.reason} first.`;
   }
   return `Use ${input.targetEntity} as context only; it is not a primary operator command.`;
@@ -481,6 +488,21 @@ function isMissingOrUnavailableObservation(observation: string) {
 
 function isScaleReviewActionLabel(actionLabel: string) {
   return actionLabel.trim().toLowerCase() === "scale review";
+}
+
+function isCreativeOperatorActionLabel(actionLabel: string) {
+  return [
+    "scale",
+    "scale review",
+    "test more",
+    "protect",
+    "watch",
+    "refresh",
+    "retest",
+    "cut",
+    "campaign check",
+    "not enough data",
+  ].includes(actionLabel.trim().toLowerCase());
 }
 
 function isScaleActionLabel(actionLabel: string) {
@@ -607,7 +629,9 @@ export function buildOperatorInstruction(input: {
     instructionKind: kind,
     operatorVerb: operatorVerb(kind),
     headline:
-      kind === "do_now" || isScaleReviewActionLabel(input.actionLabel)
+      kind === "do_now" ||
+      isScaleReviewActionLabel(input.actionLabel) ||
+      (input.sourceSystem === "creative" && isCreativeOperatorActionLabel(input.actionLabel))
         ? `${input.actionLabel}: ${input.targetEntity}`
         : `${operatorVerb(kind)}: ${input.targetEntity}`,
     primaryMove: defaultPrimaryMove({

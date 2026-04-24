@@ -32,6 +32,7 @@ import {
   buildCreativeOperatorItem,
   creativeBenchmarkReliabilityLabel,
   creativeBusinessValidationNote,
+  creativeOperatorSegmentLabel,
 } from "@/lib/creative-operator-surface";
 
 interface CreativeDetailExperienceProps {
@@ -678,7 +679,7 @@ export function CreativeDetailExperience({
                         </div>
                         {previewTruth?.liveDecisionWindow === "metrics_only_degraded" ? (
                           <p className="text-center text-sm text-slate-600">
-                            Live decision-window preview is degraded. Review stays metrics-only until Meta returns reliable HTML.
+                            Live decision-window preview is degraded. Operator output stays metrics-only until Meta returns reliable HTML.
                           </p>
                         ) : null}
                       </div>
@@ -748,9 +749,11 @@ export function CreativeDetailExperience({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Decision + key metrics</p>
-                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">{decisionHeadline(decision.action)}</h3>
+                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">
+                      {operatorItem?.primaryAction ?? decisionHeadline(decision.action)}
+                    </h3>
                   </div>
-                  <DecisionBadge action={decision.action} />
+                  <DecisionBadge action={decision.action} label={operatorItem?.primaryAction} />
                 </div>
                 <p className="mt-2 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
 
@@ -797,7 +800,7 @@ export function CreativeDetailExperience({
                     <>
                       <CompactMetricCell
                         label="Operator segment"
-                        value={decisionOsCreative.operatorPolicy.segment.replaceAll("_", " ")}
+                        value={creativeOperatorSegmentLabel(decisionOsCreative)}
                       />
                       <CompactMetricCell
                         label="Push readiness"
@@ -1258,29 +1261,29 @@ function ListBlock({ title, items, ordered = false }: { title: string; items: st
 function decisionHeadline(action: CreativeDecision["action"]): string {
   if (action === "scale_hard") return "High-conviction scale candidate";
   if (action === "scale") return "Ready for controlled scale";
-  if (action === "kill") return "Immediate stop recommended";
-  if (action === "pause") return "Loss prevention recommended";
-  if (action === "test_more") return "Collect stronger test evidence";
+  if (action === "kill") return "Cut recommended";
+  if (action === "pause") return "Cut review recommended";
+  if (action === "test_more") return "Collect stronger Test More evidence";
   return "Monitor before committing more budget";
 }
 
 function lifecycleLabel(state: NonNullable<CreativeDecision["lifecycleState"]> | undefined) {
-  if (state === "stable_winner") return "Stable winner";
-  if (state === "emerging_winner") return "Emerging winner";
-  if (state === "fatigued_winner") return "Fatigued winner";
-  if (state === "test_only") return "Test-only";
-  if (state === "blocked") return "On Hold";
-  return "Volatile";
+  if (state === "stable_winner") return "Protect";
+  if (state === "emerging_winner") return "Test More";
+  if (state === "fatigued_winner") return "Refresh";
+  if (state === "test_only") return "Test More";
+  if (state === "blocked") return "Campaign Check";
+  return "Watch";
 }
 
-function DecisionBadge({ action }: { action: CreativeDecision["action"] }) {
+function DecisionBadge({ action, label }: { action: CreativeDecision["action"]; label?: string | null }) {
   const labels: Record<CreativeDecision["action"], string> = {
-    scale_hard: "Scale hard",
+    scale_hard: "Scale",
     scale: "Scale",
     watch: "Watch",
-    test_more: "Test",
-    pause: "Pause",
-    kill: "Kill",
+    test_more: "Test More",
+    pause: "Cut",
+    kill: "Cut",
   };
   const classes: Record<CreativeDecision["action"], string> = {
     scale_hard: "bg-emerald-700 text-white",
@@ -1290,7 +1293,7 @@ function DecisionBadge({ action }: { action: CreativeDecision["action"] }) {
     pause: "bg-orange-500 text-white",
     kill: "bg-red-600 text-white",
   };
-  return <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide", classes[action])}>{labels[action]}</span>;
+  return <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide", classes[action])}>{label ?? labels[action]}</span>;
 }
 
 function CompactMetricCell({ label, value }: { label: string; value: string }) {

@@ -189,10 +189,10 @@ export function CreativeDecisionSupportSurface({
                     Performance Segments
                   </p>
                   <p className="mt-1 text-sm text-slate-700">
-                    Review scale, test, refresh, hold, and evergreen creatives in one order.
+                    Filter by the same operator segment names shown on each creative row.
                   </p>
                   <p className="mt-1 text-xs text-slate-600">
-                    Decision cards keep finer action labels like Scale Hard, Retest, Validate, and Stop where needed.
+                    System-ineligible rows stay visible in the table, but these filters stay limited to Creative segment labels.
                   </p>
                 </div>
               </div>
@@ -204,6 +204,7 @@ export function CreativeDecisionSupportSurface({
                       key={filter.key}
                       type="button"
                       onClick={() => onToggleQuickFilter?.(filter.key)}
+                      data-count={filter.count}
                       data-testid={`creative-quick-filter-${filter.key}`}
                       className={cn(
                         "rounded-2xl border p-3 text-left transition-colors",

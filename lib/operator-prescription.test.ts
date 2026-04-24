@@ -256,7 +256,7 @@ describe("operator prescription adapter", () => {
 
     expect(instruction.headline).toBe("Scale Review: Relative Winner");
     expect(instruction.primaryMove).toBe(
-      "Review Relative Winner as a relative winner before any scale move; business validation is still missing.",
+      "Scale Review Relative Winner as a relative winner before any scale move; business validation is still missing.",
     );
     expect(instruction.queueEligible).toBe(false);
     expect(instruction.canApply).toBe(false);
@@ -417,7 +417,7 @@ describe("operator prescription adapter", () => {
 
     expect(instruction.operatorVerb).toBe("Protect");
     expect(instruction.primaryMove).toContain("live and protected");
-    expect(instruction.invalidActions.join(" ")).toContain("Do not pause, refresh, resize, or reset");
+    expect(instruction.invalidActions.join(" ")).toContain("Do not cut, refresh, resize, or reset");
   });
 
   it("clamps queue and apply overrides so instructions cannot loosen policy", () => {

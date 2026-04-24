@@ -18,11 +18,16 @@ import type {
 } from "@/src/types/operator-decision";
 
 export const CREATIVE_QUICK_FILTER_ORDER = [
-  "act_now",
+  "scale",
+  "scale_review",
+  "test_more",
+  "protect",
   "watch",
-  "blocked",
-  "needs_truth",
-  "no_action",
+  "refresh",
+  "retest",
+  "cut",
+  "campaign_check",
+  "not_enough_data",
 ] as const;
 
 export type CreativeQuickFilterKey = (typeof CREATIVE_QUICK_FILTER_ORDER)[number];
@@ -40,35 +45,65 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   CreativeQuickFilterKey,
   Omit<CreativeQuickFilter, "count" | "creativeIds">
 > = {
-  act_now: {
-    key: "act_now",
-    label: "SCALE",
-    summary: "Creatives showing winner signals and ready for the next decisive move.",
+  scale: {
+    key: "scale",
+    label: "Scale",
+    summary: "Strong relative winners with business validation for controlled scale.",
     tone: "act_now",
+  },
+  scale_review: {
+    key: "scale_review",
+    label: "Scale Review",
+    summary: "Strong relative winners that remain review-only until business validation clears.",
+    tone: "watch",
+  },
+  test_more: {
+    key: "test_more",
+    label: "Test More",
+    summary: "Promising rows that need more evidence before scale or protect decisions.",
+    tone: "watch",
+  },
+  protect: {
+    key: "protect",
+    label: "Protect",
+    summary: "Stable winners that should stay live without unnecessary changes.",
+    tone: "no_action",
   },
   watch: {
     key: "watch",
-    label: "REVIEW",
-    summary: "Rows that still need operator review, evidence maturation, or guarded observation.",
+    label: "Watch",
+    summary: "Rows with enough signal to monitor, but not enough for a stronger move.",
     tone: "watch",
   },
-  blocked: {
-    key: "blocked",
-    label: "CHECK",
-    summary: "Rows that need a refresh, cut, retest, or campaign/context diagnosis before more spend.",
+  refresh: {
+    key: "refresh",
+    label: "Refresh",
+    summary: "Fatigued winners or variants that need a new angle.",
     tone: "blocked",
   },
-  needs_truth: {
-    key: "needs_truth",
-    label: "HOLD: VERIFY",
-    summary: "Creatives held back by truth, preview, deployment, or stop-level constraints.",
-    tone: "needs_truth",
+  retest: {
+    key: "retest",
+    label: "Retest",
+    summary: "Comeback candidates that need a controlled retest.",
+    tone: "blocked",
   },
-  no_action: {
-    key: "no_action",
-    label: "EVERGREEN",
-    summary: "Stable winners to keep live with light monitoring, not pushed back into test.",
-    tone: "no_action",
+  cut: {
+    key: "cut",
+    label: "Cut",
+    summary: "Waste or failure cases that should stop taking spend.",
+    tone: "blocked",
+  },
+  campaign_check: {
+    key: "campaign_check",
+    label: "Campaign Check",
+    summary: "Rows where campaign or ad set context blocks a clean creative read.",
+    tone: "blocked",
+  },
+  not_enough_data: {
+    key: "not_enough_data",
+    label: "Not Enough Data",
+    summary: "Rows where evidence is still too thin for a quality judgment.",
+    tone: "watch",
   },
 };
 
@@ -83,28 +118,15 @@ export interface CreativePreviewTruthSummary {
 }
 
 export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
-  switch (key) {
-    case "act_now":
-      return "Scale";
-    case "watch":
-      return "Review";
-    case "blocked":
-      return "Check";
-    case "needs_truth":
-      return "Hold";
-    case "no_action":
-      return "Evergreen";
-    default:
-      return key;
-  }
+  return CREATIVE_QUICK_FILTER_DEFS[key]?.label ?? key;
 }
 
 export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
-  if (state === "watch") return "Review";
-  if (state === "no_action") return "Evergreen";
+  if (state === "watch") return "Watch / Test More";
+  if (state === "no_action") return "Protect";
   if (state === "act_now") return "Scale";
-  if (state === "needs_truth") return "Hold: verify";
-  return "Check";
+  if (state === "needs_truth") return "Not eligible";
+  return "Refresh / Cut / Campaign Check";
 }
 
 export function creativeBenchmarkReliabilityLabel(value: string | null | undefined) {
@@ -233,17 +255,17 @@ function lifecycleLabel(value: CreativeDecisionOsCreative["lifecycleState"]) {
   switch (value) {
     case "incubating":
     case "validating":
-      return "Testing";
+      return "Test More";
     case "scale_ready":
-      return "Scale-ready";
+      return "Scale";
     case "stable_winner":
-      return "Evergreen winner";
+      return "Protect";
     case "fatigued_winner":
-      return "Needs refresh";
+      return "Refresh";
     case "blocked":
-      return "On hold";
+      return "Campaign Check";
     case "retired":
-      return "Stopped";
+      return "Cut";
     case "comeback_candidate":
       return "Retest";
     default:
@@ -377,24 +399,24 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
         break;
     }
   }
-  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Needs preview";
-  if (creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") return "Review-only";
+  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Not eligible for evaluation";
+  if (creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") return "Not eligible for evaluation";
   if (state === "needs_truth" && creative.trust.operatorDisposition === "profitable_truth_capped") {
-    return "Validate";
+    return "Scale Review";
   }
   switch (creative.primaryAction) {
     case "promote_to_scaling":
-      return creative.legacyAction === "scale_hard" ? "Scale Hard" : "Scale";
+      return "Scale";
     case "keep_in_test":
-      return "Test";
+      return "Test More";
     case "hold_no_touch":
-      return "Keep Running";
+      return "Protect";
     case "refresh_replace":
       return "Refresh";
     case "retest_comeback":
       return "Retest";
     case "block_deploy":
-      return creative.legacyAction === "kill" || creative.lifecycleState === "retired" ? "Stop" : "On Hold";
+      return creative.legacyAction === "kill" || creative.lifecycleState === "retired" ? "Cut" : "Campaign Check";
     default:
       return titleFromEnum(creative.primaryAction);
   }
@@ -642,7 +664,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
           ? "Do not scale until business targets are validated."
           : null,
         creative.operatorPolicy?.segment === "protected_winner"
-          ? "Do not kill a protected winner because of short-term volatility."
+          ? "Do not cut a protected winner because of short-term volatility."
           : null,
       ].filter(Boolean) as string[],
     }),
@@ -651,8 +673,46 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
 
 export function resolveCreativeQuickFilterKey(
   creative: CreativeDecisionOsCreative,
-): CreativeQuickFilterKey {
-  return resolveCreativeAuthorityState(creative);
+): CreativeQuickFilterKey | null {
+  const segment = creative.operatorPolicy?.segment ?? null;
+  switch (segment) {
+    case "scale_ready":
+      return "scale";
+    case "scale_review":
+      return "scale_review";
+    case "promising_under_sampled":
+      return "test_more";
+    case "protected_winner":
+    case "no_touch":
+      return "protect";
+    case "hold_monitor":
+      return "watch";
+    case "fatigued_winner":
+      return "refresh";
+    case "needs_new_variant":
+      return creative.primaryAction === "retest_comeback" ? "retest" : "refresh";
+    case "kill_candidate":
+    case "spend_waste":
+      return "cut";
+    case "investigate":
+      return "campaign_check";
+    case "false_winner_low_evidence":
+    case "creative_learning_incomplete":
+      return "not_enough_data";
+    case "contextual_only":
+    case "blocked":
+      return null;
+    default:
+      break;
+  }
+
+  if (creative.primaryAction === "promote_to_scaling") return "scale";
+  if (creative.primaryAction === "keep_in_test") return "test_more";
+  if (creative.primaryAction === "hold_no_touch") return "protect";
+  if (creative.primaryAction === "refresh_replace") return "refresh";
+  if (creative.primaryAction === "retest_comeback") return "retest";
+  if (creative.primaryAction === "block_deploy") return "cut";
+  return null;
 }
 
 export function buildCreativeQuickFilters(
@@ -673,7 +733,10 @@ export function buildCreativeQuickFilters(
 
   for (const creative of decisionOs.creatives) {
     if (visibleIds && !visibleIds.has(creative.creativeId)) continue;
-    creativeIdsByFilter.get(resolveCreativeQuickFilterKey(creative))?.push(creative.creativeId);
+    const filterKey = resolveCreativeQuickFilterKey(creative);
+    if (filterKey) {
+      creativeIdsByFilter.get(filterKey)?.push(creative.creativeId);
+    }
   }
 
   return CREATIVE_QUICK_FILTER_ORDER
@@ -707,17 +770,17 @@ export function buildCreativeOperatorSurfaceModel(
   const previewTruth = buildCreativePreviewTruthSummary({ creatives });
   const buckets = buildOperatorBuckets(items, {
     labels: {
-      watch: "Review",
-      blocked: "Check",
-      needs_truth: "Hold: verify",
-      no_action: "Evergreen",
+      watch: "Scale Review / Test More / Watch / Not Enough Data",
+      blocked: "Refresh / Retest / Cut / Campaign Check",
+      needs_truth: "Not eligible for evaluation",
+      no_action: "Protect",
     },
     summaries: {
       act_now: "Winner signals are strong enough for the next decisive move.",
-      watch: "Rows stay in review while evidence matures, relative winners need confirmation, or guarded observation is still the right move.",
-      blocked: "Rows need a campaign check, refresh review, cut review, or retest before the next move.",
-      needs_truth: "Creatives are held back by preview, commercial truth, deployment fit, or stop-level constraints.",
-      no_action: "Stable winners to keep live without forcing them back into churn.",
+      watch: "Rows need review-only scale confirmation, more testing, guarded observation, or more evidence.",
+      blocked: "Rows need a refresh, retest, cut decision, or campaign-context diagnosis before more spend.",
+      needs_truth: "Rows are not eligible for a creative-quality judgment in the current context.",
+      no_action: "Stable winners to protect without forcing them back into churn.",
     },
     order: ["act_now", "watch", "blocked", "needs_truth", "no_action"],
   });
@@ -741,15 +804,15 @@ export function buildCreativeOperatorSurfaceModel(
     headline = `${counts.scale} creative ${counts.scale === 1 ? "is" : "are"} ready to scale.`;
   } else if (counts.check > 0) {
     emphasis = "blocked";
-    headline = `${counts.check} creative ${counts.check === 1 ? "needs" : "need"} a check before the next move.`;
+    headline = `${counts.check} creative ${counts.check === 1 ? "needs" : "need"} refresh, cut, retest, or campaign-context work.`;
   } else if (counts.watch > 0) {
     emphasis = "watch";
-    headline = `${counts.watch} creative ${counts.watch === 1 ? "stays" : "stay"} in review for now.`;
+    headline = `${counts.watch} creative ${counts.watch === 1 ? "needs" : "need"} Scale Review, Test More, Watch, or Not Enough Data handling.`;
   } else if (counts.hold > 0) {
     emphasis = "needs_truth";
-    headline = `${counts.hold} creative ${counts.hold === 1 ? "is" : "are"} on hold until the next gate clears.`;
+    headline = `${counts.hold} creative ${counts.hold === 1 ? "is" : "are"} not eligible for evaluation in this context.`;
   } else if (counts.evergreen > 0) {
-    headline = `${counts.evergreen} creative ${counts.evergreen === 1 ? "qualifies" : "qualify"} as evergreen.`;
+    headline = `${counts.evergreen} creative ${counts.evergreen === 1 ? "is" : "are"} protected.`;
   }
 
   return {
@@ -763,10 +826,10 @@ export function buildCreativeOperatorSurfaceModel(
     emphasis,
     authorityLabels: {
       act_now: "Scale",
-      watch: "Review",
-      blocked: "Check",
-      needs_truth: "Hold: verify",
-      no_action: "Evergreen",
+      watch: "Watch / Test More",
+      blocked: "Refresh / Cut / Campaign Check",
+      needs_truth: "Not eligible",
+      no_action: "Protect",
     },
     blocker:
       emphasis === "needs_truth" && previewMissing > 0
