@@ -281,3 +281,66 @@ Report:
 - `docs/operator-policy/creative-segmentation-recovery/reports/critical-fix-hardening/final.md`
 
 Last updated by Codex: 2026-04-24
+
+## Equal-Segment Scoring Audit
+
+Status: complete on branch for Claude equal-segment review. This was an audit-only pass; no Creative policy logic, thresholds, taxonomy, UI, queue/apply/push safety, Commercial Truth, benchmark-scope semantics, or old-rule behavior changed.
+
+Scope:
+
+- readable live Meta businesses: `8`
+- sampled creatives: `78`
+- scored creatives: `72`
+- excluded authority/status rows outside the 10-label taxonomy: `6`
+- current live audit window: last `30` completed days, excluding today
+- PDFs used only to identify the relevant `pdf-company-01` and `pdf-company-02` contexts; metrics came from current runtime/live data
+
+Scores:
+
+- equal-segment macro score: `79/100`
+- raw overall accuracy: `79.2%`
+- `pdf-company-01` score: `90/100`
+- `pdf-company-02` score: `80/100`
+
+Current live segment counts:
+
+- `Scale`: `0`
+- `Scale Review`: `6`
+- `Test More`: `8`
+- `Protect`: `6`
+- `Watch`: `6`
+- `Refresh`: `20`
+- `Retest`: `2`
+- `Cut`: `11`
+- `Campaign Check`: `0`
+- `Not Enough Data`: `13`
+- `Not eligible for evaluation`: `6` authority/status rows, not included in the main macro score
+
+Represented segment result:
+
+- strongest represented segments: `Retest`, `Scale Review`, `Protect`
+- weakest represented segments: `Watch`, `Not Enough Data`, `Test More`
+- `Scale` and `Campaign Check` were not represented by valid expected examples and received no free credit
+
+Top recurring mismatch classes:
+
+- mature below-baseline rows still sometimes surface as `Watch` or `Refresh` where the evaluator synthesis expected `Cut`
+- low-spend fatigue rows sometimes surface as `Test More` or `Not Enough Data` where the evaluator synthesis expected `Refresh`
+- one stable winner boundary case surfaced as `Protect` where the evaluator synthesis expected `Scale Review`
+
+Next recommended action:
+
+- send the equal-segment audit to Claude for independent review
+- do not start a broad implementation pass from this audit alone
+- if Claude confirms the same mismatch pattern, the first narrow implementation target should be remaining mature below-baseline `Watch` / `Refresh` rows that may need `Cut` admission
+
+Reports:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-business-scores.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/iwastore-theswaf-comparison.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/sanitized-equal-segment-scoring.json`
+
+Last updated by Codex: 2026-04-24
