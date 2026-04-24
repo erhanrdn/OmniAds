@@ -524,6 +524,80 @@ function isMatureCpaRatioLoser(input: CreativeOperatorPolicyInput) {
   return metrics.cpa >= medianCpa * 1.5;
 }
 
+function isProtectedTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (
+    input.lifecycleState !== "stable_winner" &&
+    input.lifecycleState !== "fatigued_winner"
+  ) {
+    return false;
+  }
+  if (
+    input.primaryAction !== "hold_no_touch" &&
+    input.primaryAction !== "refresh_replace"
+  ) {
+    return false;
+  }
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < 200) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 5_000) return false;
+  if (!hasNumber(metrics.roas) || metrics.roas <= 0) return false;
+  if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
+  if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
+  if (metrics.recentRoas >= medianRoas) return false;
+  return metrics.recentRoas / metrics.roas <= 0.4;
+}
+
+function isBlockedCpaRatioLoser(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+
+  if (input.lifecycleState !== "blocked") return false;
+  if (
+    input.primaryAction !== "block_deploy" &&
+    input.primaryAction !== "keep_in_test"
+  ) {
+    return false;
+  }
+  if (hasNumber(metrics.purchases) && metrics.purchases >= 4) return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < 250) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.5) return false;
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  return metrics.cpa >= medianCpa * 2;
+}
+
+function isHighSpendBelowBaselineCutCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (input.lifecycleState !== "validating") return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(5_000, medianSpend * 5)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 4) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.8) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  return true;
+}
+
 function shouldRefreshMatureLoser(input: CreativeOperatorPolicyInput) {
   return (
     input.primaryAction === "refresh_replace" ||
@@ -637,6 +711,12 @@ function resolveSegment(params: {
   if (isPausedHistoricalWinnerRetestCandidate(input)) {
     return "needs_new_variant";
   }
+  if (isProtectedTrendCollapseRefreshCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
+  }
+  if (isBlockedCpaRatioLoser(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
   if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
     return "protected_winner";
   }
@@ -668,6 +748,9 @@ function resolveSegment(params: {
     return "promising_under_sampled";
   }
   if (isMatureBelowBaselinePurchaseLoser(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
+  if (isHighSpendBelowBaselineCutCandidate(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
   }
   if (scaleIntent && hasRelativeBaselineContext(input) && !hasRelativeScaleReviewEvidence(input)) {
@@ -811,12 +894,20 @@ export function assessCreativeOperatorPolicy(
   const matureBelowBaselinePurchaseLoser = isMatureBelowBaselinePurchaseLoser(input);
   const matureTrendCollapseLoser = isMatureTrendCollapseLoser(input);
   const matureCpaRatioLoser = isMatureCpaRatioLoser(input);
+  const protectedTrendCollapseRefreshCandidate =
+    isProtectedTrendCollapseRefreshCandidate(input);
+  const blockedCpaRatioLoser = isBlockedCpaRatioLoser(input);
+  const highSpendBelowBaselineCutCandidate =
+    isHighSpendBelowBaselineCutCandidate(input);
   const negativeActionIntent =
     killOrRefreshAction ||
     matureZeroPurchaseCutCandidate ||
     matureBelowBaselinePurchaseLoser ||
     matureTrendCollapseLoser ||
-    matureCpaRatioLoser;
+    matureCpaRatioLoser ||
+    protectedTrendCollapseRefreshCandidate ||
+    blockedCpaRatioLoser ||
+    highSpendBelowBaselineCutCandidate;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
   const requiresCampaignContext =
@@ -853,7 +944,12 @@ export function assessCreativeOperatorPolicy(
     businessValidationUnfavorable ? "business_validation" : null,
     (scaleIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     matureZeroPurchaseCutCandidate && !hasKillEvidence(input) ? "evidence_floor" : null,
-    (matureTrendCollapseLoser || matureCpaRatioLoser) && !hasKillEvidence(input)
+    (matureTrendCollapseLoser ||
+      matureCpaRatioLoser ||
+      protectedTrendCollapseRefreshCandidate ||
+      blockedCpaRatioLoser ||
+      highSpendBelowBaselineCutCandidate) &&
+    !hasKillEvidence(input)
       ? "evidence_floor"
       : null,
     roasOnly ? "non_roas_evidence" : null,
