@@ -238,3 +238,200 @@ Do not do any of these preemptively. Wait for production signal.
 **Current output trustworthy enough:** Yes.
 
 **Recommended next move (one sentence):** Stop Creative Segmentation Recovery, move to production monitoring and owner first-sighting review for any live `Scale` / `Cut` / `Retest` appearances, and resume the independent Meta canary rollout track — no further implementation pass is justified by the current live-firm evidence.
+
+---
+
+## Final UI Taxonomy and Scale Review Truth Review
+
+Reviewer: Claude Code (product-strategy and media buyer logic reviewer)
+Date: 2026-04-24
+Scope: Final product review after the UI truth and Scale Review truth fix — the prior acceptance was revoked because the actual Creative UI exposed ambiguous primary grouping labels (`Review`, `Check`, `Hold`, `Evergreen`) rather than the agreed operator taxonomy. This review evaluates whether the corrected UI, the corrected live audit, and the sanitized specific-case trace are now product-acceptable.
+
+---
+
+### 1. Executive Verdict: GOOD ENOUGH WITH MONITORING
+
+The UI taxonomy mismatch was real, it was correctly identified, and it has been fixed. Primary Creative segment filters now use the agreed 10-label taxonomy (`Scale`, `Scale Review`, `Test More`, `Protect`, `Watch`, `Refresh`, `Retest`, `Cut`, `Campaign Check`, `Not Enough Data`). The ambiguous umbrella buckets (`Review`, `Check`, `Hold`, `Evergreen`) are no longer primary operator language. Overview cards, preview cards, detail badges, and instruction headlines all now expose the resolved operator segment. Legacy `Pause` wording no longer overrides the current operator label.
+
+Live output flows across all 8 readable Meta businesses. In the 78-creative deterministic sample, six actionable labels fire at meaningful volume: `Protect` (14), `Watch` (20), `Refresh` (16), `Test More` (8), `Not Enough Data` (14), and `Not eligible for evaluation` (6). The old rule engine, run as a comparison-only challenger, would have hit `pause` on ~24 of these rows and `scale_hard` / `scale` on ~7 — a systematically worse distribution that would have both killed protected winners and scaled under-validated rows. The current system loses that challenge cleanly.
+
+Zero `Scale` and zero `Scale Review` across 78 creatives is explained, not hidden. The four rows with `true_scale_candidate` evidence metadata all carry `primaryAction = hold_no_touch` and correctly route to `Protect`. The review-only `Scale Review` admission path intentionally excludes protected winners — a deliberate design choice, not a bug. The specific user-observed case (sanitized as `company-03/company-03-creative-07`) was traced and resolved to `Refresh`, which is defensible on account-relative performance (the creative's 30d ROAS of 4.30 is below the account's median ROAS of 7.42, making it a below-median performer in a high-baseline account, not a scale candidate).
+
+The remaining uncertainty is monitoring-grade, not blocking-grade: whether the "`hold_no_touch` excludes `Scale Review`" rule is the right long-term design intent, and whether the `Refresh` reason-summary wording is clear enough for paused creatives. Both are observable in production use, not resolvable by another implementation pass.
+
+---
+
+### 2. Whether the UI Taxonomy Now Matches the Intended Operator Language
+
+**Yes.**
+
+The fix pass delivered exactly what was missing:
+
+- **Primary segment filters now use the 10 agreed labels.** `Scale`, `Scale Review`, `Test More`, `Protect`, `Watch`, `Refresh`, `Retest`, `Cut`, `Campaign Check`, `Not Enough Data`. Zero-count labels remain visible in the filter bar, which matters — an operator who expected to see `Scale` rows and finds the filter showing "0" knows the system has an opinion, not that the label was omitted.
+
+- **Ambiguous umbrella labels are demoted.** `Review`, `Check`, `Hold`, `Evergreen` are no longer primary operator language. System-ineligible rows can still surface as `Not eligible for evaluation`, but that is a system-state indicator outside the primary taxonomy filters, not a competing segment label.
+
+- **Overview cards, preview cards, and detail badges are aligned.** Overview now uses `Test More`, `Refresh`, `Cut / Campaign Check`, `Protect`. Cards and details expose the resolved operator segment. Detail badges prefer the operator segment over legacy action names.
+
+- **Instruction headlines carry the operator label.** `Scale Review` prescription copy says `Scale Review`. `Refresh`, `Retest`, `Cut`, and `Campaign Check` headlines preserve the operator label while keeping safety wording intact. A media buyer reading the instruction sees the operator verb immediately, not a generic "review" or "check."
+
+- **Legacy `Pause` wording no longer overrides.** When the current operator segment is available, legacy `pause` mapping to `Cut` only fires as a fallback. The user-observed `Pause` symptom on `company-03/company-03-creative-07` was caused by this detail-wording collision; it is now fixed.
+
+- **One row, one primary outcome.** The design constraint that a creative should not surface multiple competing labels is preserved. A row is `Protect` OR `Refresh` OR `Scale Review`, never combinations shown simultaneously.
+
+The UI is now speaking the operator's language.
+
+### 3. Whether Scale / Scale Review Behavior Is Acceptable
+
+**Acceptable. Zero live `Scale Review` is a deliberate design outcome, not a suppression bug.**
+
+**On `Scale` (0 across 78 creatives):**
+Correct per design. `Scale` requires favorable Commercial Truth. CT is missing for the live cohort (consistent with holdout patterns). No live row has cleared the CT gate. This is not a conservatism failure — it is the gate doing its job. When CT becomes available on any account, `Scale` should become reachable. Monitor first-sighting.
+
+**On `Scale Review` (0 across 78 creatives):**
+The zero state is explained by two defensible rules operating in combination:
+
+1. The four rows closest to `Scale Review` all carry `primaryAction = hold_no_touch` (protected winners). The review-only admission path excludes protected winners on purpose — if the system protects a creative, it should not simultaneously ask the operator to review it for scaling. This is the "one row, one primary outcome" design principle.
+2. Other strong-relative rows outside `Protect` resolve to `Refresh` (fatigue/decay), `Watch` (evidence maturity insufficient), or `Test More` (under-sampled with promising signal) — all based on lifecycle/action shape, not on `Scale Review` suppression.
+
+**Is this the right long-term design intent?** It is defensible now. A media buyer who sees 14 `Protect` rows and zero `Scale Review` rows does not feel a broken system — they feel a system that identified their shipped winners and declined to second-guess them. This is the opposite of the old rule engine, which would have pushed `scale_hard` on protected winners (7 of them in this sample alone) and caused real harm.
+
+**Is the system too conservative?** Not in a product-defect sense. The strict `Scale` floor is the whole point of `Scale`. The `Scale Review`-excludes-`Protect` rule is the whole point of single-outcome labels. However, over time, if the owner finds cases where a protected winner is also genuinely worth a deliberate scale-review decision, a future policy pass could differentiate "deep protect" (do not touch) from "scale-eligible protect" (ready for an explicit scale review). That is not a current-pass concern — it is a product-evolution question that depends on operator usage data.
+
+`Scale Review` remaining review-only and push-blocked is correct. No change to safety.
+
+### 4. Whether the Specific Sanitized Case Is Resolved
+
+**Yes — the UI mismatch is fixed, and the current segment decision is defensible.**
+
+Sanitized alias: `company-03/company-03-creative-07`.
+
+**Before the fix:** UI exposed `Pause` wording from legacy detail mapping, causing operator confusion about whether this was a real `Cut` recommendation.
+
+**After the fix:** Resolved operator segment is `Refresh`. Instruction headline is `Refresh: company-03-creative-07`. Queue/apply remain blocked. No more `Pause` language overriding the current segment.
+
+**Was the prior `Pause` output wrong?** Yes, as primary operator language. The creative was not a current `Cut` candidate; the underlying action was `refresh_replace` with fatigue signal. The `Pause` wording was a detail-level collision from legacy mapping, not the resolved operator segment.
+
+**Is the new `Refresh` decision media-buyer sensible?** Yes, on account-relative terms. This is the part that deserves care:
+
+The user's instinct was that this looked like a `Scale Review` candidate. On surface absolute metrics, that is reasonable:
+- 30d ROAS: 4.30 (good in most DTC contexts)
+- 30d purchases: 10 (meaningful volume)
+- 7d ROAS: 6.28 (trending UP)
+- 30d spend: $225 (meaningful test volume)
+
+But once account-relative benchmarking is applied, the picture changes:
+- Account median ROAS: **7.42** — this is an unusually high-performing account baseline
+- Creative's 30d ROAS: 4.30 — **below** the account median
+- Account median CPA: $20.79; this creative's CPA: $22.53 — **worse** than median
+- Relative strength class: `none`
+
+A 4.30 ROAS creative sitting below a 7.42 median is not a scale candidate relative to peers. In absolute terms it looks strong; in account-relative terms it is a below-median performer. Add that the campaign is PAUSED (activeStatus: false) and that 90d spend ($454) is not dramatically larger than 30d spend ($225), and the fatigue-replacement interpretation holds: "not a winner worth scaling, closer to a creative whose best moment has passed."
+
+The `Refresh` segment says: "create a refresh variant rather than reactivating this one as-is." That is media-buyer sensible.
+
+**Minor caveat on instruction wording:** The `reasonSummary` says "fatigue-driven decay that needs replacement, not more budget." For a creative whose campaign is paused (not actively fatiguing in delivery, just stale), a media buyer might prefer wording like: "Below-median performer in a high-baseline account; create a refresh variant rather than reactivating this one." That is an instruction-body nuance, not a segment change. Not a reason for another pass.
+
+**Is this case a canary for the user's broader concern?** The user's concern was legitimate (they thought a strong-looking row was being incorrectly suppressed). The trace confirms the system made the defensible call on account-relative terms — the creative was below account median, not above. The mismatch between absolute impression and account-relative judgment is exactly the kind of reasoning the system is supposed to do for the buyer. The fact that the buyer's first instinct disagreed does not mean the system is wrong; it means account-relative benchmarking is doing real work that was invisible until the UI showed its conclusion clearly.
+
+### 5. Whether the Creative Page Is Now Better Than Manual Table Reading
+
+**Yes, materially.**
+
+Manual table reading gives a buyer raw metrics. The restored and corrected Creative page gives them:
+
+- 14 creatives marked `Protect` — "your shipped winners, do not touch, old rule engine would have scale_hard'd or paused several of these"
+- 16 `Refresh` — "these are fatiguing, create variants; old rule engine would have paused many of these"
+- 20 `Watch` — "monitor, no action yet"
+- 8 `Test More` — "give more budget and time"
+- 14 `Not Enough Data` — "skip, thin evidence"
+- 6 `Not eligible for evaluation` — "the system cannot authorize here"
+- 0 `Scale` / `Scale Review` — deliberate silence, explained by design
+
+The comparison to the old rule engine's would-have-been output in the sanitized artifact makes this concrete. Old engine on the same 78 rows: ~24 `pause` recommendations (many against protected winners), ~7 `scale_hard` claims (against rows with missing CT, which means aggressive scale authority with no business validation backing), and sporadic `scale` / `kill` calls. A buyer following old-engine output would have destroyed several winners and over-scaled several unvalidated rows.
+
+The current Creative page is not only different from the raw table — it is visibly better than the old rule engine a buyer might alternatively build themselves. That is the stronger claim: the system is now better than both the manual table and the naive automation.
+
+The one remaining friction: 20 `Watch` rows is a lot for a buyer to still have to decide about individually. Pass 6's differentiated routing (mature-weak `Watch` vs stable-monitor `Watch`) should be surfacing different instruction bodies for those sub-cases. Operator spot-check would confirm whether that differentiation is visible in practice. Not a blocker.
+
+### 6. Top 5 Remaining Product Risks (Monitoring-Grade, Not Blocking)
+
+1. **Zero live `Scale` / `Scale Review` persists across 78 creatives.** Defensible per investigation, but still a credibility watchpoint. If CT becomes available on any connected account and `Scale` still does not fire on any creative, that would warrant surgical investigation. Track first-sighting.
+
+2. **Protected-winner exclusion from `Scale Review` is a deliberate design choice the owner may eventually want to revisit.** Currently: `hold_no_touch` → `Protect` (never `Scale Review`). This preserves one-row-one-outcome. If operator feedback over time suggests protected winners deserve a separate "review for additional scale" signal, that is a future product question. Not current work.
+
+3. **`Refresh` is 16 of 78 rows (21%) — a large share.** Most `Refresh` rows in the cohort correctly trace to fatigue/decay patterns, and the old engine would have pushed `pause` on most of them. But for creatives whose campaigns are already paused (like `company-03/company-03-creative-07`), the reason-summary wording "fatigue-driven decay that needs replacement, not more budget" may read oddly — the budget part does not apply to a paused creative. Minor instruction-body improvement opportunity, not a blocker.
+
+4. **Zero `Retest`, zero `Cut`, zero `Campaign Check` in this 78-row sample.** Paths exist, fixtures pass, no live rows reached their triggers. Could be cohort composition. Could be slightly strict floors. Insufficient evidence to act on either way.
+
+5. **`Not Enough Data` is 14 of 78 (18%) — reasonable share but worth operator spot-check.** Pass 6 added routing to send mature high-spend zero-purchase rows to `Watch` instead of `Not Enough Data`. Whether that routing is actually surfacing the intended differentiation on live data is observable only by reviewing specific rows.
+
+None of these warrant an implementation pass. They warrant production monitoring.
+
+### 7. Whether Another Implementation Pass Is Needed
+
+**No.**
+
+Reasoning:
+- The UI taxonomy mismatch that caused the prior acceptance revocation is fixed.
+- The actual Creative UI now exposes the agreed 10-label taxonomy.
+- Live output flows across 8 businesses with meaningful distribution across 6 actionable labels.
+- Zero `Scale` and zero `Scale Review` are explained by traceable, defensible policy decisions — not hidden bugs.
+- The specific user-observed case has been traced, the `Pause` wording mismatch is fixed, and the resolved `Refresh` segment is media-buyer sensible on account-relative terms.
+- The old rule engine comparison confirms the current system is materially better than the naive alternative.
+- Remaining uncertainties are production-observable monitoring items, not implementation problems.
+
+Another pass at this point would either retune thresholds (unjustified from the current sample — no single-direction systematic miss has been identified) or rewrite the "`Protect` excludes `Scale Review`" design decision (a product-evolution question that depends on operator usage data that does not yet exist).
+
+Neither is the right work today.
+
+### 8. If Another Pass Is Needed, Exactly What It Should Fix
+
+Not applicable — no pass is recommended. If a future production signal creates reason for one, priority order would be:
+
+1. **If CT becomes available on any connected account and `Scale` still does not fire** on any rows the owner manually identifies as scale-worthy: surgical investigation of the specific `Scale` floor interaction on that account, not a blanket threshold loosening.
+2. **If the owner accumulates three or more cases where a protected winner should have also appeared as a scale-review signal**: reconsider the `Protect`-excludes-`Scale Review` exclusion rule, with operator usage data as evidence.
+3. **If the `Refresh` reason-summary wording causes buyer confusion for paused-campaign creatives in operator reports**: add a conditional branch to the instruction body (not the segment) that differentiates "paused creative, create refresh variant for next activation" from "actively fatiguing creative, create replacement now."
+4. **If first `Retest` / `Cut` / `Campaign Check` sightings appear inconsistent with owner judgment**: add those cases as fixtures and investigate the specific path, no broader changes.
+
+All four are hypothetical. None is urgent.
+
+### 9. Creative Segmentation Recovery Final Determination
+
+**Creative Segmentation Recovery can stop here.**
+
+The program has done what it set out to do:
+- 10-label operator taxonomy implemented and now visible in the actual UI (primary filters, cards, details, instruction headlines)
+- Ambiguous umbrella labels (`Review`, `Check`, `Hold`, `Evergreen`) demoted from primary operator language
+- Live output flows across all 8 readable Meta businesses
+- Six actionable labels fire at meaningful volume
+- Commercial Truth scoped correctly (gates execution, does not erase relative diagnosis)
+- Benchmark scope operator-initiated and trustworthy
+- Old rule engine still a losing challenger on every dimension
+- Specific user-observed case traced and resolved
+- Zero `Scale` / zero `Scale Review` explained, not hidden
+
+What comes next is not another implementation pass. It is:
+- **Production monitoring** of segment distributions per business, over time
+- **Owner first-sighting review** when `Scale`, `Scale Review`, `Cut`, or `Retest` fire for the first time on any account
+- **Meta canary rollout** — telemetry sink activation, canary business configuration — on the independent track that has been waiting
+- **Light-touch operator feedback capture** if specific rows are systematically mis-labeled, to feed any future focused tuning work
+
+The Creative page is now product-acceptable. Stop the recovery program and move into observation.
+
+---
+
+### Final Chat Summary
+
+**Verdict:** GOOD ENOUGH WITH MONITORING
+
+**Top 5 Remaining Product Risks (monitoring-grade):**
+1. Zero live `Scale` / `Scale Review` across 78 creatives — defensible per investigation but track first-sighting when CT becomes available on any account
+2. `Protect` excludes `Scale Review` by design — may need revisiting if operator feedback accumulates cases where protected winners also deserve a scale-review signal
+3. `Refresh` reason-summary wording ("not more budget") reads slightly oddly for paused-campaign creatives — minor instruction-body polish opportunity, not a blocker
+4. Zero `Retest`, zero `Cut`, zero `Campaign Check` in the 78-row sample — paths exist, fixtures pass, cohort composition or slightly strict floors; monitor first-sightings
+5. `Not Enough Data` at 18% share needs operator spot-check to confirm pass-6's mature-weak routing is actually differentiating sub-cases in live instruction bodies
+
+**Another implementation pass needed:** No.
+
+**Recommended next move (one sentence):** Stop Creative Segmentation Recovery as accepted, move to production monitoring and owner first-sighting review for any live `Scale` / `Cut` / `Retest` / `Campaign Check` appearances, and resume the independent Meta canary rollout track — the UI taxonomy is now correct, the specific user-observed case is resolved, and remaining uncertainties are observation-grade rather than implementation-grade.
