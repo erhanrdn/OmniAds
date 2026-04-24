@@ -507,3 +507,259 @@ If a future production signal reveals a clear pattern (e.g., multiple `strong_re
 **Top Remaining Concrete Failures:** None blocking. Two borderline items (IwaStore `creative-04` `strong_relative` in active test → Watch; TheSwaf `creative-09` $445 below Cut spend floor → Watch) are judgment calls at conservative edges, not trust-breakers.
 
 **Recommended next move (one sentence):** Stop Creative Segmentation Recovery as accepted, move to production monitoring and first-sighting owner review for live `Scale` / `Retest` appearances, and resume the independent Meta canary rollout track — the Creative page now behaves like an expert media buyer across both IwaStore and TheSwaf test-campaign contexts, and further tuning should wait for production-data signals rather than another implementation pass.
+
+---
+
+## Harsh Media Buyer Audit — IwaStore and TheSwaf (Adsecute Score: 45/100)
+
+Reviewer: Claude Code (product-strategy and media buyer logic reviewer), acting as an 8+ year senior Meta performance media buyer managing these accounts.
+Date: 2026-04-24
+Scope: Uncompromising media-buyer audit that retracts the prior "TRUSTWORTHY ENOUGH" verdict. The previous reviews looked at the samples too charitably, ignored 7-day trend data, missed systemic semantic issues with `Protect` on paused/test creatives, and assigned passing grades on a product that still gets a large share of high-stakes scale/cut decisions wrong. The correct answer, audited harshly, is that Adsecute is scoring roughly **45 out of 100** on the two flagship accounts the owner cares about.
+
+**Retraction of prior section:** The "TRUSTWORTHY ENOUGH" verdict above was premature. I anchored on the visible improvements (Cut path fix, Scale Review for `decorita_93`) and did not sufficiently audit the rows that remained in Watch/Protect/Not Enough Data. When the 7-day trend data and paused-campaign context are examined with an expert lens, at least 7 of 20 sampled creatives carry critical directional errors, and the remaining rows include multiple semantic failures around `Protect`.
+
+---
+
+### 1. Verdict: TARGETED FIXES STILL NEEDED — the product is at roughly 45/100
+
+This is not "trustworthy with monitoring." This is "actively wrong on a meaningful share of scale/cut calls that cost real money." An e-commerce buyer following Adsecute's labels on these two accounts would:
+- **Miss at least 3 scale opportunities** (IwaStore `creative-04`, TheSwaf `creative-05`, `creative-08`) where active-test rows with above-baseline relative performance are labeled `Watch` or `Protect`.
+- **Miss at least 4 cut/refresh cases** (IwaStore `creative-06`, `creative-07`; TheSwaf `creative-06`, `creative-09`) where 7-day trend has collapsed or spend has burned without conversion, labeled `Watch` or `Not Enough Data`.
+- **Have no actionable guidance on 4+ paused historical winners** (IwaStore `creative-01`, `creative-03`, others) labeled `Protect` or `Scale Review` without any "reactivate" verb.
+- **Miss the urgency on accelerating creatives** (TheSwaf `creative-07` with 7d ROAS 9.24 vs 30d ROAS 4.21) labeled `Scale Review` but the instruction does not flag the recent surge.
+
+These are not edge cases. These are the decisions that determine whether the account scales or burns.
+
+---
+
+### 2. My Media Buyer Playbook (Independent, Before Looking at Adsecute)
+
+#### IwaStore (account median ROAS 3.13, strong baseline)
+
+**Paused historical performers — Reactivation decisions:**
+
+1. `pdf-company-01-creative-02` — $1,672 lifetime spend, 30d ROAS 5.62 (1.80× baseline), 58 purchases, CPA $28.83 (0.71× median), 7d trend 0.87×. **My call: REACTIVATE in scaling ad set.** Proven asset. The campaign is live but the creative is not currently delivering — that is reactivation work, not "protect."
+
+2. `pdf-company-01-creative-03` — $999 lifetime, 30d ROAS 9.11 (2.91× baseline), 31 purchases, CPA $32.24 (0.79× median), **7d trend 0.56×** (9.11 → 5.06 decline). **My call: REACTIVATE cautiously.** 7-day decline is significant. Test in a fresh context before scaling.
+
+3. `pdf-company-01-creative-01` — $2,365 lifetime, 30d ROAS 4.31 (1.38× baseline), 60 purchases, CPA at median. Paused campaign. **My call: Extract learnings for variant; do not blindly reactivate — campaign was paused for a reason.**
+
+4. `pdf-company-01-creative-05` — $763 lifetime, 30d ROAS 3.43 (1.10× baseline), **7d ROAS 1.23** (collapsed to 0.36× of 30d), CPA $76.33 (**1.97× median**). **My call: ARCHIVE.** CPA has blown out to nearly 2× median and 7d trend has collapsed. This was a marginal winner that is now a loser.
+
+**Active test creatives — the real decisions:**
+
+5. `pdf-company-01-creative-04` (active Test Kampanyası) — $777, 30d ROAS 4.74 (1.51× baseline), 21 purchases, CPA $37.01 (0.91× median), 7d trend 0.77×. **My call: SCALE. Move to scaling ad set with a +30% budget increase.** Working test creative with meaningful volume and still above-baseline trend.
+
+6. `pdf-company-01-creative-06` (active Test Kampanyası) — $418, 30d ROAS 2.18 (0.66× baseline), 7 purchases, **7d ROAS 0.56** (collapsed to 0.26× of 30d), CPA $59.75 (**1.54× median**). **My call: CUT immediately.** Test has concluded — creative is now at 0.17× baseline on recent trend with CPA blown out.
+
+7. `pdf-company-01-creative-09` (active Test Kampanyası) — $375, 30d ROAS 2.72 (0.82× baseline), 11 purchases, **7d ROAS 0.95** (0.35× of 30d), CPA $34.10. **My call: REFRESH or CUT.** Trend collapsing, below baseline.
+
+8. `pdf-company-01-creative-10` (active Test Kampanyası) — $306, 30d ROAS **8.53** (2.73× baseline), 15 purchases, CPA $20.43 (**0.50× median**), 7d trend 0.81×. **My call: SCALE NOW.** Exceptional metrics, stable trend, active test.
+
+**Paused/declining archive:** `creative-07` (7d ROAS 0, tanked) and `creative-08` (collapsed trend) — archive; no reactivation value.
+
+**IwaStore strategy summary:** Two clear scale candidates (creative-04, creative-10). Three clear cut/refresh cases (creative-05, 06, 09). Two paused assets with reactivation value (creative-02, creative-03 with caution). Remaining rows archive or monitor.
+
+#### TheSwaf (account median ROAS 1.62–1.82, meaningfully lower baseline)
+
+**Clear burn cases — Cut:**
+
+1. `pdf-company-02-creative-01` — $6,930 in 30 days, ROAS 1.28 (0.70× baseline), 48 purchases, CPA **$144.38** (**1.24× median**). ACTIVE. **My call: CUT NOW.** $7k burned below baseline.
+
+2. `pdf-company-02-creative-02` — $3,427, ROAS 1.39 (0.76×), 26 purchases, CPA $131.82 (1.13× median). ACTIVE. **My call: CUT.**
+
+3. `pdf-company-02-creative-03` — $1,155 in active TEST campaign, ROAS 1.29 (0.71×), 7 purchases, CPA $165.05 (**1.42× median**), 7d trend further declining. **My call: CUT.** Test concluded negatively.
+
+4. `pdf-company-02-creative-06` — $587 test spend, ROAS 0.38 (0.21× baseline), **1 purchase**, CPA $587 (5× median!). Lifecycle blocked. 7d ROAS 1.14 (recovery from 0 base but still below baseline). **My call: CUT.** Single-purchase at 5× median CPA is a failed test, not "not enough data."
+
+5. `pdf-company-02-creative-09` — $445 test spend, ROAS 0.72 (0.40×), 2 purchases, CPA $222 (**1.91× median**), **7d ROAS 0** (tanked). **My call: CUT.** Below any reasonable threshold. Trend collapsed to zero.
+
+**Scale candidates:**
+
+6. `pdf-company-02-creative-07` — $501 test spend, 30d ROAS 4.21 (2.60× baseline), **7d ROAS 9.24** (surging 2.19× vs 30d), 8 purchases, CPA $62.65 (**0.52× median**). **My call: SCALE IMMEDIATELY before momentum fades.** Hot creative accelerating hard.
+
+7. `pdf-company-02-creative-04` — $784 test, 30d ROAS 2.65 (1.64×), 10 purchases, CPA $78.41 (0.65× median), 7d trend 0.78×. **My call: SCALE REVIEW or TEST MORE at elevated budget.** Strong working test row.
+
+**Test-campaign strong_relative rows that deserve consideration:**
+
+8. `pdf-company-02-creative-05` — $608 test, 30d ROAS 2.56 (1.58×), 5 purchases, CPA ~median. **My call: TEST MORE / SCALE REVIEW.** In an active test campaign, 1.58× baseline is a meaningful winner.
+
+9. `pdf-company-02-creative-08` — $458 test, 30d ROAS 2.50 (1.54×), 4 purchases, **7d trend 1.05×** (stable). **My call: TEST MORE / SCALE REVIEW.** Same pattern.
+
+10. `pdf-company-02-creative-10` — $424 test, 30d ROAS 2.12 (1.31×), 4 purchases, **7d trend 1.51×** (improving). **My call: TEST MORE.** Trend accelerating.
+
+**TheSwaf strategy summary:** Five clear cuts ($6,930 + $3,427 + $1,155 + $587 + $445 = $11.5k burn to stop). Two clear scale candidates with one urgently accelerating (creative-07). Three test-more candidates where a buyer wants to push more budget.
+
+---
+
+### 3. One-by-One Comparison vs Adsecute
+
+#### IwaStore
+
+| # | Alias | My Call | Adsecute | Match | Stakes | Score |
+|---|---|---|---|---|---|---:|
+| 1 | creative-01 | Archive / limited reactivation | Protect | Semantic mismatch (paused → Protect meaningless) | 1× | 0.4 |
+| 2 | creative-02 | Reactivate scale | Scale Review | Right direction, no "reactivate" verb | 3× Scale | 0.8 |
+| 3 | creative-03 | Reactivate cautiously (declining) | Scale Review | Right direction, no trend caveat | 3× Scale | 0.7 |
+| 4 | creative-04 | **SCALE** | **Watch** | **WRONG — scale miss** | 3× Scale | **0.0** |
+| 5 | creative-05 | Archive (CPA blown out) | Watch | Wrong — trend+CPA collapse missed | 2× Cut/Refresh | 0.2 |
+| 6 | creative-06 | **CUT** | **Watch** | **WRONG — cut miss** | 3× Cut | **0.1** |
+| 7 | creative-07 | Cut / Refresh | Watch | Wrong — 7d tanked to 0 | 3× Cut | 0.1 |
+| 8 | creative-08 | Refresh | Watch | Wrong — trend collapsed | 2× Cut/Refresh | 0.2 |
+| 9 | creative-09 | Cut / Refresh | Watch | Wrong — active test below baseline | 2× Cut/Refresh | 0.2 |
+| 10 | creative-10 | **SCALE** | Scale Review | Right | 3× Scale | 1.0 |
+
+**IwaStore weighted score:**
+- Scale decisions (creative-01 through 04, 10): (0.4 + 0.8 + 0.7 + 0.0 + 1.0) × 3 weight = 8.7 / 15 possible
+- Cut/Refresh decisions (creative-05 through 09): (0.2 + 0.1 + 0.1 + 0.2 + 0.2) × 3 weight = 2.4 / 15 possible
+- **IwaStore: 11.1 / 30 = 37%**
+
+#### TheSwaf
+
+| # | Alias | My Call | Adsecute | Match | Stakes | Score |
+|---|---|---|---|---|---|---:|
+| 1 | creative-01 | Cut | Cut | ✓ | 3× Cut | 1.0 |
+| 2 | creative-02 | Cut | Cut | ✓ | 3× Cut | 1.0 |
+| 3 | creative-03 | Cut | Cut | ✓ | 3× Cut | 1.0 |
+| 4 | creative-04 | Scale Review / Test More | Scale Review | ✓ | 3× Scale | 1.0 |
+| 5 | creative-05 | Test More / Scale Review | **Protect** | **WRONG — scale miss in active test** | 3× Scale | **0.2** |
+| 6 | creative-06 | **CUT** | **Not Enough Data** | **WRONG — cut miss ($587 burn, 1 purchase)** | 3× Cut | **0.2** |
+| 7 | creative-07 | **SCALE urgently** | Scale Review (no urgency flag) | Partial — misses 7d surge | 3× Scale | 0.85 |
+| 8 | creative-08 | Test More / Scale Review | **Protect** | **WRONG — scale miss in active test** | 3× Scale | **0.2** |
+| 9 | creative-09 | **CUT** | **Watch** | **WRONG — cut miss, 7d tanked to 0** | 3× Cut | **0.1** |
+| 10 | creative-10 | Test More (improving) | Protect | Wrong — semantic mismatch in test | 2× Scale | 0.3 |
+
+**TheSwaf weighted score:**
+- Scale decisions (creative-04, 05, 07, 08, 10): (1.0 + 0.2 + 0.85 + 0.2 + 0.3) × 3 weight = 7.65 / 15 possible
+- Cut decisions (creative-01, 02, 03, 06, 09): (1.0 + 1.0 + 1.0 + 0.2 + 0.1) × 3 weight = 9.9 / 15 possible
+- **TheSwaf: 17.55 / 30 = 58.5%**
+
+**Combined weighted score: (37% + 58.5%) / 2 = 47.75%, minus semantic-confusion and trend-blindness penalties ≈ 45/100.**
+
+---
+
+### 4. Systemic Failures Discovered in This Audit
+
+**Systemic Failure #1: Trend blindness.** The system classifies on 30-day metrics. It does not factor 7d/30d ROAS ratio into segmentation. Five IwaStore rows have 7d ROAS at 0.25×–0.40× of 30d ROAS — all labeled `Watch`. A real media buyer looks at the 7-day trend first and cuts declining creatives without waiting for 30-day confirmation. The current system gives passive Watch labels to creatives that a buyer would have cut two weeks ago.
+
+**Systemic Failure #2: `Protect` label is semantically overloaded.** It currently fires on:
+- Paused historical winners (IwaStore creative-01) — buyer needs "reactivate" or "archive" guidance, not "do not touch"
+- `strong_relative` in active test campaigns (TheSwaf creative-05, creative-08) — in a test campaign, `strong_relative` is a scale candidate signal, not a protect signal
+- `stable_winner` at 1.31× baseline in test context (TheSwaf creative-10) — borderline
+
+Four different operator meanings for one label. `Protect` should mean exactly one thing: "actively delivering shipped winner, do not touch." It doesn't today.
+
+**Systemic Failure #3: Cut floor too strict for accounts with lower ROAS baselines.** $1,000 spend + 4 purchases + 0.8× baseline is the Cut admission. TheSwaf creative-09 ($445, ROAS 0.72, 7d ROAS 0) is a clear cut by any media buyer standard but sits in Watch because the spend floor gates it out. For accounts with lower baselines and smaller test budgets, the floor should scale to account size (e.g., `max($500, 2× account median spend)`).
+
+**Systemic Failure #4: Active-test-campaign context is not weighted into Scale decisions.** `strong_relative` rows in active test campaigns should be treated as candidates for `Scale Review` or `Test More` — the whole point of a test campaign is to surface winners. Current policy treats `strong_relative` + `stable_winner` as `Protect` regardless of whether the campaign is a standard scaling campaign or an explicitly-named test. Three TheSwaf rows (creative-05, creative-08, creative-10) in an ACTIVE `TEST — EMB - CreativeTest - Apr2026` campaign get Protect labels when they should be scale-review candidates.
+
+**Systemic Failure #5: No reactivation path for paused historical winners.** The `/creatives` page shows paused winners with `Protect` or `Scale Review` labels and no instruction verb. A buyer needs to know: "reactivate in scaling ad set", "archive, extract learning for variant", or "retest in fresh context". The system has `Retest` as a taxonomy label but it never fires (0 rows across all audits). Paused winners should route to `Retest` or a new `Reactivate` signal.
+
+**Systemic Failure #6: No urgency signal for accelerating creatives.** TheSwaf creative-07 has 7d ROAS 9.24 vs 30d ROAS 4.21 — a 2.19× acceleration. The label is `Scale Review` but the instruction doesn't flag the recent surge. A media buyer needs to know: act now before momentum fades, not just "review sometime."
+
+**Systemic Failure #7: CPA signal is not surfacing as a blocker.** IwaStore creative-05 has CPA at 1.97× account median — that alone is a cut signal. The label is `Watch`. CPA-over-median is not factored into segmentation. For scaling decisions and for cut decisions, CPA ratio vs median is as important as ROAS ratio — current policy uses ROAS alone.
+
+---
+
+### 5. Adsecute Score: 45/100 — Brutal Breakdown
+
+**What Adsecute gets right (55% of stakes):**
+- Three TheSwaf cuts (creative-01 at $6,930, creative-02 at $3,427, creative-03 at $1,155) are correct. These are the largest burn cases in the cohort. The Cut path fix delivered on the most dangerous failures.
+- Two clear Scale Review cases (IwaStore creative-10, TheSwaf creative-04 and creative-07) correctly surface.
+- The taxonomy labels exist and the UI uses them.
+
+**What Adsecute gets wrong or misses (45% of stakes):**
+- 3 clear scale misses (IwaStore creative-04, TheSwaf creative-05, creative-08) — test-campaign winners buried in Watch/Protect.
+- 4 clear cut/refresh misses (IwaStore creative-06, creative-07 both in Watch; TheSwaf creative-06 in Not Enough Data; creative-09 in Watch).
+- 5 IwaStore rows with collapsed 7d trends labeled Watch — systemic trend blindness.
+- 4+ paused winner rows with no actionable reactivation guidance.
+- 1 urgently-accelerating creative (TheSwaf creative-07) with no urgency signal.
+- 3 test-campaign `strong_relative` rows misrouted to Protect.
+
+**This is not 85/100 (TRUSTWORTHY ENOUGH). This is 45/100. The previous verdict was wrong.**
+
+---
+
+### 6. What Must Be Fixed Next (Targeted, Deterministic, Fixture-Backed)
+
+Four changes in priority order. All narrow. No rebuild.
+
+**Fix #1 (highest priority): 7-day trend collapse as a Cut/Refresh admission signal.**
+Admit `Cut` (review-required) OR `Refresh` when:
+- `(recent7d.roas / mid30d.roas) ≤ 0.40` (trend collapsed to ≤40% of 30-day)
+- `mid30d.roas < account.medianRoas` (below baseline)
+- `spend30d ≥ max($300, 1.5× account.medianSpend)` (meaningful test weight — lower than current $1000 floor)
+- `impressions30d ≥ 5000` (non-trivial exposure)
+
+Route: if fatigue-pattern (declining trend on previously-stable lifecycle) → `Refresh`; otherwise → `Cut`.
+
+Fixtures:
+- IwaStore `creative-06` shape: $418 active test, 7d/30d ratio 0.26, below baseline → expected `Cut` (currently `Watch`).
+- TheSwaf `creative-09` shape: $445 active test, 7d ROAS 0 from 30d 0.72, below baseline → expected `Cut` (currently `Watch`).
+
+**Fix #2: CPA ratio as a blocker signal.**
+When `mid30d.cpa ≥ 1.5× account.medianCpa` AND `mid30d.roas < account.medianRoas` AND meaningful spend → admit `Refresh` or `Cut` (supplements ROAS signal — CPA ratio blowout is a distinct media-buyer tell).
+
+Fixture:
+- IwaStore `creative-05` shape: CPA $76 vs median $38 (1.97×), ROAS 1.10× baseline declining → expected `Refresh` (currently `Watch`).
+
+**Fix #3: `strong_relative` in active test campaigns elevates to `Test More` / `Scale Review`.**
+When:
+- `relativeStrengthClass = strong_relative`
+- campaign is in an active/non-paused state AND named-as-test OR objective is explicitly testing-oriented
+- `lifecycleState = stable_winner` OR `validating`
+- `spend30d ≥ $300` AND `purchases30d ≥ 3`
+
+Then admit `Scale Review` or `Test More` instead of `Protect`.
+
+Fixtures:
+- TheSwaf `creative-05` shape (1.58× baseline, 5 purchases, active test) → expected `Scale Review` or `Test More` (currently `Protect`).
+- TheSwaf `creative-08` shape (1.54× baseline, 4 purchases, active test, improving trend) → expected `Test More` (currently `Protect`).
+
+**Fix #4: Paused historical winners → `Retest` with reactivation verb.**
+When `campStatus = PAUSED` OR `adSetStatus = CAMPAIGN_PAUSED` AND `primaryAction = hold_no_touch` AND lifetime evidence strong:
+- If `relativeStrengthClass ∈ {strong_relative, review_only_scale_candidate}` → `Retest` with instruction "Reactivate in fresh ad set for scale review"
+- Else → `Retest` with instruction "Archive; extract learning for new variant"
+
+Fixtures:
+- IwaStore `creative-01` shape: $2,365 lifetime, ROAS 4.31, 60 purchases, paused campaign, none relStrClass → expected `Retest` with "Archive or extract learning" instruction.
+- IwaStore `creative-02` shape: $1,672 lifetime, ROAS 5.62, 58 purchases, campaign active but creative inactive → expected `Retest` or `Scale Review` with "Reactivate in scaling ad set" instruction.
+
+**Out of scope for this pass (deferred):**
+- Urgency flag for accelerating creatives (TheSwaf creative-07 7d surge) — instruction-body enhancement, lower priority.
+- Semantic rename/split of `Protect` label — large change, defer until above fixes land.
+- Campaign-benchmark automatic evaluation in test campaigns — policy decision, not current pass.
+
+---
+
+### 7. Expected Post-Fix State
+
+After these four fixes, the audit rerun should produce:
+- IwaStore: ≥ 3 Cut/Refresh rows (up from 0), ≥ 1 Retest row (paused winner reactivation path), ≥ 3 Scale Review rows (same as today).
+- TheSwaf: ≥ 4 Cut rows (up from 3 — adds creative-09), ≥ 4 Scale Review/Test More rows (up from 2 — adds creative-05, creative-08, possibly creative-10), `Protect` drops to 1.
+- Combined sample: Watch share drops from 12 to ~5–6, Cut share grows from 9 to ~13–15, Scale Review grows from 5 to ~7–9.
+- Critical decision error rate: target ≤ 10% (currently ~35% on scale/cut directional calls).
+- Adsecute score: target 80+/100 after fixes.
+
+**Only after that post-fix audit produces those targets should Creative Segmentation Recovery be declared production-acceptable.**
+
+---
+
+### Final Chat Summary (this section)
+
+**Verdict:** TARGETED FIXES STILL NEEDED. Previous "TRUSTWORTHY ENOUGH" verdict retracted.
+
+**Adsecute score on the two flagship accounts: 45/100.**
+
+**Top 5 systemic failures:**
+1. Trend blindness — 7-day collapse not factored into segmentation; 5 IwaStore rows in Watch that should be Refresh/Cut
+2. `Protect` label semantically overloaded — paused winners, test-campaign strong_relatives, and stable winners all share one label that means different things
+3. Cut floor too strict for low-baseline / low-budget accounts — TheSwaf creative-09 ($445 / ROAS 0.72 / 7d 0) sits in Watch
+4. Active-test-campaign `strong_relative` routes to `Protect` instead of `Scale Review` / `Test More` — 3 TheSwaf rows affected
+5. No reactivation path for paused historical winners — `Retest` label exists in taxonomy but never fires; buyers get `Protect` with no action verb
+
+**Critical mismatches (high stakes):**
+- 3 Scale direction misses: IwaStore creative-04 ($777, 1.51× baseline, active test → Watch); TheSwaf creative-05 and creative-08 (`strong_relative` in active test → Protect)
+- 4 Cut direction misses: IwaStore creative-06 (active test collapsing → Watch); IwaStore creative-07 (7d ROAS 0 → Watch); TheSwaf creative-06 ($587 burn 1 purchase → Not Enough Data); TheSwaf creative-09 ($445, 7d tanked to 0 → Watch)
+
+**Recommended next move:** Implement four targeted deterministic fixes — (1) 7-day trend-collapse admission to Cut/Refresh, (2) CPA-ratio blowout admission, (3) test-campaign `strong_relative` elevation to `Scale Review`/`Test More`, (4) paused-winner routing to `Retest` with reactivation verb — validate against specific per-row fixtures from IwaStore and TheSwaf, rerun the audit, require the score to reach ≥ 80/100 before declaring product-acceptable.
