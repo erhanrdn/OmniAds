@@ -218,6 +218,14 @@ function hasTestMoreFatigueCaveat(creative: CreativeDecisionOsCreative) {
   );
 }
 
+function isPausedHistoricalRetest(creative: CreativeDecisionOsCreative) {
+  return (
+    creative.operatorPolicy?.segment === "needs_new_variant" &&
+    creative.primaryAction === "hold_no_touch" &&
+    creative.deliveryContext?.pausedDelivery === true
+  );
+}
+
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
   const segment = creative.operatorPolicy?.segment ?? null;
   switch (segment) {
@@ -235,6 +243,7 @@ export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreativ
     case "fatigued_winner":
       return "Refresh";
     case "needs_new_variant":
+      if (isPausedHistoricalRetest(creative)) return "Retest";
       return creative.primaryAction === "retest_comeback" ? "Retest" : "Refresh";
     case "kill_candidate":
     case "spend_waste":
@@ -406,6 +415,7 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
       case "fatigued_winner":
         return "Refresh";
       case "needs_new_variant":
+        if (isPausedHistoricalRetest(creative)) return "Retest";
         return creative.primaryAction === "retest_comeback" ? "Retest" : "Refresh";
       case "protected_winner":
       case "no_touch":
@@ -497,6 +507,9 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
       return "Promising relative signal, but the sample is still light. Keep testing while watching fatigue pressure.";
     }
     return "Promising relative signal, but the sample is still light. Keep testing until the evidence matures.";
+  }
+  if (isPausedHistoricalRetest(creative)) {
+    return "This paused creative has enough historical winner evidence to review a controlled retest, not protect current delivery.";
   }
   if (isMatureZeroPurchaseWeakWatch(creative)) {
     return "Spend is already meaningful enough to move past early learning, but there is still no purchase proof. Keep this in Watch until conversion evidence appears.";
@@ -623,6 +636,9 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     hasTestMoreFatigueCaveat(creative)
       ? "Watch fatigue pressure while the sample is still maturing."
       : null,
+    isPausedHistoricalRetest(creative)
+      ? "Review reactivation in a controlled test before restoring spend."
+      : null,
     isMatureZeroPurchaseCutReview(creative)
       ? "Confirm there is no purchase evidence before stopping this test creative."
       : null,
@@ -730,6 +746,7 @@ export function resolveCreativeQuickFilterKey(
     case "fatigued_winner":
       return "refresh";
     case "needs_new_variant":
+      if (isPausedHistoricalRetest(creative)) return "retest";
       return creative.primaryAction === "retest_comeback" ? "retest" : "refresh";
     case "kill_candidate":
     case "spend_waste":

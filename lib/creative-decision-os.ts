@@ -210,6 +210,16 @@ export interface CreativeDecisionOsInputRow {
   historicalWindows?: CreativeDecisionOsHistoricalWindows | null;
 }
 
+export interface CreativeDecisionDeliveryContext {
+  campaignStatus: string | null;
+  adSetStatus: string | null;
+  campaignName: string | null;
+  adSetName: string | null;
+  campaignIsTestLike: boolean;
+  activeDelivery: boolean;
+  pausedDelivery: boolean;
+}
+
 export interface CreativeDecisionBenchmarkMetric {
   current: number | null;
   benchmark: number | null;
@@ -451,6 +461,7 @@ export interface CreativeDecisionOsCreative {
   policy?: CreativeDecisionPolicy;
   familyProvenance: CreativeDecisionFamilyProvenance;
   deployment: CreativeDecisionDeploymentRecommendation;
+  deliveryContext?: CreativeDecisionDeliveryContext;
   previewStatus?: CreativeDecisionPreviewStatus;
   pattern: CreativeDecisionPatternReference;
   report: CreativeRuleReportPayload;
@@ -710,6 +721,39 @@ function normalizeText(value: string | null | undefined) {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[^\w\s-]/g, "");
+}
+
+function normalizeMetaDeliveryStatus(value: string | null | undefined) {
+  return value?.trim().toUpperCase() || null;
+}
+
+function isActiveMetaDeliveryStatus(value: string | null | undefined) {
+  return normalizeMetaDeliveryStatus(value) === "ACTIVE";
+}
+
+function isPausedMetaDeliveryStatus(value: string | null | undefined) {
+  const normalized = normalizeMetaDeliveryStatus(value);
+  if (!normalized) return false;
+  return (
+    normalized.includes("PAUSED") ||
+    normalized.includes("DISABLED") ||
+    normalized.includes("ARCHIVED") ||
+    normalized.includes("DELETED")
+  );
+}
+
+function isTestLikeCampaignName(value: string | null | undefined) {
+  const normalized = (value ?? "").toLowerCase().trim();
+  if (!normalized) return false;
+  return [
+    "test",
+    "testing",
+    "creative test",
+    "validation",
+    "validasyon",
+    "deneme",
+    "deney",
+  ].some((term) => normalized.includes(term));
 }
 
 function normalizeMediaKey(value: string | null | undefined) {
@@ -1980,6 +2024,41 @@ function buildDeployment(
   };
 }
 
+function buildCreativeDeliveryContext(
+  row: CreativeDecisionOsInputRow,
+  input: {
+    campaignsById: Map<string, MetaCampaignRow>;
+    adSets: MetaAdSetRow[];
+  },
+): CreativeDecisionDeliveryContext {
+  const currentCampaign = row.campaignId ? input.campaignsById.get(row.campaignId) : null;
+  const currentAdSet = row.adSetId
+    ? input.adSets.find((adSet) => adSet.id === row.adSetId)
+    : null;
+  const campaignStatus = normalizeMetaDeliveryStatus(currentCampaign?.status ?? null);
+  const adSetStatus = normalizeMetaDeliveryStatus(currentAdSet?.status ?? null);
+  const activeDelivery = Boolean(
+    adSetStatus
+      ? isActiveMetaDeliveryStatus(adSetStatus) &&
+          (campaignStatus == null || isActiveMetaDeliveryStatus(campaignStatus))
+      : campaignStatus && isActiveMetaDeliveryStatus(campaignStatus),
+  );
+  const pausedDelivery =
+    isPausedMetaDeliveryStatus(campaignStatus) || isPausedMetaDeliveryStatus(adSetStatus);
+  const campaignName = currentCampaign?.name ?? row.campaignName ?? null;
+  const adSetName = currentAdSet?.name ?? row.adSetName ?? null;
+
+  return {
+    campaignStatus,
+    adSetStatus,
+    campaignName,
+    adSetName,
+    campaignIsTestLike: isTestLikeCampaignName(campaignName),
+    activeDelivery,
+    pausedDelivery,
+  };
+}
+
 function buildPattern(row: CreativeDecisionOsInputRow): CreativeDecisionPatternReference {
   return {
     hook: row.aiTags?.hookTactic?.[0] ?? row.headlineVariants?.[0] ?? row.taxonomyPrimaryLabel ?? "unlabeled_hook",
@@ -3155,6 +3234,10 @@ export function buildCreativeDecisionOs(
     });
     const pattern = buildPattern(row);
     const previewStatus = buildPreviewStatus(row);
+    const deliveryContext = buildCreativeDeliveryContext(row, {
+      campaignsById,
+      adSets: input.adSets ?? [],
+    });
     const summary = buildSummary(
       resolvedPrimaryAction,
       lifecycleState,
@@ -3210,6 +3293,7 @@ export function buildCreativeDecisionOs(
       fatigue,
       economics,
       deployment,
+      deliveryContext,
       previewStatus,
       supportingMetrics: {
         spend: row.spend,
@@ -3219,6 +3303,9 @@ export function buildCreativeDecisionOs(
         cpa: row.cpa,
         frequency: row.frequency,
         creativeAgeDays: row.creativeAgeDays,
+        recentSpend: row.historicalWindows?.last7?.spend ?? null,
+        recentPurchases: row.historicalWindows?.last7?.purchases ?? null,
+        recentRoas: row.historicalWindows?.last7?.roas ?? null,
       },
     });
     const benchmarkScopeVerdict = `${relativeBaseline.scopeLabel.toLowerCase()} benchmark (${relativeBaseline.reliability} reliability)`;
@@ -3380,6 +3467,7 @@ export function buildCreativeDecisionOs(
       policy: policyEnvelope.policy,
       familyProvenance,
       deployment,
+      deliveryContext,
       previewStatus,
       pattern,
       report,

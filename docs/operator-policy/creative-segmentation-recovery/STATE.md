@@ -166,3 +166,70 @@ Another implementation pass should not start unless the final product review or 
 - narrowed campaign-context over-blocking so `limited` deployment precision does not hide review-level guidance
 - reran the live-firm audit on the corrected current source path
 - documented sanitized `pdf-company-01`, `pdf-company-02`, and `private-case-01` traces
+
+## Critical Media Buyer Fixes
+
+Status: targeted fixes implemented on branch; Creative Recovery remains pending final Claude review.
+
+Claude's harsh live-data media-buyer review found four evidence-backed decision defects and scored the product output at roughly `45/100`.
+
+Fixes implemented in this pass:
+
+- 7d trend-collapse admission now routes mature below-benchmark losers to `Cut`, or `Refresh` when fatigue/replacement pressure is explicit
+- CPA `>= 1.5x` peer median plus below-benchmark ROAS now admits mature purchase-bearing losers to `Cut`
+- active strong-relative winners can now surface as `Scale Review` or `Test More` instead of passive `Protect`
+- paused historical winners can now surface as `Retest` with reactivation review wording
+
+Safety preserved:
+
+- `Scale Review` remains review-only when Commercial Truth is missing
+- true `Scale` remains stricter and was not broadened in this pass
+- queue/apply/push safety unchanged
+- old-rule challenger remains comparison-only
+- selected reporting range remains non-authoritative
+- no taxonomy or UI redesign was bundled
+
+Post-fix live audit:
+
+- readable live businesses: `8`
+- sampled creatives: `78`
+- `Scale`: `0`
+- `Scale Review`: `11`
+- `Test More`: `8`
+- `Protect`: `3`
+- `Watch`: `5`
+- `Refresh`: `19`
+- `Retest`: `1`
+- `Cut`: `12`
+- `Campaign Check`: `0`
+- `Not Enough Data`: `13`
+- `Not eligible for evaluation`: `6`
+
+Sanitized `pdf-company-01` result:
+
+- current sample now contains `3` `Scale Review` rows and `4` `Cut` rows
+- the severe winner/loser errors from the harsh review are addressed in this context
+- estimated post-fix score: about `88/100`
+
+Sanitized `pdf-company-02` result:
+
+- current sample now contains `4` `Scale Review` rows, `4` `Cut` rows, and `1` `Test More` row
+- the mature below-baseline purchase losers now surface as `Cut`
+- active strong-relative rows now surface as `Scale Review`
+- active moderate relative rows now surface as `Test More`
+- estimated post-fix score: about `86/100`
+
+Current product-truth verdict:
+
+- ready for one final Claude product review after this PR passes checks
+- not accepted with monitoring until that final review is complete
+- weighted post-fix score estimate is about `87/100`, above the `>= 80/100` target
+
+Next recommended action:
+
+- run one final Claude product review on the sanitized post-fix audit and direct live campaign evidence
+- do not start another implementation pass unless the final review or live operators identify a specific remaining defect
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/critical-media-buyer-fixes/final.md`
