@@ -335,10 +335,9 @@ function hasTrueScaleEvidence(input: CreativeOperatorPolicyInput) {
 function isActiveTestCampaign(input: CreativeOperatorPolicyInput) {
   const context = input.deliveryContext ?? null;
   return Boolean(
-    context &&
+    context?.campaignIsTestLike &&
       (context.activeDelivery ||
-        (context.campaignIsTestLike &&
-          context.campaignStatus?.trim().toUpperCase() === "ACTIVE")) &&
+        context.campaignStatus?.trim().toUpperCase() === "ACTIVE") &&
       !context.pausedDelivery,
   );
 }
@@ -539,17 +538,22 @@ function isPausedHistoricalWinnerRetestCandidate(input: CreativeOperatorPolicyIn
   const baseline = input.relativeBaseline ?? null;
   const medianRoas = baseline?.medianRoas ?? 0;
   const medianCpa = baseline?.medianCpa ?? null;
+  const actionCanRetest =
+    input.primaryAction === "hold_no_touch" ||
+    input.primaryAction === "keep_in_test" ||
+    input.primaryAction === "promote_to_scaling" ||
+    input.primaryAction === "retest_comeback";
+  const historicalWinnerContext =
+    input.lifecycleState === "stable_winner" ||
+    input.lifecycleState === "scale_ready" ||
+    input.primaryAction === "hold_no_touch" ||
+    input.primaryAction === "promote_to_scaling" ||
+    input.primaryAction === "retest_comeback";
 
   if (!input.deliveryContext?.pausedDelivery) return false;
   if (hasWeakCampaignContext(input)) return false;
   if (!hasRelativeBaselineContext(input)) return false;
-  if (
-    input.primaryAction !== "hold_no_touch" &&
-    input.lifecycleState !== "stable_winner" &&
-    input.lifecycleState !== "scale_ready"
-  ) {
-    return false;
-  }
+  if (!actionCanRetest || !historicalWinnerContext) return false;
   if (!hasMeaningfulCreativeRead(input, { minimumSpend: 250, minimumPurchases: 3 })) {
     return false;
   }

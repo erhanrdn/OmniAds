@@ -219,9 +219,21 @@ function hasTestMoreFatigueCaveat(creative: CreativeDecisionOsCreative) {
 }
 
 function isPausedHistoricalRetest(creative: CreativeDecisionOsCreative) {
+  const actionCanRetest =
+    creative.primaryAction === "hold_no_touch" ||
+    creative.primaryAction === "keep_in_test" ||
+    creative.primaryAction === "promote_to_scaling" ||
+    creative.primaryAction === "retest_comeback";
+  const historicalWinnerContext =
+    creative.lifecycleState === "stable_winner" ||
+    creative.lifecycleState === "scale_ready" ||
+    creative.primaryAction === "hold_no_touch" ||
+    creative.primaryAction === "promote_to_scaling" ||
+    creative.primaryAction === "retest_comeback";
   return (
     creative.operatorPolicy?.segment === "needs_new_variant" &&
-    creative.primaryAction === "hold_no_touch" &&
+    actionCanRetest &&
+    historicalWinnerContext &&
     creative.deliveryContext?.pausedDelivery === true
   );
 }

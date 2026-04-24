@@ -954,6 +954,88 @@ describe("creative operator surface", () => {
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("retest");
   });
 
+  it("surfaces paused historical winners as Retest even when primary action is not hold", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "stable_winner",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "needs_new_variant",
+        actionClass: "variant",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Paused historical winner should be retested."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["row_provenance"],
+        explanation: "Retest paused winner.",
+      },
+    };
+
+    const item = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(item.primaryAction).toBe("Retest");
+    expect(item.authorityLabel).toBe("Retest");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("retest");
+  });
+
+  it("keeps true paused refresh cases labeled as Refresh", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "refresh_replace",
+      lifecycleState: "fatigued_winner",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "needs_new_variant",
+        actionClass: "refresh",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Fatigue still needs a refresh."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["row_provenance"],
+        explanation: "Refresh paused creative.",
+      },
+    };
+
+    const item = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(item.primaryAction).toBe("Refresh");
+    expect(item.authorityLabel).toBe("Refresh");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("refresh");
+  });
+
   it("explains mature zero-purchase weak rows as Watch instead of early learning", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives = fixture.creatives.slice(0, 1);

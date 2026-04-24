@@ -1205,6 +1205,93 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.segment).toBe("protected_winner");
   });
 
+  it("does not let active delivery alone trigger active-test campaign overrides", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized evergreen campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      supportingMetrics: {
+        spend: 610,
+        purchases: 5,
+        impressions: 24_000,
+        roas: 2.7,
+        cpa: 22,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.segment).not.toBe("scale_review");
+  });
+
+  it("requires campaignIsTestLike before active relative winners can use test-campaign overrides", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized scaling campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      supportingMetrics: {
+        spend: 430,
+        purchases: 4,
+        impressions: 21_000,
+        roas: 2.25,
+        cpa: 20,
+        creativeAgeDays: 21,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.segment).not.toBe("promising_under_sampled");
+  });
+
+  it("does not trigger active-test overrides for paused test-campaign delivery", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized creative test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: true,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      supportingMetrics: {
+        spend: 610,
+        purchases: 5,
+        impressions: 24_000,
+        roas: 2.7,
+        cpa: 22,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("scale_review");
+    expect(policy.segment).not.toBe("promising_under_sampled");
+  });
+
   it("routes active test strong-relative rows with a primary campaign blocker to Campaign Check", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -1263,6 +1350,62 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.state).toBe("investigate");
     expect(policy.pushReadiness).toBe("operator_review_required");
     expect(policy.queueEligible).toBe(false);
+  });
+
+  it("routes paused historical winners with non-hold primary action to Retest", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "keep_in_test",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      supportingMetrics: {
+        spend: 470,
+        purchases: 7,
+        impressions: 22_000,
+        roas: 2.3,
+        cpa: 21,
+        creativeAgeDays: 60,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+  });
+
+  it("keeps true refresh cases as Refresh instead of paused Retest", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      supportingMetrics: {
+        spend: 470,
+        purchases: 7,
+        impressions: 22_000,
+        roas: 2.3,
+        cpa: 21,
+        creativeAgeDays: 60,
+      },
+    });
+
+    expect(policy.segment).toBe("fatigued_winner");
+    expect(policy.actionClass).toBe("refresh");
   });
 
   it("does not retest paused weak creatives", () => {
