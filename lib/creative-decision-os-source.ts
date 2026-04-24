@@ -28,15 +28,19 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { CreativeEvidenceSource } from "@/lib/creative-operator-policy";
 
-function combineCreativeEvidenceSource(
-  sources: CreativeEvidenceSource[],
-): CreativeEvidenceSource {
-  if (sources.includes("unknown")) return "unknown";
-  if (sources.includes("fallback")) return "fallback";
-  if (sources.includes("snapshot")) return "snapshot";
-  if (sources.includes("demo")) return "demo";
-  if (sources.every((source) => source === "live")) return "live";
-  return "unknown";
+export function resolveCreativeDecisionEvidenceSource(input: {
+  primary: CreativeEvidenceSource;
+  supporting?: CreativeEvidenceSource[];
+  campaigns?: CreativeEvidenceSource;
+  adSets?: CreativeEvidenceSource;
+}): CreativeEvidenceSource {
+  const { primary } = input;
+  if (primary !== "live") return primary;
+
+  // The primary 30d creative window is the decision-authority source. Supporting
+  // windows and campaign/ad set snapshots can degrade benchmark or context
+  // quality, but they should not erase live row authority on their own.
+  return "live";
 }
 
 function mapMetaCreativesSnapshotSource(
@@ -409,17 +413,19 @@ export async function getCreativeDecisionOsForRange(input: {
 
     decisionRows = primary.rows;
     selectedPeriodRows = selectedPeriod?.rows ?? null;
-    evidenceSource = combineCreativeEvidenceSource([
-      primary.evidenceSource,
-      last3.evidenceSource,
-      last7.evidenceSource,
-      last14.evidenceSource,
-      last30.evidenceSource,
-      last90.evidenceSource,
-      allHistory.evidenceSource,
-      decisionSnapshot.campaigns.evidenceSource,
-      decisionSnapshot.adSets.evidenceSource,
-    ]);
+    evidenceSource = resolveCreativeDecisionEvidenceSource({
+      primary: primary.evidenceSource,
+      supporting: [
+        last3.evidenceSource,
+        last7.evidenceSource,
+        last14.evidenceSource,
+        last30.evidenceSource,
+        last90.evidenceSource,
+        allHistory.evidenceSource,
+      ],
+      campaigns: decisionSnapshot.campaigns.evidenceSource,
+      adSets: decisionSnapshot.adSets.evidenceSource,
+    });
     historyById = buildHistoryById({
       last3: last3.rows,
       last7: last7.rows,
