@@ -471,7 +471,16 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Scale");
     expect(html).toContain("Test More");
-    expect(html).toContain("Cut / Campaign Check");
+    expect(html).toContain("Campaign Check");
+    expect(html).toContain("Operator Segment Counts");
+    expect(html).toContain("Same resolved segment mapping as the Creative filters.");
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-scale"[\s\S]*>Scale<[\s\S]*>1</);
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-test_more"[\s\S]*>Test More<[\s\S]*>0</);
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-refresh"[\s\S]*>Refresh<[\s\S]*>0</);
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-retest"[\s\S]*>Retest<[\s\S]*>0</);
+    expect(html).toContain("Aggregate Health Counts");
+    expect(html).toContain("Action core aggregate");
+    expect(html).toContain("Cross-segment aggregates, not primary segment labels.");
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
@@ -485,5 +494,6 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Travel Hook Family");
     expect(html).not.toContain("Blocked review");
     expect(html).not.toContain("Evergreen Winners");
+    expect(html).not.toContain("Cut / Campaign Check");
   });
 });

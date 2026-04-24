@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Finish the Creative date-range invariance hardening pass, then send the corrected product surface to one final Claude live-firm product review.
+Finish the Creative taxonomy counter hardening pass, then accept Creative Recovery with production monitoring after normal PR flow.
 
-This pass is narrow product-truth hardening. It does not retune Creative policy thresholds, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
+This pass is narrow product-trust hardening. It does not retune Creative policy thresholds, change taxonomy, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
 
 ## Program Status
 
@@ -27,6 +27,36 @@ This pass is narrow product-truth hardening. It does not retune Creative policy 
 - scale-review-gap recovery: complete
 - UI truth and Scale Review pass: complete on branch, pending normal PR flow
 - date-range invariance audit: complete on branch, pending normal PR flow
+- taxonomy counter hardening: complete on branch, pending normal PR flow
+
+## Taxonomy Counter Hardening
+
+Status: fixed on branch.
+
+Finding:
+
+- the PR #50 review issue was real
+- Creative overview cards had been renamed to user-facing taxonomy labels, but several counts still read older aggregate summary fields
+- `Test More` could read from `keepTestingCount`, which also covered `Watch`, `Not Enough Data`, and false-winner low-evidence cases
+- `Cut / Campaign Check` could read from aggregate blocked fields instead of exact `Cut` and exact `Campaign Check` user-facing segments
+- authority wording for blocked Creative rows omitted `Retest` even though Retest rows can share that authority bucket
+
+Fix:
+
+- overview segment cards now compute counts from the same resolved user-facing Creative segment mapping used by the primary filters
+- exact visible taxonomy counts are now shown for `Scale`, `Scale Review`, `Test More`, `Protect`, `Watch`, `Refresh`, `Retest`, `Cut`, `Campaign Check`, and `Not Enough Data`
+- remaining cross-segment cards are explicitly labeled as aggregate health counts
+- row-level authority labels now use the resolved row segment instead of vague grouped wording
+- blocked authority group wording now includes `Retest`
+
+Validation:
+
+- targeted Creative overview/surface tests passed
+- full `npm test` passed
+- `npx tsc --noEmit` passed
+- `npm run build` passed
+- `git diff --check` passed
+- runtime smoke reached `/creatives` and `/platforms/meta` on the existing localhost server and both routes resolved to the expected unauthenticated login redirect
 
 ## Date-Range Invariance Audit
 
@@ -58,13 +88,15 @@ Remaining risk:
 
 ## Final Acceptance Status
 
-Creative Recovery final acceptance is revoked until the actual Creative UI and live-firm output are reviewed again.
+Creative Recovery is accepted with monitoring after this taxonomy counter hardening PR passes normal review and merges.
 
-Reason:
+Acceptance rationale:
 
-- the actual UI still exposed ambiguous primary grouping labels such as `Review`, `Check`, `Hold`, and `Evergreen`
-- those labels were not the agreed Creative operator taxonomy
-- the current live audit still shows zero `Scale` and zero `Scale Review`
+- the actual UI taxonomy mismatch was fixed
+- date-range invariance was fixed/clarified
+- live Decision OS rows flow on the corrected source path
+- the remaining PR #50 product-trust issue was taxonomy-count accuracy, and it is fixed in this hardening pass
+- no current evidence supports another broad implementation pass
 
 ## UI Taxonomy Mismatch
 
@@ -174,25 +206,20 @@ Diagnosis:
 
 ## Current Readiness
 
-Ready for one final Claude live-firm product review after this PR passes checks and merges.
+Ready to accept with monitoring after this PR passes checks and merges.
 
-Not ready for final product acceptance yet.
+No new implementation pass should start unless a specific live operator defect appears.
 
-The final review should focus on:
+Monitoring remains required for first live appearances of:
 
-- whether zero `Scale Review` is acceptable when the closest audited rows are protected winners
-- whether `Refresh` is the right product answer for `company-03-creative-07`
-- whether the corrected UI taxonomy is understandable in the actual Creative page
+- `Scale`
+- `Scale Review`
+- `Cut`
+- `Retest`
 
 ## Next Recommended Action
 
-Complete normal PR flow for this branch, then run one final Claude live-firm product review using:
-
-- `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
-- the corrected live-firm audit artifact
-- the live output restoration reports
-- the scale-review-gap reports
-- the date-range invariance audit
+Complete normal PR flow for the taxonomy counter hardening branch, merge if checks stay green, then monitor live Creative segment distributions. Do not start pass 7 unless an operator reports a specific live row defect or first-sighting review exposes a concrete misclassification.
 
 ## Reports
 
@@ -204,6 +231,11 @@ Complete normal PR flow for this branch, then run one final Claude live-firm pro
 
 ## Last Updated By Codex
 
+- confirmed the PR #50 taxonomy-count issue was real
+- replaced renamed-but-aggregate overview counters with exact resolved-segment taxonomy counters
+- labeled remaining cross-segment overview counters as aggregates
+- aligned row authority labels with the resolved Creative segment
+- added `Retest` to grouped blocked authority wording where grouping remains
 - confirmed the actual UI taxonomy mismatch was real
 - replaced primary Creative segment filters with the agreed taxonomy
 - aligned overview, card, detail, and instruction wording with the operator segment
