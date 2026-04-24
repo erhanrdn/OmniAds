@@ -233,3 +233,51 @@ Next recommended action:
 Report:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/critical-media-buyer-fixes/final.md`
+
+## Critical Fix Hardening
+
+Status: fixed on branch; Creative Recovery can be accepted after checks pass and this PR merges.
+
+PR #56 Codex review issue status:
+
+- P1 active-test campaign gating: real and fixed
+- P2 paused Retest UI mapping: real and fixed
+
+Active-test gating fix:
+
+- active delivery alone no longer qualifies a row for active-test overrides
+- active-test behavior now requires explicit test campaign context through `campaignIsTestLike === true`
+- the campaign/ad set delivery must be active, or campaign status must be active
+- paused delivery blocks active-test overrides
+- ordinary active non-test `hold_no_touch` winners remain `Protect` instead of leaking into `Scale Review` / `Test More`
+
+Retest mapping fix:
+
+- policy retest candidate logic now excludes true `refresh_replace` and `block_deploy` cases
+- surface Retest mapping now covers paused historical winner outcomes even when the primary action is not exactly `hold_no_touch`
+- true Refresh rows still render as `Refresh`
+- Retest label, bucket, and instruction remain aligned
+
+Sanitized live test-context behavior:
+
+- explicit active test strong-relative fixtures still produce `Scale Review`
+- explicit active test moderate-relative fixtures still produce `Test More`
+- mature trend-collapse and CPA/below-baseline loser fixtures still produce `Cut` / `Refresh`
+- paused historical winner fixtures still produce `Retest`
+- active-test behavior no longer leaks into ordinary active campaigns
+
+Safety status:
+
+- no queue/apply/push loosening
+- no taxonomy change
+- no UI redesign
+- no old-rule takeover
+- no Commercial Truth change
+- no benchmark-scope change
+- no selected reporting-range authority change
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/critical-fix-hardening/final.md`
+
+Last updated by Codex: 2026-04-24
