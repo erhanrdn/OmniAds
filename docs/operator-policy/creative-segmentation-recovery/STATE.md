@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Finish the Creative date-range invariance hardening pass, then send the corrected product surface to one final Claude live-firm product review.
+Complete the Creative product-truth review from PDF evidence and live connected-account data.
 
-This pass is narrow product-truth hardening. It does not retune Creative policy thresholds, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
+This pass is diagnosis only. It does not retune Creative policy thresholds, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
 
 ## Program Status
 
@@ -25,8 +25,51 @@ This pass is narrow product-truth hardening. It does not retune Creative policy 
 - live output restoration: merged
 - corrected live-firm audit rerun: complete
 - scale-review-gap recovery: complete
-- UI truth and Scale Review pass: complete on branch, pending normal PR flow
-- date-range invariance audit: complete on branch, pending normal PR flow
+- UI truth and Scale Review pass: merged
+- date-range invariance audit: merged
+- product-truth review from PDFs and live data: complete on branch, pending draft PR review
+
+## Product-Truth Review Status
+
+Creative Recovery final acceptance remains revoked.
+
+New evidence reviewed:
+
+- `pdf-company-01`: readable screenshot evidence; shows `Scale = 0`, `Scale Review = 1`, `Test More = 2`, `Protect = 1`, `Watch = 3`, `Refresh = 3`, `Not Enough Data = 4`
+- `pdf-company-02`: readable screenshot evidence; shows `Scale = 0`, `Scale Review = 0`, `Test More = 1`, `Protect = 5`, `Watch = 4`, `Refresh = 1`, `Not Enough Data = 9`
+- current live connected-account rerun: `8` readable businesses, `78` sampled creatives
+
+Fresh live segment counts:
+
+- `Scale`: `0`
+- `Scale Review`: `0`
+- `Protect`: `13`
+- `Watch`: `21`
+- `Refresh`: `16`
+- `Test More`: `8`
+- `Not Enough Data`: `14`
+- `Campaign Check`: `0`
+- `Retest`: `0`
+- `Cut`: `0`
+- `Not eligible for evaluation`: `6`
+
+Expert panel status: complete as diagnostic evidence only.
+
+Current product-truth verdict: `NOT TRUSTWORTHY YET`.
+
+Reason:
+
+- zero live `Scale Review` is not defensible after reviewing strong-relative live rows
+- several active strong-relative rows are hidden under `Protect` or `Watch`
+- several mature weak/high-spend rows are softened into `Watch` or `Not Enough Data`
+- `Cut = 0` is not credible in the live top-spend sample
+- the current page is useful for grouping, but not yet better than manual table reading for scale/cut decisions
+
+Next recommended action:
+
+- run a narrow product-truth recalibration implementation pass
+- focus only on protected-winner vs `Scale Review`, mature weak vs `Cut`/`Watch`, and campaign-limited strong rows
+- preserve true `Scale`, queue/apply/push, benchmark-scope, and Commercial Truth safety gates
 
 ## Date-Range Invariance Audit
 
@@ -114,12 +157,12 @@ Scope:
 - sampled creatives: `78`
 - deterministic sample: active creatives first, then 30-day spend descending, up to 10 per business
 
-Live segment counts:
+Latest live segment counts:
 
 - `Scale`: `0`
 - `Scale Review`: `0`
-- `Protect`: `14`
-- `Watch`: `20`
+- `Protect`: `13`
+- `Watch`: `21`
 - `Refresh`: `16`
 - `Test More`: `8`
 - `Not Enough Data`: `14`
@@ -174,20 +217,23 @@ Diagnosis:
 
 ## Current Readiness
 
-Ready for one final Claude live-firm product review after this PR passes checks and merges.
+Ready for Claude independent review as an evidence PR.
 
 Not ready for final product acceptance yet.
 
-The final review should focus on:
+The review should focus on:
 
-- whether zero `Scale Review` is acceptable when the closest audited rows are protected winners
-- whether `Refresh` is the right product answer for `company-03-creative-07`
-- whether the corrected UI taxonomy is understandable in the actual Creative page
+- whether the product-truth verdict is correct
+- whether zero live `Scale Review` is acceptable in the current top-spend sample
+- whether protected strong winners should remain only `Protect` or also surface review-level scale guidance
+- whether mature weak/high-spend rows should route to `Cut` or a more severe Watch instruction
+- whether the specific `Refresh` case is acceptable product language
 
 ## Next Recommended Action
 
-Complete normal PR flow for this branch, then run one final Claude live-firm product review using:
+Open the draft evidence PR, then run an independent Claude product review using:
 
+- `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/final.md`
 - `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
 - the corrected live-firm audit artifact
 - the live output restoration reports
@@ -196,6 +242,11 @@ Complete normal PR flow for this branch, then run one final Claude live-firm pro
 
 ## Reports
 
+- product-truth review final: `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/final.md`
+- product-truth PDF evidence: `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/pdf-evidence.md`
+- product-truth live sample: `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/live-sample-audit.md`
+- product-truth expert panel: `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/expert-panel.md`
+- product-truth specific case trace: `docs/operator-policy/creative-segmentation-recovery/reports/product-truth-review/specific-case-trace.md`
 - UI truth and Scale Review fix: `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
 - live output restoration final: `docs/operator-policy/creative-segmentation-recovery/reports/live-output-restoration-final.md`
 - scale-review-gap final: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/final.md`
@@ -211,4 +262,7 @@ Complete normal PR flow for this branch, then run one final Claude live-firm pro
 - traced the specific user-observed case privately and documented only sanitized aliases
 - audited date-range invariance and found no same-creative relabeling in the traced runtime path
 - clarified that Creative segment filter counts follow the visible reporting set while row segments stay Decision OS anchored
+- reviewed PDF screenshot evidence under sanitized aliases
+- reran the live product-truth sample and found `Scale = 0`, `Scale Review = 0`, and `Cut = 0`
+- classified the current Creative page as not product-truth trustworthy yet
 - left policy thresholds and safety gates unchanged
