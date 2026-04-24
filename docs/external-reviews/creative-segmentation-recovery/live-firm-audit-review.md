@@ -435,3 +435,112 @@ The Creative page is now product-acceptable. Stop the recovery program and move 
 **Another implementation pass needed:** No.
 
 **Recommended next move (one sentence):** Stop Creative Segmentation Recovery as accepted, move to production monitoring and owner first-sighting review for any live `Scale` / `Cut` / `Retest` / `Campaign Check` appearances, and resume the independent Meta canary rollout track — the UI taxonomy is now correct, the specific user-observed case is resolved, and remaining uncertainties are observation-grade rather than implementation-grade.
+
+---
+
+## Date Range Invariance Review
+
+Reviewer: Claude Code (product-strategy and media buyer logic reviewer)
+Date: 2026-04-24
+Scope: Focused product review of the Creative date-range invariance audit and fix, evaluating whether the selected reporting range affects primary operator segments and whether the UI clarifies the distinction.
+
+---
+
+### Verdict: PASS WITH UI CLARITY RISK
+
+The selected reporting date range does NOT change primary Creative operator segments. The production-equivalent trace on sanitized `company-03` is conclusive: 14-day and 30-day reporting ranges both resolve to the same `decisionAsOf` (`2026-04-23`), the same primary Decision OS window (`2026-03-25` to `2026-04-23`), 16 shared Decision OS rows, and **zero** same-creative segment changes. The Operator Decision Context doctrine is preserved — decision authority comes from `decisionAsOf` and the primary Decision OS window, not from selected reporting dates.
+
+The observed count differences in the quick-filter bar (e.g., `Watch: 8 → 9`, `Not Enough Data: 9 → 11` between 14d and 30d) were never reclassification. They were the natural consequence of the quick-filter counts being scoped to `visibleIds` — the currently visible rows in the reporting table. Changing the reporting range changes which rows render in the table, which changes which rows contribute to the quick-filter count. The counts were honest; the UI just did not explain what they were counting.
+
+The fix addresses exactly that: quick-filter copy and accessibility labels now state that counts follow the visible reporting set while row segments remain anchored to the Decision OS window. That is the right fix — the underlying behavior was correct, and the UI now describes it accurately.
+
+The remaining risk is that a media buyer who does not read the small clarifying copy may still, on first encounter, read "Watch 8 → Watch 9" as reclassification. The copy fix is good; whether it is visually prominent enough to prevent that misread in practice is a UX judgment that would benefit from one operator walkthrough in production. Hence "PASS WITH UI CLARITY RISK" rather than unqualified PASS.
+
+---
+
+### 1. Does the Selected Reporting Date Range Still Change Primary Creative Operator Segments?
+
+**No.**
+
+The trace is clear. For the sanitized `company-03` cohort:
+- Both 14d and 30d reporting ranges use `decisionAsOf = 2026-04-23`
+- Both use the primary Decision OS window `2026-03-25 → 2026-04-23`
+- 16 Decision OS rows in both ranges
+- 16 shared rows
+- **0 same-creative segment changes**
+
+Segment counts were stable per-row: `Test More: 4`, `Protect: 1`, `Refresh: 4`, `Not Enough Data: 6` in both 14d and 30d traces.
+
+Tests confirm this invariance: same creative + same `decisionAsOf` + different reporting dates produces the same primary segment, same lifecycle, same primary action, same push readiness, same action fingerprint, same evidence hash.
+
+The Operator Decision Context doctrine holds.
+
+### 2. If Segment Counts Change, Is It Because the Visible Creative Set Changes or Because Same Creatives Are Reclassified?
+
+**Because the visible creative set changes.**
+
+`buildCreativeQuickFilters()` receives `visibleIds` from the currently visible table rows. The reporting table filters rows by the selected reporting range (a row with activity in the last 14 days vs a row with activity across the full 30 days). When the operator switches ranges, fewer or more rows are visible; the quick-filter counter counts only what is visible.
+
+The per-row segment label does not change. A creative labeled `Watch` in the 14d view remains `Watch` in the 30d view. It just may disappear from the visible set (if it has no 14d activity) or appear (if it has 30d activity the 14d window excluded). The count changes; the classification does not.
+
+This matches what the user-observed UI counts suggested (three-row total drift between 14d and 30d) and what the trace confirmed (zero reclassification).
+
+### 3. Is the UI Clear Enough About This Distinction?
+
+**Now, mostly — with one residual concern.**
+
+The fix added:
+- Top Creative segment filter copy stating counts follow the visible reporting set while row segments use the Decision OS window
+- Decision Support quick-filter copy stating the same
+- Accessibility labels identifying counts as "visible reporting-set counts"
+- Deterministic tests covering the copy
+
+This is the right content. The UI now honestly describes what the numbers mean.
+
+The residual concern is visual prominence. A media buyer who glances at a filter bar showing "Watch: 8" and switches ranges to see "Watch: 9" will form a mental model instantly. Whether the clarifying copy is large/visible enough to overwrite that first-impression reading before it hardens is a UX question that small copy additions do not always solve on their own. Not every user reads explanatory text next to a counter badge.
+
+What would strengthen the fix beyond what is already done (not required for acceptance, but worth considering as a later polish):
+- A small scope indicator like "(visible)" or "(in current range)" inline with the count itself, so the count and its scope are read together rather than the count alone
+- A one-line tooltip on hover of any segment filter saying "Counts the rows currently visible under the selected reporting range. Row classifications do not change with the reporting range."
+
+Neither is a blocking addition. The current fix is sufficient for acceptance, with the note that operator walkthrough in production may reveal whether further visual prominence is needed.
+
+### 4. Does This Behavior Preserve the Operator Decision Context Doctrine?
+
+**Yes.**
+
+The doctrine as stated: `decisionAsOf`, the primary Decision OS window, and explicit benchmark scope are the decision-authority inputs. Reporting range is reporting context, not action authority.
+
+The trace confirms every load-bearing element of this:
+- `decisionAsOf` is resolved from provider-backed state, independent of the reporting range control
+- The primary 30-day Decision OS window is resolved independently, not from the reporting range selector
+- `buildCreativeDecisionOs()` uses selected reporting dates only for historical and selected-period analysis, never for primary segment determination
+- Action fingerprints and evidence hashes stay stable across reporting-range changes, which is the correctness invariant for the push/apply safety chain
+
+The UI count behavior is downstream display only. It reflects which rows the operator is currently looking at, not which rows the system currently thinks are scale/cut/protect. The two are correctly separated.
+
+### 5. Is the Creative Page Now Trustworthy Enough?
+
+**Yes, for the date-range question specifically.**
+
+The underlying decision authority is correct. The UI copy now matches the underlying behavior. The tests enforce invariance. The specific user-observed count drift (3 rows between 14d and 30d) has a complete explanation that does not involve any policy or classification issue.
+
+No additional implementation pass is required for this concern. The remaining risk is UX prominence of the clarification, which is observable in production use and can be polished without any policy or threshold work.
+
+Combined with the prior live-firm audit review (GOOD ENOUGH WITH MONITORING) and the UI taxonomy fix, the Creative page now has:
+- Correct operator taxonomy in filters, cards, details, and instructions
+- Defensible zero `Scale` / `Scale Review` state traceable to design choices, not hidden bugs
+- Account-relative benchmarking that produces correct judgments on the specific user-observed case (`company-03/company-03-creative-07`)
+- Date-range invariance on primary segments, with UI copy now matching the behavior
+
+Creative Segmentation Recovery can still stop. The date-range concern was legitimate, was investigated correctly, and was fixed at the level where the actual issue lived — the UI copy, not the decision authority.
+
+---
+
+### Final Chat Summary
+
+**Verdict:** PASS WITH UI CLARITY RISK
+
+**Another implementation pass needed:** No.
+
+**If yes, what must be fixed:** Not applicable. Optional UX polish (scope indicator inline with count, or tooltip explaining visible-set scope) could strengthen visual clarity but is not blocking. If a production operator walkthrough reveals that the current copy is not read prominently enough to prevent misreading "count changed" as "classification changed," a small UI polish pass could add an inline scope indicator. That would be a single-surface UX change, not an implementation pass.
