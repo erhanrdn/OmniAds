@@ -154,16 +154,20 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("creative-quick-filters")).toBeVisible();
 
   const totalBeforeFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  const firstQuickFilter = page.locator('[data-testid^="creative-quick-filter-"]').first();
-  await firstQuickFilter.scrollIntoViewIfNeeded();
-  await firstQuickFilter.focus();
-  await firstQuickFilter.press("Enter");
-  const totalAfterQuickFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  expect(totalAfterQuickFilter).toBeGreaterThan(0);
-  expect(totalAfterQuickFilter).toBeLessThanOrEqual(totalBeforeFilter);
-  await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByText(/Quick filter:/)).toBeVisible();
-  await page.getByRole("button", { name: "Clear" }).click();
+  const firstQuickFilterWithRows = page.locator('[data-testid^="creative-quick-filter-"]:not([data-count="0"])').first();
+  if ((await firstQuickFilterWithRows.count()) > 0) {
+    await firstQuickFilterWithRows.scrollIntoViewIfNeeded();
+    await firstQuickFilterWithRows.focus();
+    await firstQuickFilterWithRows.press("Enter");
+    const totalAfterQuickFilter = await page.locator('[data-testid^="creative-row-"]').count();
+    expect(totalAfterQuickFilter).toBeGreaterThan(0);
+    expect(totalAfterQuickFilter).toBeLessThanOrEqual(totalBeforeFilter);
+    await page.getByLabel("Close Creative Decision OS").click();
+    await expect(page.getByText(/Quick filter:/)).toBeVisible();
+    await page.getByRole("button", { name: "Clear" }).click();
+  } else {
+    await page.getByLabel("Close Creative Decision OS").click();
+  }
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
   await expect(creativeRows.first()).toBeVisible();

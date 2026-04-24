@@ -78,7 +78,7 @@ function payload() {
         familyScaleCount: 2,
         headline: "1 creative opportunity item is ready once evidence floors stay intact.",
       },
-      message: "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
+      message: "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
       operatingMode: "Exploit",
       surfaceSummary: {
         actionCoreCount: 4,
@@ -164,8 +164,8 @@ function payload() {
       { state: "comeback_candidate", label: "comeback_candidate", count: 1, creativeIds: ["c8"] },
     ],
     operatorQueues: [
-      { key: "promotion", label: "Promotion queue", summary: "Scale-ready creatives", count: 2, creativeIds: ["c3", "c4"] },
-      { key: "keep_testing", label: "Keep testing", summary: "Still in test", count: 2, creativeIds: ["c1", "c2"] },
+      { key: "promotion", label: "Promotion queue", summary: "Scale creatives", count: 2, creativeIds: ["c3", "c4"] },
+      { key: "keep_testing", label: "Board-only / Test More", summary: "Still in Test More", count: 2, creativeIds: ["c1", "c2"] },
       { key: "fatigued_blocked", label: "Fatigued / blocked", summary: "Refresh or block", count: 3, creativeIds: ["c5", "c6", "c7"] },
       { key: "comeback", label: "Comeback", summary: "Retest", count: 1, creativeIds: ["c8"] },
     ],
@@ -447,7 +447,7 @@ describe("CreativeDecisionOsOverview", () => {
       />,
     );
 
-    expect(html).toContain("Operator Review");
+    expect(html).toContain("Operator Console");
     expect(html).toContain("Creative Operator Console");
     expect(html).toContain("Benchmark: Account-wide");
     expect(html).toContain("Baseline: Strong");
@@ -470,18 +470,20 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Scale");
-    expect(html).toContain("Test");
-    expect(html).toContain("Blocked review");
+    expect(html).toContain("Test More");
+    expect(html).toContain("Cut / Campaign Check");
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
-    expect(html).toContain("Evergreen Winners");
+    expect(html).toContain("Protect");
     expect(html).toContain("Supply Planning");
     expect(html).toContain("Degraded commercial truth");
     expect(html).toContain("Historical Analysis");
     expect(html).toContain("Selected-period format and family patterns");
     expect(html).toContain("Travel Hook Family");
+    expect(html).not.toContain("Blocked review");
+    expect(html).not.toContain("Evergreen Winners");
   });
 });

@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Finish source-side live-firm cleanup, then hand the current live sample to one final Claude product review.
+Finish the Creative UI truth and live Scale Review correction pass, then send the corrected product surface to one final Claude live-firm product review.
 
-This pass stayed narrow. It did not retune Creative policy thresholds or change taxonomy.
+This pass is narrow product-truth hardening. It does not retune Creative policy thresholds, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
 
 ## Program Status
 
@@ -23,79 +23,80 @@ This pass stayed narrow. It did not retune Creative policy thresholds or change 
 - implementation pass 6: merged
 - implementation pass 6 hardening: merged
 - live output restoration: merged
-- corrected live-firm audit rerun: complete on branch
-- scale-review-gap recovery: complete on branch, pending normal PR flow
+- corrected live-firm audit rerun: complete
+- scale-review-gap recovery: complete
+- UI truth and Scale Review pass: complete on branch, pending normal PR flow
 
-## Was This Pass Needed
+## Final Acceptance Status
 
-Yes.
+Creative Recovery final acceptance is revoked until the actual Creative UI and live-firm output are reviewed again.
 
-The corrected live-firm audit still showed:
+Reason:
 
-- `Scale = 0`
-- `Scale Review = 0`
-- four businesses fully buried under `Not eligible for evaluation`
+- the actual UI still exposed ambiguous primary grouping labels such as `Review`, `Check`, `Hold`, and `Evergreen`
+- those labels were not the agreed Creative operator taxonomy
+- the current live audit still shows zero `Scale` and zero `Scale Review`
 
-That was still enough to justify one narrow source/output recovery pass before a final live-firm product review.
+## UI Taxonomy Mismatch
 
-## Top Live-Firm Scale Review Blocker
+The mismatch was real and has been fixed in this branch.
 
-The main blocker was **not** the review-only scale rule itself.
+Primary Creative segment filters now use the agreed taxonomy:
 
-It was the top-level Creative `evidenceSource` resolver:
+- `Scale`
+- `Scale Review`
+- `Test More`
+- `Protect`
+- `Watch`
+- `Refresh`
+- `Retest`
+- `Cut`
+- `Campaign Check`
+- `Not Enough Data`
 
-- primary 30d creative rows were live
-- support windows and campaign/ad set snapshot reads could still be `unknown`
-- the aggregate resolver collapsed that mixed state to `unknown`
-- operator policy then fail-closed to `contextual_only`
-- the surface rendered that as `Not eligible for evaluation`
+System-ineligible rows can still appear as `Not eligible for evaluation`, but that state is not exposed as a primary Creative segment filter.
 
-That source-authority collapse buried real downstream states such as `Protect`, `Refresh`, `Watch`, `Test More`, and `Not Enough Data` before they could surface.
+Additional aligned surfaces:
 
-## What Was Fixed
+- overview summary labels
+- quick filters
+- operator cards
+- preview cards
+- creative detail badges
+- instruction headlines
+- Decision OS summary copy
 
-Source-only change:
+## Benchmark Scope Status
 
-- the Decision OS source now treats the primary 30d creative window as the authoritative row-evidence source
-- support-window or campaign/ad set unreadability no longer erases live row authority by itself
+Benchmark scope behavior is unchanged and remains explicit.
 
-Preserved:
+- default benchmark: account-wide
+- campaign filter alone: does not switch benchmark authority
+- explicit campaign benchmark: opt-in only
+- benchmark scope remains visible in Creative operator context
 
-- no queue/push/apply loosening
-- no Creative taxonomy changes
-- no benchmark-scope changes
-- no Commercial Truth logic changes
-- no old-rule challenger promotion
+## Live Scale Review Audit Result
 
-## Live-Firm Counts After Rerun
+The corrected live audit was rerun after this branch's UI and instruction fixes.
 
-Comparison basis:
+Scope:
 
-- same deterministic corrected live-firm sample
-- `78` sampled creatives
-- the four previously source-gated businesses were re-evaluated live
-- already-live businesses were unchanged by construction
+- readable live Meta businesses: `8`
+- sampled creatives: `78`
+- deterministic sample: active creatives first, then 30-day spend descending, up to 10 per business
 
-### Before
-
-- `Scale`: `0`
-- `Scale Review`: `0`
-- `Protect`: `6`
-- `Refresh`: `12`
-- `Watch`: `7`
-- `Test More`: `6`
-- `Not Enough Data`: `8`
-- `Not eligible for evaluation`: `39`
-
-### After
+Live segment counts:
 
 - `Scale`: `0`
 - `Scale Review`: `0`
-- `Protect`: `16`
-- `Refresh`: `14`
-- `Watch`: `21`
+- `Protect`: `14`
+- `Watch`: `20`
+- `Refresh`: `16`
 - `Test More`: `8`
-- `Not Enough Data`: `13`
+- `Not Enough Data`: `14`
+- `Campaign Check`: `0`
+- `Retest`: `0`
+- `Cut`: `0`
 - `Not eligible for evaluation`: `6`
 
 Business counts:
@@ -103,91 +104,78 @@ Business counts:
 - businesses with zero `Scale`: `8`
 - businesses with zero `Scale Review`: `8`
 
-## What The Rerun Proved
+## Scale Review Zero Diagnosis
 
-The pass materially improved live readability:
+The zero `Scale Review` count is real in the current audit sample.
 
-- `33` sampled rows moved out of `Not eligible for evaluation`
-- previously buried rows now surface as meaningful live outputs
-- the largest recovered states were `Protect`, `Watch`, `Refresh`, `Test More`, and `Not Enough Data`
+The closest candidates:
 
-Representative recovered transitions:
+- four rows carry `true_scale_candidate` evidence metadata
+- all four resolve to `Protect`
+- each has `primaryAction = hold_no_touch`
+- each is treated as a protected winner
+- missing business validation blocks true `Scale`
+- the review-only Scale Review path intentionally excludes protected winners
 
-- `company-01-creative-01` -> `Protect`
-- `company-01-creative-04` -> `Watch`
-- `company-02-creative-01` -> `Refresh`
-- `company-04-creative-02` -> `Test More`
-- `company-08-creative-06` -> `Not Enough Data`
+This branch did not force `Scale Review` counts upward.
 
-## What The Rerun Did Not Prove
+No bucket-mapping bug was found for the current zero-`Scale Review` sample. The remaining question is product-level: whether the current protected-winner interpretation is right, or whether policy should later distinguish some protected winners as review-worthy scale candidates.
 
-The pass did **not** create a believable hidden `Scale Review` distribution.
+## Specific Case Trace
 
-After the source fix:
+The user-observed case was traced privately and is documented with sanitized aliases only.
 
-- `Scale Review` remained `0`
-- the strongest previously suspicious row (`company-01-creative-04`) resolved to `Watch`, not `Scale Review`
-- most previously buried strong rows resolved to `Protect`, `Refresh`, or `Watch`
+- business alias: `company-03`
+- creative alias: `company-03-creative-07`
+- current resolved segment after this branch: `Refresh`
+- current instruction headline after this branch: `Refresh: company-03-creative-07`
+- active status: not active in campaign/ad set context
+- benchmark scope: account
+- baseline reliability: strong
+- relative strength class: none
+- business validation: missing
+- queue/apply: blocked
 
-That means the remaining zero-`Scale Review` state now looks like a real current product judgment, not a hidden source-path failure.
+Diagnosis:
 
-## Whether Current Creative Output Is Trustworthy Enough
+- the observed `Pause` wording was a real UI/detail wording mismatch, not the current resolved operator segment
+- the row does not clear the account-relative Scale Review gate in the current decision path
+- the current deterministic interpretation is a fatigued winner / replacement case, surfaced as `Refresh`
+- safety remains conservative because business validation is missing
 
-Improved, but still not signed off.
+## Current Readiness
 
-What is now trustworthy:
+Ready for one final Claude live-firm product review after this PR passes checks and merges.
 
-- current live row flow
-- live source authority for previously buried businesses
-- the fact that many zero-review misses were actually source-suppressed `Protect` / `Refresh` / `Watch` rows
+Not ready for final product acceptance yet.
 
-What still needs product judgment:
+The final review should focus on:
 
-- whether zero live `Scale` / zero live `Scale Review` is acceptable
-- whether the current live taxonomy is good enough versus manual table reading
-- whether the remaining `Watch` / `Not Enough Data` / `Protect` mix is the right buyer-facing outcome
-
-## Whether Another Implementation Pass Is Needed
-
-Not before one final Claude live-firm product review.
-
-Reason:
-
-- the hidden source bug is fixed
-- the remaining gap no longer has a safe deterministic source-layer patch
-- any further change would be a real product-policy retune
-
-## Whether This Is Ready For Final Claude Live-Firm Review
-
-Yes.
-
-Reason:
-
-- the corrected live-firm sample is no longer blocked by source/output mismatch
-- the last safe source-authority recovery is now in place
-- the remaining zero-`Scale Review` question is product-level, not a hidden runtime bug
+- whether zero `Scale Review` is acceptable when the closest audited rows are protected winners
+- whether `Refresh` is the right product answer for `company-03-creative-07`
+- whether the corrected UI taxonomy is understandable in the actual Creative page
 
 ## Next Recommended Action
 
-Run one final Claude live-firm product review on top of:
+Complete normal PR flow for this branch, then run one final Claude live-firm product review using:
 
-- the corrected live-firm audit
-- the source-authority recovery
-- the scale-review-gap reports from this pass
+- `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
+- the corrected live-firm audit artifact
+- the live output restoration reports
+- the scale-review-gap reports
 
 ## Reports
 
-- implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
+- UI truth and Scale Review fix: `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
 - live output restoration final: `docs/operator-policy/creative-segmentation-recovery/reports/live-output-restoration-final.md`
-- scale-review-gap candidate set: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/candidate-set.md`
-- scale-review-gap gate trace: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/gate-trace.md`
-- scale-review-gap cluster analysis: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/cluster-analysis.md`
 - scale-review-gap final: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/final.md`
+- implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
 
 ## Last Updated By Codex
 
-- confirmed the pass was still needed after the corrected live-firm rerun
-- traced the suppressor to aggregate source-authority collapse before policy evaluation
-- patched the Decision OS source resolver so live primary rows remain live
-- reran the previously affected live-firm sample and confirmed meaningful outputs now surface
-- confirmed that remaining zero `Scale Review` now appears to be a real product judgment, not a hidden source bug
+- confirmed the actual UI taxonomy mismatch was real
+- replaced primary Creative segment filters with the agreed taxonomy
+- aligned overview, card, detail, and instruction wording with the operator segment
+- reran the corrected live audit and confirmed `Scale = 0`, `Scale Review = 0`
+- traced the specific user-observed case privately and documented only sanitized aliases
+- left policy thresholds and safety gates unchanged

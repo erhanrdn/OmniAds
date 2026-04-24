@@ -163,15 +163,15 @@ describe("creative operator surface", () => {
       authorityState: "act_now",
       authorityLabel: "Scale",
     });
-    expect(hold?.label).toBe("Hold: verify");
+    expect(hold?.label).toBe("Not eligible for evaluation");
     expect(hold?.rows[0]).toMatchObject({
       id: "truth",
-      primaryAction: "Validate",
+      primaryAction: "Scale Review",
       authorityState: "needs_truth",
     });
     expect(hold?.rows[1]).toMatchObject({
       id: "preview",
-      primaryAction: "Needs preview",
+      primaryAction: "Not eligible for evaluation",
       authorityState: "needs_truth",
     });
     expect(model?.hiddenSummary).toContain("thin-signal");
@@ -242,23 +242,84 @@ describe("creative operator surface", () => {
       },
     });
 
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("act_now");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[1])).toBe("needs_truth");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBe("needs_truth");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("watch");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("blocked");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[5])).toBe("no_action");
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: [],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: [],
+      explanation: "Scale.",
+    };
+    fixture.creatives[1].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "investigate",
+      segment: "scale_review",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      explanation: "Review.",
+    };
+    fixture.creatives[2].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "blocked",
+      segment: "blocked",
+      actionClass: "contextual",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      explanation: "Not eligible.",
+    };
+    fixture.creatives[3].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "watch",
+      segment: "creative_learning_incomplete",
+      actionClass: "test",
+      pushReadiness: "read_only_insight",
+      queueEligible: false,
+      explanation: "Thin.",
+    };
+    fixture.creatives[4].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "investigate",
+      segment: "fatigued_winner",
+      actionClass: "refresh",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      explanation: "Refresh.",
+    };
+    fixture.creatives[5].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "do_not_touch",
+      segment: "protected_winner",
+      actionClass: "protect",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      explanation: "Protect.",
+    };
+
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[1])).toBe("scale_review");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBeNull();
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("not_enough_data");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("refresh");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[5])).toBe("protect");
 
     const filters = buildCreativeQuickFilters(fixture);
 
     expect(filters.map((filter) => [filter.key, filter.count])).toEqual([
-      ["act_now", 1],
-      ["watch", 1],
-      ["blocked", 1],
-      ["needs_truth", 2],
-      ["no_action", 1],
+      ["scale", 1],
+      ["scale_review", 1],
+      ["protect", 1],
+      ["refresh", 1],
+      ["not_enough_data", 1],
     ]);
-    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("campaign/context diagnosis");
+    expect(filters.find((filter) => filter.key === "refresh")?.summary).toContain("new angle");
   });
 
   it("adds operator instructions that distinguish watch from scale commands", () => {
@@ -464,7 +525,7 @@ describe("creative operator surface", () => {
     expect(buildCreativeOperatorItem(fixture.creatives[2]).primaryAction).toBe("Not Enough Data");
   });
 
-  it("keeps Scale Review rows in the Review bucket until review-only evidence clears", () => {
+  it("keeps Scale Review rows review-only until business evidence clears", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives[0].operatorPolicy = {
       contractVersion: "operator-policy.v1",
@@ -492,14 +553,14 @@ describe("creative operator surface", () => {
 
     expect(review.primaryAction).toBe("Scale Review");
     expect(review.authorityState).toBe("watch");
-    expect(review.authorityLabel).toBe("Review");
+    expect(review.authorityLabel).toBe("Watch / Test More");
     expect(review.reason).toContain("Strong relative performer against the Account-wide benchmark.");
     expect(review.reason).toContain("Business validation is still missing");
     expect(review.instruction?.queueEligible).toBe(false);
     expect(review.instruction?.canApply).toBe(false);
     expect(review.instruction?.headline).toBe("Scale Review: Promote Winner");
     expect(review.instruction?.primaryMove).toContain("relative winner before any scale move");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("watch");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale_review");
   });
 
   it("formats benchmark reliability and business-validation messaging without hiding relative strength", () => {
@@ -583,7 +644,7 @@ describe("creative operator surface", () => {
     expect(campaignCheck).toMatchObject({
       primaryAction: "Campaign Check",
       authorityState: "blocked",
-      authorityLabel: "Check",
+      authorityLabel: "Refresh / Cut / Campaign Check",
     });
     expect(notEnoughData).toMatchObject({
       primaryAction: "Not Enough Data",
@@ -592,13 +653,14 @@ describe("creative operator surface", () => {
     expect(protect).toMatchObject({
       primaryAction: "Protect",
       authorityState: "no_action",
+      authorityLabel: "Protect",
     });
     expect(campaignCheck.authorityState).not.toBe("needs_truth");
     expect(notEnoughData.authorityState).not.toBe("needs_truth");
     expect(protect.authorityState).not.toBe("needs_truth");
   });
 
-  it("aligns pass-2 row labels with neutral Review and Check buckets", () => {
+  it("aligns row labels with explicit operator segment buckets", () => {
     const fixture = creativeDecisionOsFixture();
     const basePolicy = {
       contractVersion: "operator-policy.v1",
@@ -712,43 +774,43 @@ describe("creative operator surface", () => {
     expect(campaignCheck).toMatchObject({
       primaryAction: "Campaign Check",
       authorityState: "blocked",
-      authorityLabel: "Check",
+      authorityLabel: "Refresh / Cut / Campaign Check",
     });
     expect(testMore).toMatchObject({
       primaryAction: "Test More",
       authorityState: "watch",
-      authorityLabel: "Review",
+      authorityLabel: "Watch / Test More",
     });
     expect(notEnoughData).toMatchObject({
       primaryAction: "Not Enough Data",
       authorityState: "watch",
-      authorityLabel: "Review",
+      authorityLabel: "Watch / Test More",
     });
     expect(watch).toMatchObject({
       primaryAction: "Watch",
       authorityState: "watch",
-      authorityLabel: "Review",
+      authorityLabel: "Watch / Test More",
     });
     expect(refresh).toMatchObject({
       primaryAction: "Refresh",
       authorityState: "blocked",
-      authorityLabel: "Check",
+      authorityLabel: "Refresh / Cut / Campaign Check",
     });
     expect(protect).toMatchObject({
       primaryAction: "Protect",
       authorityState: "no_action",
-      authorityLabel: "Evergreen",
+      authorityLabel: "Protect",
     });
     expect(blocked).toMatchObject({
       primaryAction: "Not eligible for evaluation",
       authorityState: "needs_truth",
-      authorityLabel: "Hold: verify",
+      authorityLabel: "Not eligible",
     });
     expect(model?.buckets.map((bucket) => bucket.label)).toEqual([
-      "Review",
-      "Check",
-      "Hold: verify",
-      "Evergreen",
+      "Scale Review / Test More / Watch / Not Enough Data",
+      "Refresh / Retest / Cut / Campaign Check",
+      "Not eligible for evaluation",
+      "Protect",
     ]);
   });
 
@@ -949,7 +1011,7 @@ describe("creative operator surface", () => {
     expect(thin.secondaryLabels).toContain("Not Enough Data");
   });
 
-  it("uses a neutral Check headline when blocked rows are context checks or refresh reviews", () => {
+  it("uses explicit operator language when blocked rows are context checks or refresh reviews", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives = fixture.creatives.slice(0, 1);
     fixture.creatives[0].operatorPolicy = {
@@ -971,10 +1033,10 @@ describe("creative operator surface", () => {
 
     const model = buildCreativeOperatorSurfaceModel(fixture);
 
-    expect(model?.headline).toBe("1 creative needs a check before the next move.");
+    expect(model?.headline).toBe("1 creative needs refresh, cut, retest, or campaign-context work.");
     expect(model?.buckets[0]).toMatchObject({
       key: "blocked",
-      label: "Check",
+      label: "Refresh / Retest / Cut / Campaign Check",
     });
   });
 
@@ -1035,17 +1097,38 @@ describe("creative operator surface", () => {
       state: "missing",
       headline: "Preview truth is missing across this review scope.",
     });
-    expect(creativeAuthorityStateLabel("watch")).toBe("Review");
-    expect(creativeAuthorityStateLabel("no_action")).toBe("Evergreen");
-    expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold: verify");
-    expect(creativeAuthorityStateLabel("blocked")).toBe("Check");
+    expect(creativeAuthorityStateLabel("watch")).toBe("Watch / Test More");
+    expect(creativeAuthorityStateLabel("no_action")).toBe("Protect");
+    expect(creativeAuthorityStateLabel("needs_truth")).toBe("Not eligible");
+    expect(creativeAuthorityStateLabel("blocked")).toBe("Refresh / Cut / Campaign Check");
   });
 
-  it("exposes concise labels for performance quick filters in the top toolbar", () => {
-    expect(creativeQuickFilterShortLabel("act_now")).toBe("Scale");
-    expect(creativeQuickFilterShortLabel("watch")).toBe("Review");
-    expect(creativeQuickFilterShortLabel("blocked")).toBe("Check");
-    expect(creativeQuickFilterShortLabel("needs_truth")).toBe("Hold");
-    expect(creativeQuickFilterShortLabel("no_action")).toBe("Evergreen");
+  it("exposes agreed operator taxonomy labels for performance quick filters", () => {
+    const labels = [
+      "scale",
+      "scale_review",
+      "test_more",
+      "protect",
+      "watch",
+      "refresh",
+      "retest",
+      "cut",
+      "campaign_check",
+      "not_enough_data",
+    ].map((key) => creativeQuickFilterShortLabel(key as any));
+
+    expect(labels).toEqual([
+      "Scale",
+      "Scale Review",
+      "Test More",
+      "Protect",
+      "Watch",
+      "Refresh",
+      "Retest",
+      "Cut",
+      "Campaign Check",
+      "Not Enough Data",
+    ]);
+    expect(labels).not.toEqual(expect.arrayContaining(["Review", "Check", "Hold", "Evergreen"]));
   });
 });

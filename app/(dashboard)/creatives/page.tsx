@@ -448,6 +448,7 @@ export default function CreativesPage() {
     () =>
       buildCreativeQuickFilters(creativeDecisionOs, {
         visibleIds: new Set(baseFilteredRows.map((row) => row.id)),
+        includeZeroCounts: true,
       }),
     [baseFilteredRows, creativeDecisionOs],
   );

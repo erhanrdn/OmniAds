@@ -31,7 +31,7 @@ describe("CreativeDecisionOsDrawer", () => {
             },
             summary: {
               message:
-                "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
+                "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
               operatingMode: "Exploit",
             },
           } as any
@@ -52,7 +52,7 @@ describe("CreativeDecisionOsDrawer", () => {
 
     expect(html).toContain("Creative Decision Support");
     expect(html).toContain(
-      "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
+      "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
     );
     expect(html).toContain(
       "The page worklist stays primary. This drawer is support for live-window decision context only.",

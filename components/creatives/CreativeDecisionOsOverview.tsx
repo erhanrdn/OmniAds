@@ -19,19 +19,19 @@ import type {
 
 function formatLifecycleLabel(value: string) {
   const labels: Record<string, string> = {
-    incubating: "Testing",
-    validating: "Testing",
-    scale_ready: "Scale-ready",
+    incubating: "Test More",
+    validating: "Test More",
+    scale_ready: "Scale",
     scale_review: "Scale Review",
-    stable_winner: "Evergreen winner",
-    fatigued_winner: "Needs refresh",
+    stable_winner: "Protect",
+    fatigued_winner: "Refresh",
     comeback_candidate: "Retest",
     promote_to_scaling: "Scale",
-    keep_in_test: "Testing",
+    keep_in_test: "Test More",
     refresh_replace: "Refresh",
-    block_deploy: "On hold",
-    hold_no_touch: "Evergreen",
-    protected_winner: "Evergreen winner",
+    block_deploy: "Campaign Check",
+    hold_no_touch: "Protect",
+    protected_winner: "Protect",
     hold_monitor: "Watch",
     false_winner_low_evidence: "Not Enough Data",
     promising_under_sampled: "Test More",
@@ -216,7 +216,7 @@ export function CreativeDecisionOsOverview({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Operator Review
+              Operator Console
             </p>
             <h2 className="mt-1 text-lg font-semibold text-slate-950">
               Creative Operator Console
@@ -263,9 +263,9 @@ export function CreativeDecisionOsOverview({
         {[
           ["Total creatives", decisionOs.summary.totalCreatives],
           ["Scale", decisionOs.summary.scaleReadyCount],
-          ["Test", decisionOs.summary.keepTestingCount],
-          ["Needs refresh", decisionOs.summary.fatiguedCount],
-          ["Blocked review", decisionOs.summary.blockedCount],
+          ["Test More", decisionOs.summary.keepTestingCount],
+          ["Refresh", decisionOs.summary.fatiguedCount],
+          ["Cut / Campaign Check", decisionOs.summary.blockedCount],
           ["Retest", decisionOs.summary.comebackCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
@@ -282,7 +282,7 @@ export function CreativeDecisionOsOverview({
           ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
           ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
           ["Validation needed", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
-          ["Evergreen winners", decisionOs.summary.protectedWinnerCount],
+          ["Protect", decisionOs.summary.protectedWinnerCount],
           ["Supply plan", decisionOs.summary.supplyPlanCount],
           ["Opportunities", decisionOs.summary.opportunitySummary.totalCount],
         ].map(([label, value]) => (
@@ -487,7 +487,7 @@ export function CreativeDecisionOsOverview({
           </div>
           <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
             <span>Queue-ready {decisionOs.summary.opportunitySummary.queueEligibleCount}</span>
-            <span>Evergreen {decisionOs.summary.opportunitySummary.protectedCount}</span>
+            <span>Protect {decisionOs.summary.opportunitySummary.protectedCount}</span>
             <span>Family scale {decisionOs.summary.opportunitySummary.familyScaleCount}</span>
           </div>
         </div>
@@ -682,7 +682,7 @@ export function CreativeDecisionOsOverview({
           data-testid="creative-protected-winners"
         >
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-950">Evergreen Winners</h3>
+            <h3 className="text-sm font-semibold text-slate-950">Protect</h3>
             <span className="text-[11px] text-slate-500">
               not queued for promotion
             </span>
