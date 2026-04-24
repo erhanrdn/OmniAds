@@ -4,7 +4,7 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Finish PR #61 trend-collapse evidence hardening before Claude equal-segment re-review.
+Request Claude equal-segment re-review against `main`.
 
 Creative Recovery is still not accepted as final until that review completes.
 
@@ -25,7 +25,7 @@ Creative Recovery is still not accepted as final until that review completes.
 - equal-segment scoring audit: complete
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
-- trend-collapse evidence hardening: in progress on `feature/adsecute-creative-trend-collapse-evidence-hardening`
+- trend-collapse evidence hardening: merged through PR #63
 
 ## Final Equal-Segment PR Flow
 
@@ -41,7 +41,15 @@ Status: complete.
 
 ## PR #61 P1 Trend-Collapse Evidence Issue
 
-Status: fixed in the hardening branch; pending PR/merge.
+Status: fixed and merged through PR #63.
+
+- PR: `https://github.com/erhanrdn/OmniAds/pull/63`
+- title: `Harden Creative trend-collapse Refresh evidence guard`
+- branch: `feature/adsecute-creative-trend-collapse-evidence-hardening`
+- checks: passed
+- merge method: squash
+- merged commit: `9393bde844c4417f49a6b4aaa48407639da47ff6`
+- merged to: `main`
 
 The issue was real. `isValidatingTrendCollapseRefreshCandidate` could run before the under-sampled branch and did not require creative age maturity, so a very new validating creative with a noisy 7-day dip could become `Refresh`.
 
@@ -155,8 +163,6 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Open and merge the trend-collapse evidence hardening PR if checks pass.
-
-After that hardening PR merges, request Claude equal-segment re-review against `main`.
+Request Claude equal-segment re-review against `main`.
 
 Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
