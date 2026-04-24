@@ -1,0 +1,132 @@
+{
+  "generatedAt": "2026-04-23T23:41:34.274Z",
+  "source": "creative_live_firm_audit",
+  "auditWindow": {
+    "todayReference": "2026-04-24",
+    "startDate": "2026-03-25",
+    "endDate": "2026-04-23",
+    "days": 30,
+    "excludesToday": true
+  },
+  "sanitization": {
+    "rawIdsIncluded": false,
+    "rawNamesIncluded": false,
+    "notes": [
+      "Company, campaign, ad set, account, and creative identifiers are replaced with stable aliases.",
+      "A local private reference artifact with raw names is written to /tmp and is not committed."
+    ]
+  },
+  "cohort": {
+    "historicalSnapshotCandidates": 9,
+    "eligibleCandidates": 9,
+    "runtimeEligibleBusinesses": 8,
+    "runtimeSkippedCandidates": 1,
+    "runtimeSkippedCandidatesByReason": {
+      "no_current_meta_connection": 0,
+      "meta_connection_not_connected": 0,
+      "no_access_token": 0,
+      "no_accounts_assigned": 0,
+      "meta_token_checkpointed": 1,
+      "provider_read_failure": 0,
+      "no_current_creative_activity": 0
+    },
+    "runtimeTokenReadabilityStatus": "readable"
+  },
+  "globalSummary": {
+    "sampledCreatives": 0,
+    "businessesWithZeroScale": 8,
+    "businessesWithZeroScaleReview": 8,
+    "userFacingSegments": {}
+  },
+  "businesses": [
+    {
+      "companyAlias": "company-01",
+      "screeningLiveRows": 36,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-02",
+      "screeningLiveRows": 8,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-03",
+      "screeningLiveRows": 16,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-04",
+      "screeningLiveRows": 50,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-05",
+      "screeningLiveRows": 60,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-06",
+      "screeningLiveRows": 64,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-07",
+      "screeningLiveRows": 32,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    },
+    {
+      "companyAlias": "company-08",
+      "screeningLiveRows": 40,
+      "currentDecisionOsRows": 0,
+      "sampledCreatives": 0,
+      "activeCreativesSampled": 0,
+      "userFacingSegments": {},
+      "oldChallengerSegments": {},
+      "zeroScale": true,
+      "zeroScaleReview": true
+    }
+  ],
+  "rows": []
+}

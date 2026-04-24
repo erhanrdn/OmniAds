@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Implementation pass 6 hardening is complete as a narrow follow-up to merged pass 6.
+Live-firm Creative Segmentation product-truth audit is complete as a diagnosis branch.
 
-The immediate next steps are to merge the hardening PR through normal flow, then run a single final Claude product review on the hardened pass-6 state.
+The next step is not new policy tuning. The next step is a focused review of the live-readability vs current-output blocker.
 
 ## Program Status
 
@@ -21,108 +21,101 @@ The immediate next steps are to merge the hardening PR through normal flow, then
 - implementation pass 4: merged
 - implementation pass 5: merged
 - implementation pass 6: merged
-- implementation pass 6 hardening: complete on branch, pending normal PR flow
+- implementation pass 6 hardening: merged
+- live-firm audit: complete on branch, pending draft PR review
 
-## What Pass 6 Hardening Implemented
+## Live-Firm Audit Status
 
-Pass 6 hardening fixed a narrow instruction-layer issue without changing policy scope.
+Completed with a blocker.
 
-Implemented:
+Audit outcome:
 
-- narrowed the `Test More` fatigue-caveat trigger to real fatigue / frequency-pressure signals
-- excluded missing-data notes like `Frequency unavailable` from fatigue caveat matching
-- added deterministic regression coverage at both prescription and creative-surface layers
+- currently connected and readable Meta businesses: `8`
+- sampled creatives: `0`
+- businesses with zero `Scale`: `8`
+- businesses with zero `Scale Review`: `8`
 
-Not implemented:
+## What The Audit Verified
 
-- no broad Creative policy rewrite
-- no taxonomy change
-- no queue/push/apply loosening
-- no benchmark-scope semantic change
-- no Commercial Truth logic change
-- no benchmark scope change
-- no new labels
+The blocker is not lack of live Meta connectivity.
 
-## Whether The Fatigue-Caveat Issue Was Real
+Verified:
 
-Yes.
+- runtime token readability status: `readable`
+- historical snapshot candidates: `9`
+- runtime-eligible readable businesses: `8`
+- runtime-skipped candidates: `1`
+- runtime skip reason: `meta_token_checkpointed = 1`
+- every audited business had non-zero screening live creative rows in the 30-day audit window
+- every audited business then returned `0` current Decision OS creatives
 
-Root cause:
+Per-business blocker pattern:
 
-- the instruction layer previously treated any `nextObservation` text containing `frequency` as fatigue evidence
-- surface rendering can include missing-context notes such as `Frequency unavailable`
-- that made some `Test More` instructions look like they had true fatigue pressure when they only had missing frequency data
+- `company-01`: `36` screening live rows, `0` current Decision OS rows
+- `company-02`: `8` screening live rows, `0` current Decision OS rows
+- `company-03`: `16` screening live rows, `0` current Decision OS rows
+- `company-04`: `50` screening live rows, `0` current Decision OS rows
+- `company-05`: `60` screening live rows, `0` current Decision OS rows
+- `company-06`: `64` screening live rows, `0` current Decision OS rows
+- `company-07`: `32` screening live rows, `0` current Decision OS rows
+- `company-08`: `40` screening live rows, `0` current Decision OS rows
 
-## What Was Changed
+## Top Systemic Problems
 
-- fatigue caveat matching now requires real fatigue / frequency-pressure wording
-- missing or unavailable frequency notes no longer count as fatigue evidence
+1. live-readable businesses do not materialize into current Creative Decision OS rows
+2. deterministic sampling cannot produce even one audited creative row
+3. `Scale` and `Scale Review` are both zero across the full readable cohort, downstream of the zero-row blocker
+4. old challenger comparison cannot run at live-firm level because current rows are absent
+5. the current panel is not trustworthy enough without raw source inspection
 
-This keeps:
+Most likely current technical causes:
 
-- actual fatigue-caveat `Test More` rows intact
-- non-fatigue `Test More` rows clean
-- all safety behavior unchanged
+- `decisionWindows.primary30d` mismatch versus the screened live window
+- a persisted zero-row snapshot being accepted for the primary decision window
 
-## Remaining Mismatch Clusters
+## Whether Current Creative Segmentation Is Trustworthy Enough
 
-No new foundational mismatch cluster was introduced by this issue.
-
-The hardening pass closed an instruction-copy misfire, not a policy-logic gap.
-
-## Whether Pass 6 Is Now Fully Hardened
-
-Yes.
-
-The known merged-PR fatigue-caveat misfire is fixed, tested, and smoke-checked.
-
-## Whether Creative Segmentation Recovery Is Ready For A Final Claude Product Review
-
-Yes.
+No.
 
 Reason:
 
-- holdout validation already ran successfully in pass 5
-- pass 6 addressed the remaining focused product corrections Claude identified
-- pass-6 hardening removed the remaining known instruction-copy misfire
-- current segmentation is no longer blocked by basic data-accuracy, label-collapse, boundary-count, or instruction-copy errors
-- the taxonomy remains coherent and single-output
-- the relative-strength vs business-validation story remains coherent
-- safety and benchmark-scope rules remain intact
+- current live-firm output collapses to zero rows across all readable businesses
+
+## Whether The Work Is Ready For Claude Product Review
+
+Yes.
+
+It is ready as a live-firm blocker review, not as a new policy-tuning pass.
 
 ## Whether Another Implementation Pass Is Needed
 
-Not before final Claude review.
+Not yet.
 
-Do not start pass 7 until that review lands and identifies a concrete remaining product gap.
+Do not start pass 7 from this branch. The blocker is current source/output availability, not another calibrated taxonomy gap.
 
 ## Next Recommended Action
 
-1. merge pass 6 hardening through normal PR flow
-2. run one final Claude product review against the hardened pass-6 state
-3. use that review to decide whether any pass 7 is needed at all
+1. review the draft live-firm audit PR
+2. trace one healthy audited alias from screening live rows into the current Creative Decision OS source path
+3. restore non-empty current Decision OS creative rows for readable businesses
+4. rerun the live-firm audit after that remediation
 
 ## Reports
 
 - calibration final: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
-- mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
-- fixture candidate plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
-- implementation pass 1 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-1-final.md`
-- implementation pass 2 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-2-final.md`
-- implementation pass 3 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-3-final.md`
-- implementation pass 4 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-4-final.md`
-- holdout split: `docs/operator-policy/creative-segmentation-recovery/reports/holdout-validation-split.md`
-- pass 5 current eval: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-current-eval.md`
-- pass 5 agent panel: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-agent-panel.md`
-- pass 5 delta analysis: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-delta-analysis.md`
-- pass 5 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-5-final.md`
-- pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
-- pass 6 hardening final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-hardening-final.md`
+- implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
+- implementation pass 6 hardening final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-hardening-final.md`
+- live-firm global summary: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/global-summary.md`
+- live-firm per-business summary: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/per-business-summary.md`
+- live-firm agent panel: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/agent-panel.md`
+- live-firm mismatch clusters: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/mismatch-clusters.md`
+- live-firm final: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/final.md`
+- live-firm sanitized artifact: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
 
 ## Last Updated By Codex
 
-- verified the merged-PR fatigue caveat review comment was real
-- narrowed fatigue caveat matching so missing frequency data does not misfire
-- added direct prescription and surface regressions for the hardened trigger
-- kept pass-6 behavior otherwise unchanged
-- prepared the hardened state for one final Claude product review
+- built a deterministic live-firm audit helper and sanitized artifact path
+- verified `8` readable current Meta businesses in production-equivalent runtime
+- confirmed every audited business had non-zero screening live creative rows
+- found `0` current Decision OS creatives across all `8` readable businesses
+- recorded the blocker for Claude and supervisor review without changing Creative policy logic
