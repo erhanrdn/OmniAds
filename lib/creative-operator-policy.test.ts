@@ -1190,6 +1190,140 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("operator_review_required");
   });
 
+  it("routes fatigued winner CPA blowouts below baseline to Cut instead of soft Refresh", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 6.94,
+        medianCpa: 19.68,
+        medianSpend: 91.29,
+      },
+      supportingMetrics: {
+        spend: 748.67,
+        purchases: 3,
+        impressions: 1_477_489,
+        roas: 0.77,
+        cpa: 249.56,
+        creativeAgeDays: 42,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+  });
+
+  it("routes high-spend fatigued CPA blowouts with zero recent read to Cut", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 3.82,
+        medianCpa: 74.63,
+        medianSpend: 164.53,
+      },
+      supportingMetrics: {
+        spend: 2_397.06,
+        purchases: 11,
+        impressions: 1_187_216,
+        roas: 2.86,
+        cpa: 217.91,
+        creativeAgeDays: 46,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+  });
+
+  it("keeps fatigued winners in Refresh when CPA and ROAS are near benchmark", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.4,
+        medianCpa: 80,
+        medianSpend: 300,
+      },
+      supportingMetrics: {
+        spend: 620,
+        purchases: 7,
+        impressions: 52_000,
+        roas: 2.1,
+        cpa: 84,
+        creativeAgeDays: 35,
+        recentRoas: 0.8,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps fatigued CPA blowouts in Campaign Check when campaign context is blocked", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      deployment: {
+        targetLane: "Testing",
+        queueVerdict: "board_only" as const,
+        constraints: ["Campaign context limits this creative interpretation."],
+        compatibility: {
+          status: "blocked" as const,
+          reasons: ["Campaign context limits this creative interpretation."],
+        },
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 6.94,
+        medianCpa: 19.68,
+        medianSpend: 91.29,
+      },
+      supportingMetrics: {
+        spend: 748.67,
+        purchases: 3,
+        impressions: 1_477_489,
+        roas: 0.77,
+        cpa: 249.56,
+        creativeAgeDays: 42,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
+  it("does not force fatigued CPA rows to Cut when evidence is thin", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      supportingMetrics: {
+        spend: 260,
+        purchases: 1,
+        impressions: 3_200,
+        roas: 0.35,
+        cpa: 260,
+        creativeAgeDays: 18,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("creative_learning_incomplete");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
   it("keeps blocked lifecycle CPA failures conservative when evidence is thin", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -1207,6 +1341,130 @@ describe("assessCreativeOperatorPolicy", () => {
 
     expect(policy.segment).toBe("creative_learning_incomplete");
     expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("routes validating rows with baseline-level mid performance and recent collapse to Refresh", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.59,
+        medianCpa: 72.2,
+        medianSpend: 779.9,
+      },
+      supportingMetrics: {
+        spend: 788.32,
+        purchases: 8,
+        impressions: 33_939,
+        roas: 2.69,
+        cpa: 98.54,
+        creativeAgeDays: 32,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+  });
+
+  it("keeps severe validating trend-collapse failures in Cut when existing loser gates apply", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 590,
+        purchases: 3,
+        impressions: 17_500,
+        roas: 0.65,
+        cpa: 590,
+        creativeAgeDays: 24,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+  });
+
+  it("keeps validating rows without recent collapse in Watch or Test More", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.59,
+        medianCpa: 72.2,
+        medianSpend: 779.9,
+      },
+      supportingMetrics: {
+        spend: 788.32,
+        purchases: 8,
+        impressions: 33_939,
+        roas: 2.69,
+        cpa: 98.54,
+        creativeAgeDays: 32,
+        recentRoas: 2.1,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("needs_new_variant");
+  });
+
+  it("does not infer validating trend collapse when 7d ROAS is unavailable", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.59,
+        medianCpa: 72.2,
+        medianSpend: 779.9,
+      },
+      supportingMetrics: {
+        spend: 788.32,
+        purchases: 8,
+        impressions: 33_939,
+        roas: 2.69,
+        cpa: 98.54,
+        creativeAgeDays: 32,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("needs_new_variant");
+  });
+
+  it("does not treat missing fatigue or frequency evidence as validating trend collapse", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      fatigue: {
+        status: "none",
+        confidence: 0.4,
+        evidence: ["Frequency unavailable"],
+      },
+      supportingMetrics: {
+        spend: 420,
+        purchases: 4,
+        impressions: 12_000,
+        roas: 1.7,
+        cpa: 105,
+        frequency: null,
+        creativeAgeDays: 18,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("needs_new_variant");
   });
 
   it("does not invent CPA failure when CPA evidence is unavailable", () => {
@@ -1415,6 +1673,48 @@ describe("assessCreativeOperatorPolicy", () => {
 
     expect(policy.segment).toBe("hold_monitor");
     expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps high-relative non-test rows in Watch when true Scale Review floors are not met", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      trust: trust({
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "profitable_truth_capped",
+      }),
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized non-test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.8,
+        medianCpa: 2_837.63,
+        medianSpend: 10_022.46,
+      },
+      supportingMetrics: {
+        spend: 8_749.08,
+        purchases: 6,
+        impressions: 61_038,
+        roas: 7.91,
+        cpa: 1_458.18,
+        creativeAgeDays: 36,
+        recentRoas: 7.91,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("scale_review");
+    expect(policy.pushReadiness).toBe("read_only_insight");
   });
 
   it("routes active test-campaign strong relative winners to Scale Review, not passive Protect", () => {

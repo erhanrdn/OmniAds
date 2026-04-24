@@ -2,53 +2,57 @@
 
 Date: 2026-04-25
 
-Scoring method: equal-weight macro by represented user-facing segment. Scale and Cut misses are still reported as product risks, but they do not receive extra numeric weight.
+Scoring method: equal-weight macro by represented user-facing segment. Scale and Cut misses remain severe product risks, but the macro score does not give Scale or Cut extra numeric weight.
 
-The after score uses deterministic replay of the equal-segment review mismatch set after the three gate fixes.
+The before state uses Claude's independent Round 2 equal-segment review. The after state uses deterministic replay of the final fixed gates on that reviewed live cohort.
 
 | Segment | Represented | Before | After | Result |
 |---|---:|---:|---:|---|
 | Scale | no | not represented | not represented | no valid expected examples |
-| Scale Review | yes | 89 | 89 | unchanged; this pass did not change Scale Review floors |
-| Test More | yes | 85 | 85 | unchanged |
-| Protect | yes | 60 | 86 | trend-collapse Protect misses now route to Refresh |
-| Watch | yes | 50 | 75 | high-spend below-baseline Cut miss removed from Watch |
-| Refresh | yes | 78 | 84 | receives the stable/fatigued winner trend-collapse cases |
-| Retest | limited | 90 | 90 | one-sample segment; not used as free macro credit |
-| Cut | yes | 87 | 91 | blocked CPA and high-spend below-baseline false negatives fixed |
+| Scale Review | yes | 95 | 95 | unchanged; Scale Review floors were not changed |
+| Test More | yes | 83 | 83 | unchanged |
+| Protect | yes | 83 | 83 | unchanged from Claude Round 2 |
+| Watch | yes | 55 | 75 | validating at-benchmark trend-collapse miss leaves Watch for Refresh |
+| Refresh | yes | 73 | 84 | catastrophic CPA rows leave Refresh for Cut; one validating collapse row enters Refresh |
+| Retest | limited | 100 | 100 | one-sample segment; reported but not used as free credit |
+| Cut | yes | 90 | 92 | catastrophic CPA Refresh misses now route to Cut |
 | Campaign Check | no | not represented | not represented | no valid expected examples |
-| Not Enough Data | yes | 83 | 92 | blocked CPA blowout rows no longer hide under Not Enough Data |
+| Not Enough Data | yes | 88 | 88 | unchanged |
 
 Macro segment score across represented non-trivial segments:
 
-- before: `76/100`
-- after: `86/100`
+- before: `83/100`
+- after: `87/100`
 
 Raw row accuracy:
 
-- before: `81%`
-- after: `90%`
+- before: `83%`
+- after: `87%`
 
 ## Weakest Segments After Fix
 
 1. `Watch`: `75/100`
-2. `Refresh`: `84/100`
-3. `Test More`: `85/100`
+2. `Test More`: `83/100`
+3. `Protect`: `83/100`
+
+`Refresh` improves to `84/100` after the catastrophic CPA rows leave that bucket.
 
 ## Strongest Segments After Fix
 
-1. `Not Enough Data`: `92/100`
-2. `Cut`: `91/100`
-3. `Scale Review`: `89/100`
+1. `Scale Review`: `95/100`
+2. `Cut`: `92/100`
+3. `Not Enough Data`: `88/100`
 
 ## Fixed Examples
 
-- `pdf-company-01 / creative-06` shape: protected winner with recent ROAS collapse below benchmark now maps to `Refresh`.
-- `pdf-company-06 / creative-04` shape: stable winner with near-total recent collapse now maps to `Refresh`.
-- `pdf-company-07 / creative-06` shape: blocked lifecycle, CPA blowout, below-baseline ROAS now maps to `Cut`.
-- `pdf-company-06 / creative-08` shape: blocked lifecycle, CPA blowout, below-baseline ROAS now maps to `Cut`.
-- `pdf-company-04 / creative-09` shape: high-spend, purchase-bearing, below-baseline, no 7d data now maps to `Cut`.
+- `company-03 / creative-01` shape: CPA `12.68x` median, ROAS `0.11x` benchmark, fatigued/refresh-replace -> `Cut`
+- `company-07 / creative-01` shape: CPA `2.92x` median, zero recent read, high spend, below benchmark -> `Cut`
+- `company-02 / creative-03` shape: validating/keep-in-test, 30-day ROAS near benchmark, 7-day ROAS zero -> `Refresh`
+
+## Documented Non-Fix
+
+- `company-05 / creative-04` remains `Watch`: high-relative signal is present, but the row is not explicit test-campaign context and does not meet the current true-scale peer-spend floor. Scale Review floors were intentionally left unchanged.
 
 ## Not Represented
 
-`Scale` and `Campaign Check` had no valid expected examples in the equal-segment review set. They are not granted free score credit.
+`Scale` and `Campaign Check` had no valid expected examples in the reviewed equal-segment set. They are not granted free score credit.

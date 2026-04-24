@@ -551,6 +551,45 @@ function isProtectedTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyI
   return metrics.recentRoas / metrics.roas <= 0.4;
 }
 
+function isFatiguedCpaRatioCutCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  const fatigueOrRefreshContext =
+    input.lifecycleState === "fatigued_winner" ||
+    input.fatigue?.status === "fatigued" ||
+    input.primaryAction === "refresh_replace";
+
+  if (!fatigueOrRefreshContext) return false;
+  if (input.primaryAction !== "refresh_replace") return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(500, medianSpend * 1.5)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 1) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.roas) || metrics.roas <= 0 || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  if (metrics.cpa < medianCpa * 2) return false;
+
+  const belowBaselineFailure = metrics.roas <= medianRoas * 0.5;
+  const zeroRecentCpaBlowout =
+    hasNumber(metrics.recentRoas) &&
+    metrics.recentRoas >= 0 &&
+    metrics.recentRoas / metrics.roas <= 0.2 &&
+    metrics.cpa >= medianCpa * 2.5 &&
+    metrics.roas <= medianRoas * 0.8 &&
+    metrics.spend >= Math.max(2_000, medianSpend * 10);
+
+  return belowBaselineFailure || zeroRecentCpaBlowout;
+}
+
 function isBlockedCpaRatioLoser(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -596,6 +635,24 @@ function isHighSpendBelowBaselineCutCandidate(input: CreativeOperatorPolicyInput
   if (metrics.roas > medianRoas * 0.8) return false;
   if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
   return true;
+}
+
+function isValidatingTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (input.lifecycleState !== "validating") return false;
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < 250) return false;
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 2) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 5_000) return false;
+  if (!hasNumber(metrics.roas) || metrics.roas <= 0) return false;
+  if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
+  if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
+  if (metrics.roas < medianRoas * 0.95) return false;
+  return metrics.recentRoas / metrics.roas <= 0.2;
 }
 
 function shouldRefreshMatureLoser(input: CreativeOperatorPolicyInput) {
@@ -711,6 +768,9 @@ function resolveSegment(params: {
   if (isPausedHistoricalWinnerRetestCandidate(input)) {
     return "needs_new_variant";
   }
+  if (isFatiguedCpaRatioCutCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
   if (isProtectedTrendCollapseRefreshCandidate(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
   }
@@ -738,6 +798,9 @@ function resolveSegment(params: {
     return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
   }
   if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
+  if (isValidatingTrendCollapseRefreshCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
+  }
   if (isUnderSampled(input)) {
     if (
       !hasMeaningfulPositiveSupport(input) ||
@@ -896,9 +959,12 @@ export function assessCreativeOperatorPolicy(
   const matureCpaRatioLoser = isMatureCpaRatioLoser(input);
   const protectedTrendCollapseRefreshCandidate =
     isProtectedTrendCollapseRefreshCandidate(input);
+  const fatiguedCpaRatioCutCandidate = isFatiguedCpaRatioCutCandidate(input);
   const blockedCpaRatioLoser = isBlockedCpaRatioLoser(input);
   const highSpendBelowBaselineCutCandidate =
     isHighSpendBelowBaselineCutCandidate(input);
+  const validatingTrendCollapseRefreshCandidate =
+    isValidatingTrendCollapseRefreshCandidate(input);
   const negativeActionIntent =
     killOrRefreshAction ||
     matureZeroPurchaseCutCandidate ||
@@ -906,8 +972,10 @@ export function assessCreativeOperatorPolicy(
     matureTrendCollapseLoser ||
     matureCpaRatioLoser ||
     protectedTrendCollapseRefreshCandidate ||
+    fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
-    highSpendBelowBaselineCutCandidate;
+    highSpendBelowBaselineCutCandidate ||
+    validatingTrendCollapseRefreshCandidate;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
   const requiresCampaignContext =
@@ -915,7 +983,12 @@ export function assessCreativeOperatorPolicy(
     matureZeroPurchaseCutCandidate ||
     matureBelowBaselinePurchaseLoser ||
     matureTrendCollapseLoser ||
-    matureCpaRatioLoser;
+    matureCpaRatioLoser ||
+    protectedTrendCollapseRefreshCandidate ||
+    fatiguedCpaRatioCutCandidate ||
+    blockedCpaRatioLoser ||
+    highSpendBelowBaselineCutCandidate ||
+    validatingTrendCollapseRefreshCandidate;
   const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
   const businessValidationUnfavorable =
     scaleIntent && businessValidationStatus === "unfavorable";
@@ -947,8 +1020,10 @@ export function assessCreativeOperatorPolicy(
     (matureTrendCollapseLoser ||
       matureCpaRatioLoser ||
       protectedTrendCollapseRefreshCandidate ||
+      fatiguedCpaRatioCutCandidate ||
       blockedCpaRatioLoser ||
-      highSpendBelowBaselineCutCandidate) &&
+      highSpendBelowBaselineCutCandidate ||
+      validatingTrendCollapseRefreshCandidate) &&
     !hasKillEvidence(input)
       ? "evidence_floor"
       : null,
