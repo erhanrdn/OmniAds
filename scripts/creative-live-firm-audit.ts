@@ -526,10 +526,7 @@ function resolveBusinessValidationStatus(input: {
 }
 
 function hasWeakCampaignContext(creative: CreativeDecisionOsCreative) {
-  return (
-    creative.deployment.compatibility.status === "limited" ||
-    creative.deployment.compatibility.status === "blocked"
-  );
+  return creative.deployment.compatibility.status === "blocked";
 }
 
 function isReviewOnlyScaleCandidate(input: {
@@ -540,7 +537,6 @@ function isReviewOnlyScaleCandidate(input: {
   return (
     businessValidationStatus === "missing" &&
     hasTrueScaleEvidence(input.creative) &&
-    input.creative.primaryAction !== "hold_no_touch" &&
     input.creative.primaryAction !== "refresh_replace" &&
     input.creative.primaryAction !== "block_deploy" &&
     input.creative.lifecycleState !== "fatigued_winner" &&

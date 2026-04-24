@@ -184,6 +184,17 @@ function isMatureZeroPurchaseWeakWatch(creative: CreativeDecisionOsCreative) {
   );
 }
 
+function isMatureZeroPurchaseCutReview(creative: CreativeDecisionOsCreative) {
+  return (
+    creative.operatorPolicy?.segment === "spend_waste" &&
+    creative.primaryAction === "keep_in_test" &&
+    creative.purchases === 0 &&
+    creative.spend >= 250 &&
+    creative.impressions >= 8_000 &&
+    creative.creativeAgeDays > 10
+  );
+}
+
 function hasTestMoreFatigueCaveat(creative: CreativeDecisionOsCreative) {
   return (
     creative.operatorPolicy?.segment === "promising_under_sampled" &&
@@ -474,6 +485,9 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
   if (isMatureZeroPurchaseWeakWatch(creative)) {
     return "Spend is already meaningful enough to move past early learning, but there is still no purchase proof. Keep this in Watch until conversion evidence appears.";
   }
+  if (isMatureZeroPurchaseCutReview(creative)) {
+    return "Spend is already meaningful enough to move past early learning, and there is still no purchase proof. Treat this as a Cut candidate for operator review.";
+  }
   if (state === "needs_truth" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
   }
@@ -588,6 +602,9 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
   const nextObservation = [
     hasTestMoreFatigueCaveat(creative)
       ? "Watch fatigue pressure while the sample is still maturing."
+      : null,
+    isMatureZeroPurchaseCutReview(creative)
+      ? "Confirm there is no purchase evidence before stopping this test creative."
       : null,
     isMatureZeroPurchaseWeakWatch(creative)
       ? "Confirm purchase evidence before extending this test."

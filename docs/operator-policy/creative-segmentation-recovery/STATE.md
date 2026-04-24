@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Finish the Creative taxonomy counter hardening pass, then accept Creative Recovery with production monitoring after normal PR flow.
+Complete the Creative test campaign actionability correction pass, then send the regenerated live output for product review.
 
-This pass is narrow product-trust hardening. It does not retune Creative policy thresholds, change taxonomy, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
+Creative Recovery acceptance remains revoked. The previous accepted-with-monitoring state is no longer valid because live test campaign contexts showed mostly passive guidance with `Scale = 0`, `Scale Review = 0`, and `Cut = 0`.
 
 ## Program Status
 
@@ -24,223 +24,113 @@ This pass is narrow product-trust hardening. It does not retune Creative policy 
 - implementation pass 6 hardening: merged
 - live output restoration: merged
 - corrected live-firm audit rerun: complete
-- scale-review-gap recovery: complete
-- UI truth and Scale Review pass: complete on branch, pending normal PR flow
-- date-range invariance audit: complete on branch, pending normal PR flow
-- taxonomy counter hardening: complete on branch, pending normal PR flow
+- UI taxonomy/count hardening: merged
+- test campaign actionability: fixed on branch, pending normal PR flow
 
-## Taxonomy Counter Hardening
+## Test Campaign Actionability
 
 Status: fixed on branch.
 
 Finding:
 
-- the PR #50 review issue was real
-- Creative overview cards had been renamed to user-facing taxonomy labels, but several counts still read older aggregate summary fields
-- `Test More` could read from `keepTestingCount`, which also covered `Watch`, `Not Enough Data`, and false-winner low-evidence cases
-- `Cut / Campaign Check` could read from aggregate blocked fields instead of exact `Cut` and exact `Campaign Check` user-facing segments
-- authority wording for blocked Creative rows omitted `Retest` even though Retest rows can share that authority bucket
+- the actionability failure was real
+- the corrected live audit still had `Scale = 0`, `Scale Review = 0`, and `Cut = 0`
+- protected winners with true relative-scale evidence were being hidden under `Protect`
+- high-exposure zero-purchase test rows were being softened into `Watch`
+- deployment compatibility `limited` was acting too much like a primary Campaign Check blocker for review-level diagnosis
 
 Fix:
 
-- overview segment cards now compute counts from the same resolved user-facing Creative segment mapping used by the primary filters
-- exact visible taxonomy counts are now shown for `Scale`, `Scale Review`, `Test More`, `Protect`, `Watch`, `Refresh`, `Retest`, `Cut`, `Campaign Check`, and `Not Enough Data`
-- remaining cross-segment cards are explicitly labeled as aggregate health counts
-- row-level authority labels now use the resolved row segment instead of vague grouped wording
-- blocked authority group wording now includes `Retest`
+- protected rows that are true relative winners and only blocked by missing business validation can now surface as review-only `Scale Review`
+- deployment `limited` remains supporting caution, but only `blocked` campaign/ad set context suppresses the primary winner/loser outcome into `Campaign Check`
+- high-exposure zero-purchase `keep_in_test` rows now surface as `Cut` review candidates
+- borderline zero-purchase rows can still remain `Watch`
+- missing Commercial Truth still blocks true `Scale`, queue/apply, and absolute-profit claims
 
-Validation:
+## Current Live Counts
 
-- targeted Creative overview/surface tests passed
-- full `npm test` passed
-- `npx tsc --noEmit` passed
-- `npm run build` passed
-- `git diff --check` passed
-- runtime smoke reached `/creatives` and `/platforms/meta` on the existing localhost server and both routes resolved to the expected unauthenticated login redirect
+Runtime rerun: corrected current Decision OS source path.
 
-## Date-Range Invariance Audit
+Readable live businesses: `8`
 
-Status: fixed/clarified on branch.
+Sampled creatives: `78`
 
-Finding:
-
-- a production-equivalent private trace for sanitized `company-03` compared Last 14 days and Last 30 days under the same benchmark scope
-- both ranges used the same `decisionAsOf` (`2026-04-23`) and the same primary Decision OS window (`2026-03-25` to `2026-04-23`)
-- shared Decision OS rows: `16`
-- same-creative segment changes: `0`
-
-Root cause:
-
-- the observed count changes are consistent with visible reporting-set changes, not primary segment mutation
-- top Creative segment filters count only the currently visible/reporting table rows via `visibleIds`
-- the UI did not state that count scope clearly enough
-
-Fix:
-
-- Creative top filter copy now says counts follow the visible reporting set while row segments use the Decision OS window
-- Creative Decision Support copy now says counts follow the current visible reporting set and row segments stay anchored to the Decision OS window
-- filter button accessibility labels now identify the counts as visible reporting-set counts
-- deterministic tests cover visible-set filter counts and UI copy
-
-Remaining risk:
-
-- if a future trace shows the same creative changing primary segment with identical `decisionAsOf` and identical benchmark scope, that is a separate Decision OS source-path blocker
-
-## Final Acceptance Status
-
-Creative Recovery is accepted with monitoring after this taxonomy counter hardening PR passes normal review and merges.
-
-Acceptance rationale:
-
-- the actual UI taxonomy mismatch was fixed
-- date-range invariance was fixed/clarified
-- live Decision OS rows flow on the corrected source path
-- the remaining PR #50 product-trust issue was taxonomy-count accuracy, and it is fixed in this hardening pass
-- no current evidence supports another broad implementation pass
-
-## UI Taxonomy Mismatch
-
-The mismatch was real and has been fixed in this branch.
-
-Primary Creative segment filters now use the agreed taxonomy:
-
-- `Scale`
-- `Scale Review`
-- `Test More`
-- `Protect`
-- `Watch`
-- `Refresh`
-- `Retest`
-- `Cut`
-- `Campaign Check`
-- `Not Enough Data`
-
-System-ineligible rows can still appear as `Not eligible for evaluation`, but that state is not exposed as a primary Creative segment filter.
-
-Additional aligned surfaces:
-
-- overview summary labels
-- quick filters
-- operator cards
-- preview cards
-- creative detail badges
-- instruction headlines
-- Decision OS summary copy
-
-## Benchmark Scope Status
-
-Benchmark scope behavior is unchanged and remains explicit.
-
-- default benchmark: account-wide
-- campaign filter alone: does not switch benchmark authority
-- explicit campaign benchmark: opt-in only
-- benchmark scope remains visible in Creative operator context
-
-## Live Scale Review Audit Result
-
-The corrected live audit was rerun after this branch's UI and instruction fixes.
-
-Scope:
-
-- readable live Meta businesses: `8`
-- sampled creatives: `78`
-- deterministic sample: active creatives first, then 30-day spend descending, up to 10 per business
-
-Live segment counts:
+Post-fix segment counts:
 
 - `Scale`: `0`
-- `Scale Review`: `0`
-- `Protect`: `14`
-- `Watch`: `20`
-- `Refresh`: `16`
+- `Scale Review`: `3`
 - `Test More`: `8`
-- `Not Enough Data`: `14`
-- `Campaign Check`: `0`
+- `Protect`: `9`
+- `Watch`: `17`
+- `Refresh`: `15`
 - `Retest`: `0`
-- `Cut`: `0`
+- `Cut`: `5`
+- `Campaign Check`: `0`
+- `Not Enough Data`: `15`
 - `Not eligible for evaluation`: `6`
 
-Business counts:
+Business-level counts:
 
 - businesses with zero `Scale`: `8`
-- businesses with zero `Scale Review`: `8`
+- businesses with zero `Scale Review`: `7`
 
-## Scale Review Zero Diagnosis
+## PDF Test Contexts
 
-The zero `Scale Review` count is real in the current audit sample.
+Private runtime matching was used; committed files use sanitized aliases only.
 
-The closest candidates:
+`pdf-company-01` context:
 
-- four rows carry `true_scale_candidate` evidence metadata
-- all four resolve to `Protect`
-- each has `primaryAction = hold_no_touch`
-- each is treated as a protected winner
-- missing business validation blocks true `Scale`
-- the review-only Scale Review path intentionally excludes protected winners
+- sanitized alias: `company-01`
+- post-fix sample: `Scale Review = 3`, `Protect = 1`, `Watch = 6`
+- result: the previous zero-Scale-Review failure is resolved for this sanitized context
 
-This branch did not force `Scale Review` counts upward.
+`pdf-company-02` context:
 
-No bucket-mapping bug was found for the current zero-`Scale Review` sample. The remaining question is product-level: whether the current protected-winner interpretation is right, or whether policy should later distinguish some protected winners as review-worthy scale candidates.
+- sanitized alias: `company-08`
+- post-fix sample: `Watch = 5`, `Refresh = 1`, `Not Enough Data = 3`, `Protect = 1`
+- `Scale Review = 0`
+- result: not promoted in this pass because the current runtime sample did not show a true relative-scale candidate in active context
+- remaining risk: if the operator still sees an active Protect row that should scale, that row needs a fresh private trace
 
-## Specific Case Trace
+Earlier `private-case-01` matching:
 
-The user-observed case was traced privately and is documented with sanitized aliases only.
+- sanitized alias family: `company-03`
+- current matching rows surface as `Refresh`, not `Pause`
+- current deterministic read remains fatigue/replacement, not Scale Review
 
-- business alias: `company-03`
-- creative alias: `company-03-creative-07`
-- current resolved segment after this branch: `Refresh`
-- current instruction headline after this branch: `Refresh: company-03-creative-07`
-- active status: not active in campaign/ad set context
-- benchmark scope: account
-- baseline reliability: strong
-- relative strength class: none
-- business validation: missing
-- queue/apply: blocked
+## Safety Status
 
-Diagnosis:
+Unchanged:
 
-- the observed `Pause` wording was a real UI/detail wording mismatch, not the current resolved operator segment
-- the row does not clear the account-relative Scale Review gate in the current decision path
-- the current deterministic interpretation is a fatigued winner / replacement case, surfaced as `Refresh`
-- safety remains conservative because business validation is missing
+- no queue/apply/push loosening
+- no Creative taxonomy change
+- no broad policy rewrite
+- no old-rule takeover
+- old rule challenger remains comparison-only
+- benchmark scope remains explicit-only
+- selected reporting range remains non-authoritative
+- no invented Commercial Truth or baselines
 
-## Current Readiness
+## Readiness
 
-Ready to accept with monitoring after this PR passes checks and merges.
+Creative output is improved but not accepted as final yet.
 
-No new implementation pass should start unless a specific live operator defect appears.
+Ready next step: fresh Claude product review after this PR passes checks and merges.
 
-Monitoring remains required for first live appearances of:
-
-- `Scale`
-- `Scale Review`
-- `Cut`
-- `Retest`
-
-## Next Recommended Action
-
-Complete normal PR flow for the taxonomy counter hardening branch, merge if checks stay green, then monitor live Creative segment distributions. Do not start pass 7 unless an operator reports a specific live row defect or first-sighting review exposes a concrete misclassification.
+Pass 7 should not start unless review or live operators identify a specific remaining product defect. The most likely remaining question is the `pdf-company-02` context where current runtime data does not reproduce a Scale Review candidate, despite user-observed product concern.
 
 ## Reports
 
-- UI truth and Scale Review fix: `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
-- live output restoration final: `docs/operator-policy/creative-segmentation-recovery/reports/live-output-restoration-final.md`
-- scale-review-gap final: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/final.md`
-- date-range invariance audit: `docs/operator-policy/creative-segmentation-recovery/reports/date-range-invariance-audit.md`
+- test campaign actionability final: `docs/operator-policy/creative-segmentation-recovery/reports/test-campaign-actionability/final.md`
+- regenerated sanitized live artifact: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
 - implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
+- date-range invariance audit: `docs/operator-policy/creative-segmentation-recovery/reports/date-range-invariance-audit.md`
 
 ## Last Updated By Codex
 
-- confirmed the PR #50 taxonomy-count issue was real
-- replaced renamed-but-aggregate overview counters with exact resolved-segment taxonomy counters
-- labeled remaining cross-segment overview counters as aggregates
-- aligned row authority labels with the resolved Creative segment
-- added `Retest` to grouped blocked authority wording where grouping remains
-- confirmed the actual UI taxonomy mismatch was real
-- replaced primary Creative segment filters with the agreed taxonomy
-- aligned overview, card, detail, and instruction wording with the operator segment
-- reran the corrected live audit and confirmed `Scale = 0`, `Scale Review = 0`
-- traced the specific user-observed case privately and documented only sanitized aliases
-- audited date-range invariance and found no same-creative relabeling in the traced runtime path
-- clarified that Creative segment filter counts follow the visible reporting set while row segments stay Decision OS anchored
-- left policy thresholds and safety gates unchanged
+- revoked the accepted-with-monitoring state for Creative Recovery
+- fixed protected-winner Scale Review suppression
+- fixed mature zero-purchase test loser suppression into passive Watch
+- narrowed campaign-context over-blocking so `limited` deployment precision does not hide review-level guidance
+- reran the live-firm audit on the corrected current source path
+- documented sanitized `pdf-company-01`, `pdf-company-02`, and `private-case-01` traces
