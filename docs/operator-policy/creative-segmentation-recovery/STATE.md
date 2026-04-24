@@ -4,7 +4,7 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Finish the Creative UI truth and live Scale Review correction pass, then send the corrected product surface to one final Claude live-firm product review.
+Finish the Creative date-range invariance hardening pass, then send the corrected product surface to one final Claude live-firm product review.
 
 This pass is narrow product-truth hardening. It does not retune Creative policy thresholds, change queue/apply/push safety, promote the old rule engine, or silently change benchmark scope.
 
@@ -26,6 +26,35 @@ This pass is narrow product-truth hardening. It does not retune Creative policy 
 - corrected live-firm audit rerun: complete
 - scale-review-gap recovery: complete
 - UI truth and Scale Review pass: complete on branch, pending normal PR flow
+- date-range invariance audit: complete on branch, pending normal PR flow
+
+## Date-Range Invariance Audit
+
+Status: fixed/clarified on branch.
+
+Finding:
+
+- a production-equivalent private trace for sanitized `company-03` compared Last 14 days and Last 30 days under the same benchmark scope
+- both ranges used the same `decisionAsOf` (`2026-04-23`) and the same primary Decision OS window (`2026-03-25` to `2026-04-23`)
+- shared Decision OS rows: `16`
+- same-creative segment changes: `0`
+
+Root cause:
+
+- the observed count changes are consistent with visible reporting-set changes, not primary segment mutation
+- top Creative segment filters count only the currently visible/reporting table rows via `visibleIds`
+- the UI did not state that count scope clearly enough
+
+Fix:
+
+- Creative top filter copy now says counts follow the visible reporting set while row segments use the Decision OS window
+- Creative Decision Support copy now says counts follow the current visible reporting set and row segments stay anchored to the Decision OS window
+- filter button accessibility labels now identify the counts as visible reporting-set counts
+- deterministic tests cover visible-set filter counts and UI copy
+
+Remaining risk:
+
+- if a future trace shows the same creative changing primary segment with identical `decisionAsOf` and identical benchmark scope, that is a separate Decision OS source-path blocker
 
 ## Final Acceptance Status
 
@@ -163,12 +192,14 @@ Complete normal PR flow for this branch, then run one final Claude live-firm pro
 - the corrected live-firm audit artifact
 - the live output restoration reports
 - the scale-review-gap reports
+- the date-range invariance audit
 
 ## Reports
 
 - UI truth and Scale Review fix: `docs/operator-policy/creative-segmentation-recovery/reports/ui-truth-scale-review-fix/final.md`
 - live output restoration final: `docs/operator-policy/creative-segmentation-recovery/reports/live-output-restoration-final.md`
 - scale-review-gap final: `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-gap/final.md`
+- date-range invariance audit: `docs/operator-policy/creative-segmentation-recovery/reports/date-range-invariance-audit.md`
 - implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
 
 ## Last Updated By Codex
@@ -178,4 +209,6 @@ Complete normal PR flow for this branch, then run one final Claude live-firm pro
 - aligned overview, card, detail, and instruction wording with the operator segment
 - reran the corrected live audit and confirmed `Scale = 0`, `Scale Review = 0`
 - traced the specific user-observed case privately and documented only sanitized aliases
+- audited date-range invariance and found no same-creative relabeling in the traced runtime path
+- clarified that Creative segment filter counts follow the visible reporting set while row segments stay Decision OS anchored
 - left policy thresholds and safety gates unchanged
