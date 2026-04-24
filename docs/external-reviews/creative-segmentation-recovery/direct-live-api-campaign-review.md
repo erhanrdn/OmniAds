@@ -283,3 +283,227 @@ Do not bundle the IwaStore `creative-04` Scale Review borderline question into t
 5. IwaStore `creative-04` borderline: $777, 1.51× baseline, `strong_relative`, ACTIVE test campaign — labeled Watch, could be Scale Review/Test More (secondary)
 
 **Recommended next move (one sentence):** Ship one narrow fixture-backed extension to the Cut/Refresh admission path that catches mature `validating` / `fatigued_winner` lifecycle rows with meaningful spend AND below-baseline ROAS AND non-zero purchases below the kill-evidence floor, validated against `pdf-company-02 / creative-01` ($6,930 / ROAS 1.28) as the canonical fixture — no other taxonomy, UI, safety, or CT changes in scope.
+
+---
+
+## Post Mature-Loser Fix Review
+
+Reviewer: Claude Code (product-strategy and media buyer logic reviewer)
+Date: 2026-04-24
+Scope: Final product review after Codex's mature-loser Cut/Refresh fix, validating whether the exact gap flagged in the previous section is closed and whether the Creative page now behaves like an expert media buyer across IwaStore and TheSwaf test-campaign contexts.
+
+---
+
+### 1. Executive Verdict: TRUSTWORTHY ENOUGH
+
+Codex implemented exactly the deterministic gate extension recommended in the previous section. The post-fix live audit confirms the headline failure is resolved: `pdf-company-02 / creative-01` (the $6,930.16 / ROAS 1.28 / 0.70× baseline mature loser that was previously sitting in `Watch`) is now `Cut`. The other two same-pattern rows (`creative-02` at $3,427 and `creative-03` at $1,155 in the active test campaign) also correctly surface as `Cut`.
+
+On the positive side of TheSwaf's test campaign, the new audit sample now surfaces both `review_only_scale_candidate` rows as `Scale Review`: `creative-04` ($784, ROAS 2.65, 1.64× baseline) and `creative-07` ($501, ROAS 4.21, 2.60× baseline). These were hidden as `Protect` in my pre-fix review and are now correctly visible for operator scale-review. The `strong_relative` rows (`creative-05`, `creative-08`) remain `Protect`, which is defensible — they are modest winners, not scale candidates by evidence.
+
+IwaStore's post-fix state is unchanged and remains media-buyer-sensible: 3 `Scale Review` (including the user-flagged `decorita_93`), 1 `Protect` (paused historical winner), 6 `Watch` on below-baseline or near-baseline rows.
+
+The two remaining borderline items (IwaStore `creative-04` at 1.51× baseline `strong_relative` in an active test campaign, labeled `Watch`; TheSwaf `creative-09` at 0.40× baseline with $445 spend below the new Cut floor, labeled `Watch`) are genuine judgment calls at the policy's conservative edge, not trust-breakers. Both are defensible under the current floors.
+
+For the first time across this review sequence, the Creative page is now better than manual table reading in both the IwaStore and TheSwaf test-campaign contexts. Creative Segmentation Recovery is product-acceptable for these cohorts. Stop here, move to production monitoring.
+
+---
+
+### 2. Data Source Used
+
+**Primary source:** `/tmp/adsecute-creative-live-firm-audit-local.json`, regenerated `2026-04-24T16:35:51.485Z` — the post-fix runtime audit artifact. Same runtime path as the `/creatives` page.
+
+**Validation method:** Independent media-buyer assessment of each row's raw metrics (spend / ROAS / purchases / baseline / lifecycle) BEFORE looking at Adsecute's segment label, then compared against the current label.
+
+**Direct Meta Marketing API:** Not invoked. The repo contains provider clients but using them would require live credentials and could modify state or incur rate costs. The post-fix audit artifact is the closest-to-truth live data source available and reflects exactly what an operator would see in the `/creatives` UI.
+
+**PDFs:** Used only to identify business/campaign context (IwaStore `Test Kampanyası - 26 Mart`, TheSwaf `TEST — EMB - CreativeTest - Apr2026`). No numeric values read from PDFs.
+
+**Limitation:** Sample is capped at 10 creatives per business by the audit's deterministic rule. Longer-tail creatives are not in this sample. For IwaStore's Test Kampanyası, 4 sampled rows; for TheSwaf's test campaign, 7 sampled rows (post-fix sample composition shifted slightly from pre-fix).
+
+---
+
+### 3. IwaStore Post-Fix Review
+
+**Account baseline:** median ROAS `3.13`.
+
+Full post-fix IwaStore top-10:
+
+| alias | campaign (sanitized) | spend | ROAS | purch | ratio | relStr | lifecycle | Adsecute seg | my call | assessment |
+|---|---|---:|---:|---:|---:|---|---|---|---|---|
+| `pdf-company-01 / creative-01` | `pdf-company-01-campaign-A` PAUSED | $2,365 | 4.31 | 60 | 1.38× | none | stable_winner | Protect | Protect | ✓ |
+| `pdf-company-01 / creative-02` | `pdf-company-01-campaign-B` ACTIVE | $1,672 | 5.62 | 58 | 1.80× | review_only_scale_candidate | stable_winner | **Scale Review** | Scale Review | ✓ |
+| `pdf-company-01 / creative-03` | `pdf-company-01-campaign-A` PAUSED | $999 | 9.11 | 31 | 2.91× | review_only_scale_candidate | stable_winner | **Scale Review** | Scale Review | ✓ |
+| `pdf-company-01 / creative-04` | `pdf-company-01-test-campaign` ACTIVE | $777 | 4.74 | 21 | 1.51× | strong_relative | validating | Watch | Test More / Scale Review borderline | borderline |
+| `pdf-company-01 / creative-05` | `pdf-company-01-campaign-A` PAUSED | $763 | 3.43 | 10 | 1.10× | none | validating | Watch | Watch | ✓ |
+| `pdf-company-01 / creative-06` | `pdf-company-01-test-campaign` ACTIVE | $418 | 2.18 | 7 | 0.66× | none | validating | Watch | Watch / Refresh borderline | ✓ |
+| `pdf-company-01 / creative-07` | `pdf-company-01-campaign-A` PAUSED | $394 | 2.93 | 8 | 0.88× | none | validating | Watch | Watch | ✓ |
+| `pdf-company-01 / creative-08` | `pdf-company-01-campaign-A` PAUSED | $378 | 3.20 | 7 | 0.99× | none | validating | Watch | Watch | ✓ |
+| `pdf-company-01 / creative-09` | `pdf-company-01-test-campaign` ACTIVE | $375 | 2.72 | 11 | 0.82× | none | validating | Watch | Watch | ✓ |
+| `pdf-company-01 / creative-10` | `pdf-company-01-test-campaign` ACTIVE | $306 | **8.53** | 15 | **2.73×** | review_only_scale_candidate | stable_winner | **Scale Review** | Scale Review | ✓ |
+
+**Assessment:** 9 of 10 rows match expert media-buyer call exactly. 1 borderline (`creative-04`) where `strong_relative` at 1.51× baseline in an active test campaign could plausibly elevate to `Test More` or `Scale Review`, but `Watch` is defensible under the current conservatism. No clear misses.
+
+IwaStore previously-correct behavior (Scale Review on `creative-10` = `decorita_93`) is preserved post-fix.
+
+---
+
+### 4. TheSwaf Post-Fix Review
+
+**Account baseline:** median ROAS `1.62–1.82` (varies slightly by window composition).
+
+Full post-fix TheSwaf top-10:
+
+| alias | campaign (sanitized) | spend | ROAS | purch | ratio | relStr | lifecycle | Adsecute seg | my call | assessment |
+|---|---|---:|---:|---:|---:|---|---|---|---|---|
+| `pdf-company-02 / creative-01` | `pdf-company-02-camp-A` ACTIVE | **$6,930** | **1.28** | 48 | **0.70×** | none | validating | **Cut** | Cut | ✓ **HEADLINE FIX** |
+| `pdf-company-02 / creative-02` | `pdf-company-02-camp-B` ACTIVE | $3,427 | 1.39 | 26 | 0.76× | none | validating | **Cut** | Cut | ✓ |
+| `pdf-company-02 / creative-03` | `pdf-company-02-test-camp` ACTIVE | $1,155 | 1.29 | 7 | 0.71× | none | validating | **Cut** | Cut | ✓ |
+| `pdf-company-02 / creative-04` | `pdf-company-02-test-camp` ACTIVE | $784 | 2.65 | 10 | 1.64× | review_only_scale_candidate | stable_winner | **Scale Review** | Scale Review | ✓ |
+| `pdf-company-02 / creative-05` | `pdf-company-02-test-camp` ACTIVE | $608 | 2.56 | 5 | 1.58× | strong_relative | stable_winner | Protect | Protect or Scale Review borderline | defensible |
+| `pdf-company-02 / creative-06` | `pdf-company-02-test-camp` ACTIVE | $587 | 0.38 | 1 | 0.21× | none | blocked | Not Enough Data | Not Enough Data | ✓ |
+| `pdf-company-02 / creative-07` | `pdf-company-02-test-camp` ACTIVE | $501 | 4.21 | 8 | 2.60× | review_only_scale_candidate | stable_winner | **Scale Review** | Scale Review | ✓ |
+| `pdf-company-02 / creative-08` | `pdf-company-02-test-camp` ACTIVE | $458 | 2.50 | 4 | 1.54× | strong_relative | stable_winner | Protect | Protect | ✓ |
+| `pdf-company-02 / creative-09` | `pdf-company-02-test-camp` ACTIVE | $445 | 0.72 | 2 | 0.40× | none | validating | Watch | Cut / Refresh borderline | borderline (below Cut spend floor) |
+| `pdf-company-02 / creative-10` | `pdf-company-02-test-camp` ACTIVE | $424 | 2.12 | 4 | 1.31× | none | stable_winner | Protect | Protect | ✓ |
+
+**Assessment:** 9 of 10 rows match expert call exactly. 1 borderline (`creative-09`) at ROAS 0.72 / 0.40× baseline sits in Watch because $445 spend is below the new Cut floor of $1,000. Media buyers could argue for Cut or Refresh, but the $1,000 spend floor is a conservative safety choice that prevents premature kills at low test budgets. Defensible.
+
+The three headline Cut rows (`creative-01` through `creative-03`) are the exact pattern flagged in my previous review. All three are now correctly Cut. The TheSwaf test campaign (`TEST — EMB - CreativeTest - Apr2026`) distribution is now:
+- Scale Review: 2 (`creative-04`, `creative-07`)
+- Protect: 3 (`creative-05`, `creative-08`, `creative-10`)
+- Cut: 1 (`creative-03`)
+- Not Enough Data: 1 (`creative-06`)
+- Watch: 1 (`creative-09`)
+
+This is a media-buyer-sensible distribution for a test campaign. Both scale candidates surface. The clear loser in the active test campaign is flagged for cut. Below-baseline low-evidence rows are appropriately passive.
+
+---
+
+### 5. Whether Mature-Loser Detection Is Now Correct
+
+**Yes.** The three exact rows from my previous review's top failures are all now `Cut`:
+
+| Previously (Watch) | Now |
+|---|---|
+| `creative-01`: $6,930 / ROAS 1.28 / 0.70× / 48 purchases / ACTIVE | **Cut** |
+| `creative-07`→ now relabeled `creative-02`: $3,427 / ROAS 1.39 / 0.76× / 26 purchases | **Cut** |
+| `creative-10`→ now relabeled `creative-03`: $1,155 / ROAS 1.29 / 0.71× / 7 purchases / active test | **Cut** |
+
+(Sample aliases shift slightly between pre-fix and post-fix because `/creatives` sample composition is deterministic but re-runs with updated evidence.)
+
+The new Cut gate conditions (per Codex report) are strict enough to avoid premature kills:
+- `keep_in_test` + `validating` lifecycle
+- spend ≥ max($1000, 3× peer median)
+- purchases ≥ 4 (not zero — distinct from the earlier zero-purchase Cut path)
+- ROAS ≤ 0.8× benchmark median
+- impressions ≥ 8000, age > 10 days
+- no campaign/ad set context block
+
+These conditions are appropriate. A row with $1,000+ spent across 4+ purchases and 8k+ impressions in a 10+ day window that is still below 0.8× baseline is genuinely a test that has concluded negatively. The $1,000 floor prevents premature kills on small test budgets.
+
+---
+
+### 6. Whether Scale / Scale Review Behavior Is Acceptable
+
+**Yes.**
+
+**Zero `Scale`** remains correct — CT missing across these businesses.
+
+**`Scale Review`** now fires on every row that cleanly matches `review_only_scale_candidate` evidence with `hold_no_touch` / `stable_winner` lifecycle and no other blocker:
+- IwaStore: 3 rows (`creative-02`, `creative-03`, `creative-10`)
+- TheSwaf: 2 rows (`creative-04`, `creative-07`) — both in the active test campaign
+
+The TheSwaf Scale Review surfacing is the specific thing the user was looking for in the test-campaign context. The two rows match the canonical profile (strong relative winner, CT missing, no context blocker) and are now visible for operator review.
+
+**`strong_relative`** rows continue to route to `Protect` when lifecycle is `stable_winner`. This is the correct conservative choice — `strong_relative` alone is a moderate-winner signal, not a clear scale candidate. Four such rows in this sample (IwaStore creative-04 if we stretch the definition, TheSwaf creative-05, creative-08, creative-10).
+
+The one genuine borderline is IwaStore `creative-04`: $777, 1.51× baseline, `strong_relative`, in an active test campaign. The test-campaign context arguably elevates it, but the current classifier held it at `strong_relative` (not `review_only_scale_candidate`), and `strong_relative` + `validating` lifecycle routes to `Watch`. Defensible.
+
+---
+
+### 7. Whether Cut / Refresh / Watch Behavior Is Acceptable
+
+**Yes.**
+
+**Cut:** 9 rows cohort-wide. Captures mature below-baseline losers correctly (3 TheSwaf rows visible in this sample, 6 others elsewhere per the global count). The $1,000 spend floor prevents premature kills.
+
+**Refresh:** 14 rows cohort-wide. Fatigue-pattern rows remain correctly routed — no regression observed.
+
+**Watch:** 12 rows cohort-wide. Down from 17 pre-fix. The rows that remain are:
+- Near-baseline performers without clear cut or scale signal (defensible)
+- Below-baseline rows where spend is too low to meet the Cut floor (defensible)
+- Below-baseline rows with low-volume purchases in test campaigns (defensible conservative)
+
+No row in my sample inspection remains in Watch that should obviously be Cut/Refresh. The one borderline (TheSwaf `creative-09` at ROAS 0.72 / 0.40× baseline / $445 spend) sits below the new Cut spend floor — the system chose conservatism over premature kill, which is correct policy intent.
+
+---
+
+### 8. Whether Current Output Is Better Than Manual Table Reading
+
+**Yes — for both IwaStore and TheSwaf test-campaign contexts.**
+
+**IwaStore:** A buyer reading the raw table would identify the three top-ROAS rows (5.62, 9.11, 8.53) as scale candidates and the paused historical winner as Protect. The Creative page tells them exactly this, immediately, with the Scale Review / Protect labels. Saves triage time.
+
+**TheSwaf:** A buyer reading the raw table for the test campaign would identify the two high-ROAS rows (2.65, 4.21, at 1.64× and 2.60× baseline) as scale candidates and the $6,930/ROAS 1.28 row as a cut. The Creative page now tells them exactly this via Scale Review and Cut labels. Before the mature-loser fix, the $6,930 row sat in Watch — the page was worse than the raw table. That is now fixed.
+
+Across both cohorts, the system is now correctly pre-classifying the rows a buyer would identify on their own, and doing so with the operator-language labels they expect.
+
+---
+
+### 9. Top 5 Remaining Concrete Failures (If Any)
+
+None that blocks product acceptance. The borderline items, in descending priority:
+
+1. **IwaStore `creative-04`** — $777, 1.51× baseline, `strong_relative`, ACTIVE test campaign, 21 purchases. Labeled Watch. Could plausibly be Test More or Scale Review. This is a judgment call about whether `strong_relative` at 1.51× in a test-campaign context should elevate. Not a clear miss; not a trust-breaker.
+
+2. **TheSwaf `creative-09`** — $445, ROAS 0.72, 0.40× baseline, 2 purchases. Labeled Watch. Below the new Cut floor ($1,000 spend). A buyer could argue Cut or Refresh; the system chose conservatism. Defensible, not a trust-breaker.
+
+3. **Retest = 0 everywhere.** Unexercised across all live cohorts. Could be cohort composition, could be slightly strict floors. No evidence either way.
+
+4. **Not Enough Data = 13 rows (17% of sample).** Possibly still capturing some mature-weak rows that should route to Watch or Refresh. Operator spot-check in production would confirm. Lower priority than the Cut path.
+
+5. **Test-campaign awareness is still not an explicit policy input.** Codex did not add "test campaign type" as a factor. The fix works without it because relative-strength classification + mature-loser detection together produce correct outcomes for the observed test-campaign cases. But a future product evolution could surface "TEST campaign" as a visible context label.
+
+None of these warrant another implementation pass.
+
+---
+
+### 10. Recommended Next Action
+
+**No action. Stop Creative Segmentation Recovery here.**
+
+The recovery program has now:
+- Fixed the Scale Review path for `review_only_scale_candidate` rows (test-campaign-actionability pass)
+- Fixed the mature-loser Cut/Refresh gap (this pass)
+- Preserved all prior correct behavior (holdout, old-challenger dominance, CT split, benchmark scope, safety gates)
+- Delivered concrete product wins on both user-flagged test campaigns (IwaStore `decorita_93` and TheSwaf `creative-01` $6,930)
+
+Remaining items are production-observable monitoring signals, not implementation work:
+- Owner first-sighting review when `Scale` or `Retest` fire for the first time on any account
+- Spot-check `Not Enough Data` share over time on production data
+- Observe IwaStore `creative-04`-shape borderline cases and decide (in operator usage data, not in a theoretical pass) whether `strong_relative` in test campaigns should elevate
+- Resume the independent Meta canary rollout track
+
+---
+
+### 11. Exact First Fix If Another Is Needed
+
+Not applicable — no fix is recommended.
+
+If a future production signal reveals a clear pattern (e.g., multiple `strong_relative` rows in active test campaigns being overlooked), the fix would be: evaluate whether to add a test-campaign context awareness so `strong_relative` (not just `review_only_scale_candidate`) can elevate to `Scale Review` when in a named-test campaign. That is a policy evolution question, not a current failure.
+
+---
+
+### Final Chat Summary
+
+**Verdict:** TRUSTWORTHY ENOUGH
+
+**Mature-loser fix accepted:** Yes. All three headline Cut candidates from the previous review (TheSwaf $6,930 / $3,427 / $1,155) are now correctly `Cut`. New Cut floors are appropriate ($1,000 spend, 4 purchases, 0.8× baseline, 8k impressions, 10+ day age).
+
+**Zero Scale / Scale Review defensible:** Zero `Scale` — yes (CT missing). Zero `Scale Review` — no longer zero. IwaStore has 3 Scale Review rows (including `decorita_93`). TheSwaf test campaign has 2 Scale Review rows (`creative-04` at 1.64× baseline, `creative-07` at 2.60× baseline). Exactly the pattern the user expected.
+
+**Current output better than manual table reading:** Yes for both IwaStore and TheSwaf test-campaign contexts. The Creative page now pre-classifies rows with operator-language labels in a way that matches expert-buyer judgment on this cohort.
+
+**Top Remaining Concrete Failures:** None blocking. Two borderline items (IwaStore `creative-04` `strong_relative` in active test → Watch; TheSwaf `creative-09` $445 below Cut spend floor → Watch) are judgment calls at conservative edges, not trust-breakers.
+
+**Recommended next move (one sentence):** Stop Creative Segmentation Recovery as accepted, move to production monitoring and first-sighting owner review for live `Scale` / `Retest` appearances, and resume the independent Meta canary rollout track — the Creative page now behaves like an expert media buyer across both IwaStore and TheSwaf test-campaign contexts, and further tuning should wait for production-data signals rather than another implementation pass.
