@@ -24,7 +24,19 @@ Creative Recovery is still not accepted as final until that review completes.
 - critical fix hardening: merged
 - equal-segment scoring audit: complete
 - equal-segment gate fixes: merged through PR #59
-- final equal-segment fixes: in progress on `feature/adsecute-creative-equal-segment-final-fixes`
+- final equal-segment fixes: merged through PR #61
+
+## Final Equal-Segment PR Flow
+
+Status: complete.
+
+- PR: `https://github.com/erhanrdn/OmniAds/pull/61`
+- title: `Fix final Creative equal-segment misses`
+- branch: `feature/adsecute-creative-equal-segment-final-fixes`
+- checks: passed
+- merge method: squash
+- merged commit: `bc8cc1f1654f61f09154230e1605653dcc3b34f4`
+- merged to: `main`
 
 ## Claude Equal-Segment Re-Review Result
 
@@ -115,8 +127,6 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Open the PR for `feature/adsecute-creative-equal-segment-final-fixes`, wait for checks, and merge only if the gates pass.
-
-After merge, request Claude equal-segment re-review against `main`.
+Request Claude equal-segment re-review against `main` after PR #61.
 
 Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
