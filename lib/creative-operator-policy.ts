@@ -645,6 +645,15 @@ function isValidatingTrendCollapseRefreshCandidate(input: CreativeOperatorPolicy
   if (input.lifecycleState !== "validating") return false;
   if (input.primaryAction !== "keep_in_test") return false;
   if (!hasRelativeBaselineContext(input)) return false;
+  if (
+    !hasMeaningfulCreativeRead(input, {
+      minimumSpend: 250,
+      minimumPurchases: 2,
+      minimumImpressions: 5_000,
+    })
+  ) {
+    return false;
+  }
   if (!hasNumber(metrics.spend) || metrics.spend < 250) return false;
   if (!hasNumber(metrics.purchases) || metrics.purchases < 2) return false;
   if (!hasNumber(metrics.impressions) || metrics.impressions < 5_000) return false;

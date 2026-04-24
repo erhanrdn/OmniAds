@@ -4,7 +4,7 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Send the completed final equal-segment fix work for Claude equal-segment re-review.
+Finish PR #61 trend-collapse evidence hardening before Claude equal-segment re-review.
 
 Creative Recovery is still not accepted as final until that review completes.
 
@@ -25,6 +25,7 @@ Creative Recovery is still not accepted as final until that review completes.
 - equal-segment scoring audit: complete
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
+- trend-collapse evidence hardening: in progress on `feature/adsecute-creative-trend-collapse-evidence-hardening`
 
 ## Final Equal-Segment PR Flow
 
@@ -37,6 +38,32 @@ Status: complete.
 - merge method: squash
 - merged commit: `bc8cc1f1654f61f09154230e1605653dcc3b34f4`
 - merged to: `main`
+
+## PR #61 P1 Trend-Collapse Evidence Issue
+
+Status: fixed in the hardening branch; pending PR/merge.
+
+The issue was real. `isValidatingTrendCollapseRefreshCandidate` could run before the under-sampled branch and did not require creative age maturity, so a very new validating creative with a noisy 7-day dip could become `Refresh`.
+
+Guard added:
+
+- the validating trend-collapse Refresh helper now requires the existing meaningful-read helper
+- this enforces peer-relative spend maturity, at least `2` purchases, at least `5000` impressions, and creative age greater than `10` days
+
+Tests added:
+
+- very new validating creative + 7-day dip => not `Refresh`
+- under-sampled validating creative + 7-day dip => not `Refresh`
+- mature validating trend-collapse fixture remains `Refresh`
+- mature severe failure fixture remains `Cut`
+- missing 7-day/frequency evidence still does not trigger `Refresh`
+
+The PR #61 score intent remains acceptable:
+
+- macro segment score replay remains `87/100`
+- Watch score replay remains `75/100`
+- Refresh score replay remains `84/100`
+- Cut recall replay remains about `92%`
 
 ## Claude Equal-Segment Re-Review Result
 
@@ -120,6 +147,7 @@ No additional implementation pass should start until Claude reruns the equal-seg
 ## Reports
 
 - final equal-segment fixes: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-final-fixes/final.md`
+- trend-collapse evidence hardening: `docs/operator-policy/creative-segmentation-recovery/reports/trend-collapse-evidence-hardening/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -127,6 +155,8 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Request Claude equal-segment re-review against `main` after PR #61.
+Open and merge the trend-collapse evidence hardening PR if checks pass.
+
+After that hardening PR merges, request Claude equal-segment re-review against `main`.
 
 Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
