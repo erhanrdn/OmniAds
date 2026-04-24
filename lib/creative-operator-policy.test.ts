@@ -432,17 +432,17 @@ describe("assessCreativeOperatorPolicy", () => {
         medianSpend: 377.85,
       },
       supportingMetrics: {
-        spend: 520,
-        purchases: 4,
-        impressions: 12_000,
+        spend: 220,
+        purchases: 1,
+        impressions: 3_200,
         roas: 1.1,
         cpa: 130,
         frequency: 1.4,
-        creativeAgeDays: 18,
+        creativeAgeDays: 8,
       },
     });
 
-    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).toBe("creative_learning_incomplete");
     expect(policy.state).toBe("watch");
     expect(policy.segment).not.toBe("spend_waste");
   });
@@ -977,6 +977,320 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.state).toBe("blocked");
     expect(policy.pushReadiness).toBe("blocked_from_push");
     expect(policy.missingEvidence).toContain("row_provenance");
+  });
+
+  it("routes mature trend-collapse creatives to Cut instead of generic Watch", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 420,
+        purchases: 7,
+        impressions: 29_000,
+        roas: 1.25,
+        cpa: 60,
+        creativeAgeDays: 28,
+        recentRoas: 0.42,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+  });
+
+  it("routes trend collapse with fatigue pressure to Refresh instead of Cut", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      fatigue: {
+        status: "watch",
+        confidence: 0.72,
+        evidence: ["Frequency pressure is rising."],
+      },
+      supportingMetrics: {
+        spend: 430,
+        purchases: 7,
+        impressions: 31_000,
+        roas: 1.2,
+        cpa: 61,
+        creativeAgeDays: 30,
+        recentRoas: 0.36,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+  });
+
+  it("does not cut trend-collapse rows when evidence is still thin", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 80,
+        purchases: 1,
+        impressions: 2_200,
+        roas: 1.2,
+        cpa: 80,
+        creativeAgeDays: 6,
+        recentRoas: 0.25,
+      },
+    });
+
+    expect(policy.segment).toBe("creative_learning_incomplete");
+    expect(policy.pushReadiness).not.toBe("operator_review_required");
+  });
+
+  it("keeps a stable protected winner protected through a short-term dip", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      supportingMetrics: {
+        spend: 520,
+        purchases: 8,
+        impressions: 34_000,
+        roas: 1.45,
+        cpa: 65,
+        creativeAgeDays: 45,
+        recentRoas: 0.5,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.state).toBe("do_not_touch");
+  });
+
+  it("routes mature CPA blowouts below baseline to Cut", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 590,
+        purchases: 1,
+        impressions: 17_500,
+        roas: 0.65,
+        cpa: 590,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.state).toBe("investigate");
+  });
+
+  it("does not invent CPA failure when CPA evidence is unavailable", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 590,
+        purchases: 3,
+        impressions: 17_500,
+        roas: 0.65,
+        cpa: null,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+  });
+
+  it("does not penalize healthy CPA relative to the peer baseline", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      supportingMetrics: {
+        spend: 590,
+        purchases: 10,
+        impressions: 17_500,
+        roas: 1.9,
+        cpa: 22,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+  });
+
+  it("routes active test-campaign strong relative winners to Scale Review, not passive Protect", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized creative test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: true,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      supportingMetrics: {
+        spend: 610,
+        purchases: 5,
+        impressions: 24_000,
+        roas: 2.7,
+        cpa: 22,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("routes active test-campaign moderate relative winners to Test More instead of Protect", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.8,
+        medianCpa: 110,
+        medianSpend: 360,
+      },
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: true,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      supportingMetrics: {
+        spend: 430,
+        purchases: 4,
+        impressions: 21_000,
+        roas: 2.25,
+        cpa: 106,
+        creativeAgeDays: 21,
+      },
+    });
+
+    expect(policy.segment).toBe("promising_under_sampled");
+    expect(policy.state).toBe("watch");
+  });
+
+  it("keeps true no-touch winners protected outside active test campaigns", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      supportingMetrics: {
+        spend: 610,
+        purchases: 5,
+        impressions: 24_000,
+        roas: 2.7,
+        cpa: 22,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+  });
+
+  it("routes active test strong-relative rows with a primary campaign blocker to Campaign Check", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized creative test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: true,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      deployment: {
+        targetLane: "Scaling",
+        queueVerdict: "board_only",
+        constraints: ["Campaign context is bid-limited."],
+        compatibility: {
+          status: "blocked",
+          reasons: ["Campaign context is bid-limited."],
+        },
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
+  it("routes paused historical winners to Retest while staying review-only", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      supportingMetrics: {
+        spend: 470,
+        purchases: 7,
+        impressions: 22_000,
+        roas: 2.3,
+        cpa: 21,
+        creativeAgeDays: 60,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+  });
+
+  it("does not retest paused weak creatives", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      supportingMetrics: {
+        spend: 470,
+        purchases: 3,
+        impressions: 22_000,
+        roas: 1.2,
+        cpa: 80,
+        creativeAgeDays: 60,
+      },
+    });
+
+    expect(policy.segment).not.toBe("needs_new_variant");
+    expect(policy.segment).toBe("protected_winner");
   });
 
   it("keeps medium-baseline winners in Scale Review instead of promoting them straight to Scale", () => {

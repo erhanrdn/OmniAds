@@ -911,6 +911,49 @@ describe("creative operator surface", () => {
     ]);
   });
 
+  it("surfaces paused historical winners as Retest when policy asks for a new variant review", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "hold_no_touch",
+      lifecycleState: "stable_winner",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignName: "Sanitized historical campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "needs_new_variant",
+        actionClass: "variant",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Paused historical winner should be retested."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["row_provenance"],
+        explanation: "Retest paused winner.",
+      },
+    };
+
+    const item = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(item.primaryAction).toBe("Retest");
+    expect(item.authorityLabel).toBe("Retest");
+    expect(item.reason).toContain("controlled retest");
+    expect(item.instruction?.nextObservation.join(" ")).toContain("controlled test");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("retest");
+  });
+
   it("explains mature zero-purchase weak rows as Watch instead of early learning", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives = fixture.creatives.slice(0, 1);
