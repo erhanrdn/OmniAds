@@ -601,6 +601,12 @@ export function CreativesTopSection({
               className="flex flex-wrap items-center gap-2"
               data-testid="creative-performance-filters"
             >
+              <p
+                className="basis-full text-[11px] text-muted-foreground sm:basis-auto"
+                data-testid="creative-performance-filter-scope"
+              >
+                Counts follow the visible reporting set; row segments use the Decision OS window.
+              </p>
               {quickFilters.map((filter) => {
                 const active = activeQuickFilterKey === filter.key;
                 const toneClasses = performanceFilterToneClasses(filter, active);
@@ -609,6 +615,7 @@ export function CreativesTopSection({
                     key={filter.key}
                     type="button"
                     onClick={() => onToggleQuickFilter(filter.key)}
+                    aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} visible rows in the current reporting set`}
                     data-count={filter.count}
                     data-testid={`creative-performance-filter-${filter.key}`}
                     className={cn(

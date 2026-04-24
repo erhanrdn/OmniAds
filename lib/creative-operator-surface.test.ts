@@ -320,6 +320,26 @@ describe("creative operator surface", () => {
       ["not_enough_data", 1],
     ]);
     expect(filters.find((filter) => filter.key === "refresh")?.summary).toContain("new angle");
+
+    const visibleFilters = buildCreativeQuickFilters(fixture, {
+      visibleIds: new Set(["promote", "thin"]),
+      includeZeroCounts: true,
+    });
+    const visibleCounts = Object.fromEntries(
+      visibleFilters.map((filter) => [filter.key, filter.count]),
+    );
+
+    expect(visibleCounts).toMatchObject({
+      scale: 1,
+      scale_review: 0,
+      test_more: 0,
+      protect: 0,
+      refresh: 0,
+      not_enough_data: 1,
+    });
+    expect(visibleFilters.find((filter) => filter.key === "scale")?.creativeIds).toEqual(["promote"]);
+    expect(visibleFilters.find((filter) => filter.key === "not_enough_data")?.creativeIds).toEqual(["thin"]);
+    expect(creativeOperatorSegmentLabel(fixture.creatives[1])).toBe("Scale Review");
   });
 
   it("adds operator instructions that distinguish watch from scale commands", () => {

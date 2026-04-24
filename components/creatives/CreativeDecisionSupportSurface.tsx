@@ -192,7 +192,7 @@ export function CreativeDecisionSupportSurface({
                     Filter by the same operator segment names shown on each creative row.
                   </p>
                   <p className="mt-1 text-xs text-slate-600">
-                    System-ineligible rows stay visible in the table, but these filters stay limited to Creative segment labels.
+                    Counts follow the current visible reporting set. The row segment itself stays anchored to the Decision OS window.
                   </p>
                 </div>
               </div>
