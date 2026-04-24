@@ -4,7 +4,7 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Complete the narrow equal-segment gate-fix pass and send the result for Claude equal-segment re-review.
+Send the completed equal-segment gate-fix work for Claude equal-segment re-review.
 
 Creative Recovery is still not accepted as final until that review completes.
 
@@ -23,7 +23,21 @@ Creative Recovery is still not accepted as final until that review completes.
 - critical media-buyer fixes: merged
 - critical fix hardening: merged
 - equal-segment scoring audit: complete
-- equal-segment gate fixes: implemented on branch, pending PR flow
+- equal-segment gate fixes: merged through PR #59
+
+## Equal-Segment PR Flow
+
+Status: complete.
+
+- PR: `https://github.com/erhanrdn/OmniAds/pull/59`
+- title: `Fix Creative equal-segment gate misses`
+- branch: `feature/adsecute-creative-equal-segment-gate-fixes`
+- checks: passed
+- merge method: squash
+- merged commit: `76d82420c93b4fa567d35cc40d65509b2b9080e1`
+- merged to: `main`
+
+No further policy changes were made after PR #59. This state update only records the final PR/merge status.
 
 ## Equal-Segment Baseline
 
@@ -127,6 +141,6 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Open the PR, finish checks, and request a Claude equal-segment re-review after merge or on the PR branch.
+Request a Claude equal-segment re-review against `main` after PR #59.
 
 Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
