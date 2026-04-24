@@ -1370,6 +1370,58 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("operator_review_required");
   });
 
+  it("keeps very new validating creatives with 7d dips out of Refresh", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.59,
+        medianCpa: 72.2,
+        medianSpend: 250,
+      },
+      supportingMetrics: {
+        spend: 320,
+        purchases: 3,
+        impressions: 9_400,
+        roas: 2.7,
+        cpa: 106.67,
+        creativeAgeDays: 4,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("promising_under_sampled");
+    expect(policy.segment).not.toBe("needs_new_variant");
+  });
+
+  it("keeps under-sampled validating dip rows in learning instead of Refresh", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.59,
+        medianCpa: 72.2,
+        medianSpend: 250,
+      },
+      supportingMetrics: {
+        spend: 275,
+        purchases: 1,
+        impressions: 4_800,
+        roas: 2.8,
+        cpa: 275,
+        creativeAgeDays: 18,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("false_winner_low_evidence");
+    expect(policy.segment).not.toBe("needs_new_variant");
+  });
+
   it("keeps severe validating trend-collapse failures in Cut when existing loser gates apply", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
