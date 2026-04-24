@@ -4,9 +4,9 @@ Last updated: 2026-04-24 by Codex
 
 ## Current Goal
 
-Complete the Creative test campaign actionability correction pass, then send the regenerated live output for product review.
+Complete the narrow mature-loser Cut / Refresh hardening pass, then send the regenerated live output for one final product review.
 
-Creative Recovery acceptance remains revoked. The previous accepted-with-monitoring state is no longer valid because live test campaign contexts showed mostly passive guidance with `Scale = 0`, `Scale Review = 0`, and `Cut = 0`.
+Creative Recovery acceptance remains revoked until final product review. The previous accepted-with-monitoring state is no longer valid because live test campaign contexts showed mostly passive guidance with `Scale = 0`, `Scale Review = 0`, and `Cut = 0`, and the direct live-data review found one remaining mature-loser gap.
 
 ## Program Status
 
@@ -25,11 +25,12 @@ Creative Recovery acceptance remains revoked. The previous accepted-with-monitor
 - live output restoration: merged
 - corrected live-firm audit rerun: complete
 - UI taxonomy/count hardening: merged
-- test campaign actionability: fixed on branch, pending normal PR flow
+- test campaign actionability: merged
+- mature below-baseline loser hardening: fixed on branch, pending normal PR flow
 
 ## Test Campaign Actionability
 
-Status: fixed on branch.
+Status: merged.
 
 Finding:
 
@@ -47,6 +48,36 @@ Fix:
 - borderline zero-purchase rows can still remain `Watch`
 - missing Commercial Truth still blocks true `Scale`, queue/apply, and absolute-profit claims
 
+## Mature Loser Cut / Refresh Hardening
+
+Status: fixed on branch.
+
+Finding:
+
+- the remaining mature-loser gap was real
+- the direct live-data review found `pdf-company-02` mature `keep_in_test` / `validating` rows with meaningful spend, non-zero purchases, and ROAS materially below account baseline still surfacing as `Watch`
+- the exact gate was the Cut admission path: it caught mature zero-purchase losers, but did not admit mature below-baseline losers with purchases
+
+Fix:
+
+- added deterministic admission for mature below-baseline purchase losers
+- required reliable relative baseline, meaningful spend, purchase evidence, mature age/exposure, and ROAS at or below `0.8x` active benchmark median ROAS
+- campaign/ad set blockers still produce `Campaign Check`
+- thin evidence still avoids Cut
+- queue/apply/push safety remains unchanged
+- no Scale / Scale Review floors changed
+
+Sanitized `pdf-company-02` trace after the fix:
+
+- `company-08-creative-01`: `6930.16` spend, `48` purchases, `1.28` ROAS vs `1.82` account median ROAS -> `Cut`
+- `company-08-creative-02`: `3427.44` spend, `26` purchases, `1.39` ROAS vs `1.82` account median ROAS -> `Cut`
+- `company-08-creative-03`: `1155.34` spend, `7` purchases, `1.29` ROAS vs `1.82` account median ROAS -> `Cut`
+
+`pdf-company-01` regression result:
+
+- sanitized `pdf-company-01` remains stable: `Scale Review = 3`, `Protect = 1`, `Watch = 6`
+- the borderline `pdf-company-01` Scale Review question was intentionally not bundled into this pass
+
 ## Current Live Counts
 
 Runtime rerun: corrected current Decision OS source path.
@@ -55,24 +86,24 @@ Readable live businesses: `8`
 
 Sampled creatives: `78`
 
-Post-fix segment counts:
+Latest post-hardening segment counts:
 
 - `Scale`: `0`
-- `Scale Review`: `3`
+- `Scale Review`: `5`
 - `Test More`: `8`
-- `Protect`: `9`
-- `Watch`: `17`
-- `Refresh`: `15`
+- `Protect`: `11`
+- `Watch`: `12`
+- `Refresh`: `14`
 - `Retest`: `0`
-- `Cut`: `5`
+- `Cut`: `9`
 - `Campaign Check`: `0`
-- `Not Enough Data`: `15`
+- `Not Enough Data`: `13`
 - `Not eligible for evaluation`: `6`
 
 Business-level counts:
 
 - businesses with zero `Scale`: `8`
-- businesses with zero `Scale Review`: `7`
+- businesses with zero `Scale Review`: `6`
 
 ## PDF Test Contexts
 
@@ -87,10 +118,9 @@ Private runtime matching was used; committed files use sanitized aliases only.
 `pdf-company-02` context:
 
 - sanitized alias: `company-08`
-- post-fix sample: `Watch = 5`, `Refresh = 1`, `Not Enough Data = 3`, `Protect = 1`
-- `Scale Review = 0`
-- result: not promoted in this pass because the current runtime sample did not show a true relative-scale candidate in active context
-- remaining risk: if the operator still sees an active Protect row that should scale, that row needs a fresh private trace
+- post-hardening sample: `Cut = 3`, `Scale Review = 2`, `Protect = 3`, `Watch = 1`, `Not Enough Data = 1`
+- result: the mature below-baseline purchase losers now surface as Cut review work instead of passive Watch
+- remaining risk: none in this specific mature-loser gate; future review may still evaluate the broader product feel on live data
 
 Earlier `private-case-01` matching:
 
@@ -115,13 +145,14 @@ Unchanged:
 
 Creative output is improved but not accepted as final yet.
 
-Ready next step: fresh Claude product review after this PR passes checks and merges.
+Ready next step: one final Claude product review after this PR passes checks and merges.
 
-Pass 7 should not start unless review or live operators identify a specific remaining product defect. The most likely remaining question is the `pdf-company-02` context where current runtime data does not reproduce a Scale Review candidate, despite user-observed product concern.
+Another implementation pass should not start unless the final product review or live operators identify a specific remaining defect.
 
 ## Reports
 
 - test campaign actionability final: `docs/operator-policy/creative-segmentation-recovery/reports/test-campaign-actionability/final.md`
+- mature loser Cut / Refresh final: `docs/operator-policy/creative-segmentation-recovery/reports/mature-loser-cut-refresh/final.md`
 - regenerated sanitized live artifact: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
 - implementation pass 6 final: `docs/operator-policy/creative-segmentation-recovery/reports/implementation-pass-6-final.md`
 - date-range invariance audit: `docs/operator-policy/creative-segmentation-recovery/reports/date-range-invariance-audit.md`
@@ -131,6 +162,7 @@ Pass 7 should not start unless review or live operators identify a specific rema
 - revoked the accepted-with-monitoring state for Creative Recovery
 - fixed protected-winner Scale Review suppression
 - fixed mature zero-purchase test loser suppression into passive Watch
+- fixed mature below-baseline-with-purchases loser suppression into passive Watch
 - narrowed campaign-context over-blocking so `limited` deployment precision does not hide review-level guidance
 - reran the live-firm audit on the corrected current source path
 - documented sanitized `pdf-company-01`, `pdf-company-02`, and `private-case-01` traces

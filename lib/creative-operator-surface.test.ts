@@ -996,6 +996,71 @@ describe("creative operator surface", () => {
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("cut");
   });
 
+  it("labels mature below-baseline purchase losers as Cut review work", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 6_930.14,
+      roas: 1.28,
+      purchases: 48,
+      impressions: 640_000,
+      creativeAgeDays: 31,
+      benchmarkScope: "account",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkReliability: "strong",
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        scopeId: null,
+        scopeLabel: "Account-wide",
+        source: "account_default",
+        reliability: "strong",
+        sampleSize: 10,
+        creativeCount: 10,
+        eligibleCreativeCount: 10,
+        spendBasis: 18_000,
+        purchaseBasis: 160,
+        weightedRoas: 1.74,
+        weightedCpa: 78,
+        medianRoas: 1.82,
+        medianCpa: 80,
+        medianSpend: 377.85,
+        missingContext: [],
+      },
+      summary: "Meaningful purchase volume but materially below benchmark.",
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "spend_waste",
+        actionClass: "test",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Below account benchmark after meaningful spend."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["sufficient_negative_evidence", "relative_baseline"],
+        explanation: "Review this mature below-baseline case as spend waste.",
+      },
+    };
+
+    const cut = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(cut.primaryAction).toBe("Cut");
+    expect(cut.authorityState).toBe("blocked");
+    expect(cut.authorityLabel).toBe("Cut");
+    expect(cut.reason).toContain("ROAS is materially below the Account-wide benchmark");
+    expect(cut.instruction?.primaryMove).toContain("before cut");
+    expect(cut.instruction?.nextObservation.join(" ")).toContain("below-benchmark read");
+    expect(cut.instruction?.queueEligible).toBe(false);
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("cut");
+  });
+
   it("adds a fatigue caveat to Test More without changing the main outcome", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives = fixture.creatives.slice(0, 1);

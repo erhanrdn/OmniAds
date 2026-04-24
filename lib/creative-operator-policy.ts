@@ -382,6 +382,29 @@ function isMatureZeroPurchaseCutCandidate(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function isMatureBelowBaselinePurchaseLoser(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  return (
+    input.primaryAction === "keep_in_test" &&
+    input.lifecycleState === "validating" &&
+    hasRelativeBaselineContext(input) &&
+    hasNumber(metrics.spend) &&
+    metrics.spend >= Math.max(1_000, medianSpend * 3) &&
+    hasNumber(metrics.purchases) &&
+    metrics.purchases >= 4 &&
+    hasNumber(metrics.roas) &&
+    metrics.roas <= medianRoas * 0.8 &&
+    hasNumber(metrics.impressions) &&
+    metrics.impressions >= 8_000 &&
+    hasNumber(metrics.creativeAgeDays) &&
+    metrics.creativeAgeDays > 10
+  );
+}
+
 function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
   return input.deployment?.compatibility.status === "blocked";
 }
@@ -451,6 +474,9 @@ function resolveSegment(params: {
       return "creative_learning_incomplete";
     }
     return "promising_under_sampled";
+  }
+  if (isMatureBelowBaselinePurchaseLoser(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
   }
   if (scaleIntent && hasRelativeBaselineContext(input) && !hasRelativeScaleReviewEvidence(input)) {
     return "hold_monitor";
@@ -580,10 +606,17 @@ export function assessCreativeOperatorPolicy(
     isRelativeScaleReviewIntent(input) || reviewOnlyScaleCandidate;
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const matureZeroPurchaseCutCandidate = isMatureZeroPurchaseCutCandidate(input);
-  const negativeActionIntent = killOrRefreshAction || matureZeroPurchaseCutCandidate;
+  const matureBelowBaselinePurchaseLoser = isMatureBelowBaselinePurchaseLoser(input);
+  const negativeActionIntent =
+    killOrRefreshAction ||
+    matureZeroPurchaseCutCandidate ||
+    matureBelowBaselinePurchaseLoser;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
-  const requiresCampaignContext = scaleIntent || matureZeroPurchaseCutCandidate;
+  const requiresCampaignContext =
+    scaleIntent ||
+    matureZeroPurchaseCutCandidate ||
+    matureBelowBaselinePurchaseLoser;
   const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
   const businessValidationUnfavorable =
     scaleIntent && businessValidationStatus === "unfavorable";

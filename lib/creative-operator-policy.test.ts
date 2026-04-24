@@ -385,6 +385,166 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("campaign_or_adset_context");
   });
 
+  it("routes mature below-baseline purchase losers into Cut review instead of generic Watch", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.82,
+        medianSpend: 377.85,
+        spendBasis: 18_000,
+        purchaseBasis: 160,
+        weightedRoas: 1.74,
+        weightedCpa: 78,
+      },
+      supportingMetrics: {
+        spend: 6_930.14,
+        purchases: 48,
+        impressions: 640_000,
+        roas: 1.28,
+        cpa: 144,
+        frequency: 1.9,
+        creativeAgeDays: 31,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).not.toContain("commercial_truth");
+    expect(policy.requiredEvidence).toContain("sufficient_negative_evidence");
+  });
+
+  it("does not route thin below-baseline purchase rows into Cut review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.82,
+        medianSpend: 377.85,
+      },
+      supportingMetrics: {
+        spend: 520,
+        purchases: 4,
+        impressions: 12_000,
+        roas: 1.1,
+        cpa: 130,
+        frequency: 1.4,
+        creativeAgeDays: 18,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("does not route mature below-baseline purchase rows into Cut review with weak baselines", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "weak",
+        sampleSize: 2,
+        creativeCount: 2,
+        eligibleCreativeCount: 2,
+        spendBasis: 900,
+        purchaseBasis: 2,
+        weightedRoas: 1.82,
+        weightedCpa: 120,
+        medianRoas: 1.82,
+        medianCpa: 118,
+        medianSpend: 300,
+        missingContext: ["Fewer than 3 eligible peer creatives with spend/revenue signal."],
+      },
+      supportingMetrics: {
+        spend: 2_400,
+        purchases: 12,
+        impressions: 180_000,
+        roas: 1.12,
+        cpa: 200,
+        frequency: 1.8,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps mature below-baseline purchase losers in Campaign Check when campaign context is blocked", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      deployment: {
+        targetLane: "Testing",
+        queueVerdict: "board_only" as const,
+        constraints: ["Campaign budget learning is still unstable."],
+        compatibility: {
+          status: "blocked" as const,
+          reasons: ["Campaign or ad set context limits this creative interpretation."],
+        },
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.82,
+        medianSpend: 377.85,
+      },
+      supportingMetrics: {
+        spend: 2_400,
+        purchases: 12,
+        impressions: 180_000,
+        roas: 1.12,
+        cpa: 200,
+        frequency: 1.8,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
+  it("keeps healthy validating rows above baseline out of Cut review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.82,
+        medianSpend: 377.85,
+      },
+      supportingMetrics: {
+        spend: 1_600,
+        purchases: 12,
+        impressions: 120_000,
+        roas: 2.05,
+        cpa: 133,
+        frequency: 1.7,
+        creativeAgeDays: 24,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
   it("protects winners instead of turning short-term volatility into kill work", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
