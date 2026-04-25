@@ -28,11 +28,11 @@ pass is merged.
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
-- Creative Decision OS manual snapshots: implemented on branch, PR pending
+- Creative Decision OS manual snapshots: merged through PR #66
 
 ## Creative Decision OS Manual Snapshot Pass
 
-Status: implemented on `feature/adsecute-creative-decision-os-snapshots`; PR pending.
+Status: complete and merged.
 
 PR:
 
@@ -41,7 +41,9 @@ PR:
 - branch: `feature/adsecute-creative-decision-os-snapshots`
 - local validation: passed
 - GitHub status contexts: none reported by the connector at PR-open time
-- merge status: pending normal PR merge
+- merge method: squash
+- merged commit: `7be5f28cf2918fe020b55393cd5f8513882eceb2`
+- merged to: `main`
 
 Root issue:
 
@@ -82,7 +84,7 @@ Policy/safety impact:
 - no queue/push/apply safety change
 - no Command Center safety change
 
-Validation so far:
+Validation:
 
 - targeted snapshot store/API/page/drawer tests passed
 - full `npm test`
@@ -92,10 +94,6 @@ Validation so far:
 - hidden/bidi/control scan
 - raw ID scan on touched docs/reports
 - runtime smoke on `/creatives` and `/platforms/meta`
-
-Remaining before merge:
-
-- PR checks
 
 ## Final Equal-Segment PR Flow
 

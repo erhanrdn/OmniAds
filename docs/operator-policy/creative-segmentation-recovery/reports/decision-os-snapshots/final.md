@@ -3,6 +3,8 @@
 Date: 2026-04-25  
 Author: Codex  
 Branch: `feature/adsecute-creative-decision-os-snapshots`
+PR: `https://github.com/erhanrdn/OmniAds/pull/66`
+Merge: squash to `main` as `7be5f28cf2918fe020b55393cd5f8513882eceb2`
 
 ## Executive Result
 
