@@ -44,7 +44,7 @@ function operatorVerb(kind: OperatorInstructionKind) {
     case "do_not_touch":
       return "Protect";
     case "watch":
-      return "Watch";
+      return "Review";
     case "investigate":
       return "Investigate";
     case "blocked":
@@ -52,7 +52,7 @@ function operatorVerb(kind: OperatorInstructionKind) {
     case "contextual_only":
       return "Use as context";
     default:
-      return "Watch";
+      return "Review";
   }
 }
 
@@ -265,7 +265,7 @@ function defaultInvalidActions(input: {
     values.push("Do not cut, refresh, resize, or reset this protected row from short-term volatility.");
   }
   if (input.kind === "watch") {
-    values.push("Do not convert this watch read into a scale, cut, budget, or bid command yet.");
+    values.push("Do not convert this review-only read into a scale, cut, budget, or bid command yet.");
   }
   if (input.kind === "investigate") {
     values.push("Do not make the primary move until the investigation evidence is resolved.");
@@ -399,13 +399,19 @@ function defaultPrimaryMove(input: {
     return `Keep ${input.targetEntity} live and protected; do not force a new action from short-term movement.`;
   }
   if (input.kind === "watch") {
+    if (isScaleReviewActionLabel(input.actionLabel)) {
+      return `Scale Review ${input.targetEntity} as a relative winner; wait for ${firstObservation} before any scale move.`;
+    }
+    if (input.actionLabel.trim().toLowerCase() === "diagnose") {
+      return `Diagnose ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
+    }
     if (input.actionLabel.trim().toLowerCase() === "test more") {
       if (findFatigueObservation(input.nextObservation)) {
-        return `Keep testing ${input.targetEntity}, but watch fatigue pressure while the evidence matures.`;
+        return `Keep testing ${input.targetEntity}, but monitor fatigue pressure while the evidence matures.`;
       }
       return `Keep testing ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
     }
-    return `Keep watching ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
+    return `Keep reviewing ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
   }
   if (input.kind === "investigate") {
     if (isScaleReviewActionLabel(input.actionLabel)) {

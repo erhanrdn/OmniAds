@@ -48,12 +48,12 @@ describe("CreativesTopSection", () => {
         onCsvExport={vi.fn()}
         quickFilters={[
           {
-            key: "not_enough_data",
-            label: "Not Enough Data",
-            summary: "Rows where evidence is still too thin.",
+            key: "diagnose",
+            label: "Diagnose",
+            summary: "Rows where evidence or context needs diagnosis.",
             count: 9,
             creativeIds: [],
-            tone: "watch",
+            tone: "needs_truth",
           },
         ]}
         activeQuickFilterKey={null}
@@ -65,7 +65,7 @@ describe("CreativesTopSection", () => {
     expect(html).toContain("Counts follow the visible reporting set");
     expect(html).toContain("row segments use the Decision OS window");
     expect(html).toContain(
-      "Not Enough Data: 9 visible rows in the current reporting set",
+      "Diagnose: 9 visible rows in the current reporting set",
     );
   });
 });

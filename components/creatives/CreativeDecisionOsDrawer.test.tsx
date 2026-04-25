@@ -31,7 +31,7 @@ describe("CreativeDecisionOsDrawer", () => {
             },
             summary: {
               message:
-                "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
+                "Decision OS highlights Scale, Test More, Protect, Refresh, Cut, and Diagnose primary decisions with review-only and reason-tag context.",
               operatingMode: "Exploit",
               totalCreatives: 40,
               scaleReadyCount: 3,

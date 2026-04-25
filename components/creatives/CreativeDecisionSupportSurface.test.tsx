@@ -11,12 +11,12 @@ describe("CreativeDecisionSupportSurface", () => {
         selectedRows={[]}
         quickFilters={[
           {
-            key: "watch",
-            label: "Watch",
-            summary: "Rows to monitor.",
+            key: "diagnose",
+            label: "Diagnose",
+            summary: "Rows to diagnose.",
             count: 1,
             creativeIds: ["creative-1"],
-            tone: "watch",
+            tone: "needs_truth",
           },
         ]}
         activeQuickFilterKey={null}
@@ -26,6 +26,6 @@ describe("CreativeDecisionSupportSurface", () => {
 
     expect(html).toContain("Counts follow the current visible reporting set.");
     expect(html).toContain("The row segment itself stays anchored to the Decision OS window.");
-    expect(html).toContain("Watch");
+    expect(html).toContain("Diagnose");
   });
 });

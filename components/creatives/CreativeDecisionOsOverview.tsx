@@ -8,6 +8,8 @@ import {
   buildCreativeTaxonomyCounts,
   creativeBenchmarkReliabilityLabel,
   creativeOperatorSegmentLabel,
+  creativeOperatorSubToneLabel,
+  resolveCreativeOperatorDecision,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
@@ -23,26 +25,26 @@ function formatLifecycleLabel(value: string) {
     incubating: "Test More",
     validating: "Test More",
     scale_ready: "Scale",
-    scale_review: "Scale Review",
+    scale_review: "Scale",
     stable_winner: "Protect",
     fatigued_winner: "Refresh",
-    comeback_candidate: "Retest",
+    comeback_candidate: "Refresh",
     promote_to_scaling: "Scale",
     keep_in_test: "Test More",
     refresh_replace: "Refresh",
-    block_deploy: "Campaign Check",
+    block_deploy: "Diagnose",
     hold_no_touch: "Protect",
     protected_winner: "Protect",
-    hold_monitor: "Watch",
-    false_winner_low_evidence: "Not Enough Data",
+    hold_monitor: "Test More",
+    false_winner_low_evidence: "Diagnose",
     promising_under_sampled: "Test More",
     kill_candidate: "Cut",
     needs_new_variant: "Refresh",
-    creative_learning_incomplete: "Not Enough Data",
+    creative_learning_incomplete: "Diagnose",
     spend_waste: "Cut",
-    investigate: "Campaign Check",
-    contextual_only: "Not eligible for evaluation",
-    blocked: "Not eligible for evaluation",
+    investigate: "Diagnose",
+    contextual_only: "Diagnose",
+    blocked: "Diagnose",
   };
   if (labels[value]) return labels[value];
   return value.replaceAll("_", " ");
@@ -266,13 +268,13 @@ export function CreativeDecisionOsOverview({
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Operator Segment Counts
+            Primary Decision Counts
           </p>
           <p className="text-xs text-slate-500">
-            Same resolved segment mapping as the Creative filters.
+            Same resolver primary-decision mapping as the Creative filters.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           {taxonomyCounts.map((filter) => (
             <div
               key={filter.key}
@@ -299,7 +301,7 @@ export function CreativeDecisionOsOverview({
           {[
             ["Total creatives", decisionOs.summary.totalCreatives],
             ["Action core aggregate", decisionOs.summary.surfaceSummary.actionCoreCount],
-            ["Watchlist aggregate", decisionOs.summary.surfaceSummary.watchlistCount],
+            ["Review-list aggregate", decisionOs.summary.surfaceSummary.watchlistCount],
             ["Archive aggregate", decisionOs.summary.surfaceSummary.archiveCount],
             ["Degraded aggregate", decisionOs.summary.surfaceSummary.degradedCount],
             ["Validation needed aggregate", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
@@ -334,7 +336,7 @@ export function CreativeDecisionOsOverview({
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
               <span>Do now {operatorPolicyCounts.do_now ?? 0}</span>
               <span>Protect {operatorPolicyCounts.do_not_touch ?? 0}</span>
-              <span>Watch {operatorPolicyCounts.watch ?? 0}</span>
+              <span>Review state {operatorPolicyCounts.watch ?? 0}</span>
               <span>Investigate {operatorPolicyCounts.investigate ?? 0}</span>
               <span>Ineligible/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
             </div>
@@ -343,6 +345,8 @@ export function CreativeDecisionOsOverview({
             {operatorPolicyCreatives.map((creative) => {
               const operatorItem = buildCreativeOperatorItem(creative);
               const instruction = operatorItem.instruction;
+              const decision = resolveCreativeOperatorDecision(creative);
+              const subToneLabel = creativeOperatorSubToneLabel(decision.subTone);
               return (
                 <div
                   key={`creative-operator-policy:${creative.creativeId}`}
@@ -363,12 +367,21 @@ export function CreativeDecisionOsOverview({
                         </p>
                       ) : null}
                     </div>
-                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                      {creativeOperatorSegmentLabel(creative)}
-                    </span>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                        {creativeOperatorSegmentLabel(creative)}
+                      </span>
+                      {subToneLabel ? (
+                        <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                          {subToneLabel}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                    <span>{creative.operatorPolicy.state.replaceAll("_", " ")}</span>
+                    {(operatorItem.secondaryLabels ?? []).slice(0, 3).map((label) => (
+                      <span key={`${creative.creativeId}:${label}`}>{label}</span>
+                    ))}
                     {instruction ? <span>Urgency {instruction.urgency}</span> : null}
                     <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
                     <span>{creative.operatorPolicy.evidenceSource} evidence</span>
@@ -381,7 +394,7 @@ export function CreativeDecisionOsOverview({
                   ) : null}
                   {instruction?.nextObservation[0] ? (
                     <p className="mt-2 text-xs text-slate-600">
-                      Watch next: {instruction.nextObservation[0]}
+                      Next check: {instruction.nextObservation[0]}
                     </p>
                   ) : null}
                   {instruction?.invalidActions[0] ? (
