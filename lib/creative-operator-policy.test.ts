@@ -671,6 +671,95 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("blocked_from_push");
   });
 
+  it("routes below-baseline high-CPA stable winners to Watch instead of passive Protect", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.98,
+        medianCpa: 2_725.61,
+        medianSpend: 8_749.75,
+      },
+      supportingMetrics: {
+        spend: 13_373,
+        purchases: 45,
+        impressions: 1_892_051,
+        roas: 2.62,
+        cpa: 4_470,
+        frequency: 1.8,
+        creativeAgeDays: 38,
+        recentRoas: 2.62,
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.pushReadiness).toBe("read_only_insight");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+  });
+
+  it("keeps below-baseline explicit protected watchlist rows in Protect", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      trust: trust({
+        surfaceLane: "watchlist",
+        operatorDisposition: "protected_watchlist",
+      }),
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.98,
+        medianCpa: 2_725.61,
+        medianSpend: 8_749.75,
+      },
+      supportingMetrics: {
+        spend: 13_373,
+        purchases: 45,
+        impressions: 1_892_051,
+        roas: 2.62,
+        cpa: 4_470,
+        frequency: 1.8,
+        creativeAgeDays: 38,
+        recentRoas: 2.62,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.state).toBe("do_not_touch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+  });
+
+  it("keeps above-baseline stable no-touch winners in Protect", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.98,
+        medianCpa: 2_725.61,
+        medianSpend: 8_749.75,
+      },
+      supportingMetrics: {
+        spend: 13_373,
+        purchases: 45,
+        impressions: 1_892_051,
+        roas: 3.12,
+        cpa: 2_680,
+        frequency: 1.8,
+        creativeAgeDays: 38,
+        recentRoas: 3.12,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.state).toBe("do_not_touch");
+  });
+
   it("keeps protected winners protected even when commercial truth is missing", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),

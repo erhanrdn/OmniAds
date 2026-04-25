@@ -2,7 +2,7 @@
 
 Date: 2026-04-25
 
-This matrix summarizes the represented equal-segment confusion clusters after the Claude fix-plan implementation and Watch floor-policy fix. Sanitized aliases only.
+This matrix summarizes the represented equal-segment confusion clusters after the Claude fix-plan implementation, Watch floor-policy fix, Round 5 closure, and Protect boundary investigation. Sanitized aliases only.
 
 ## Newly Fixed Confusions
 
@@ -14,6 +14,7 @@ This matrix summarizes the represented equal-segment confusion clusters after th
 | Refresh | Watch | 1 | Refresh | 1 | quarter-trend validating collapse preserved |
 | Scale Review | Watch | 1 | Scale Review | 1 | fixed by high-relative non-test review-only gate |
 | Refresh | Watch | 1 | Refresh | 1 | fixed by Round 5 below-baseline validating collapse gate |
+| Watch | Protect | 1 | Watch | 1 | fixed by Protect/no-touch below-benchmark high-CPA guard |
 
 ## Previously Fixed Confusions Preserved
 
@@ -29,7 +30,7 @@ This matrix summarizes the represented equal-segment confusion clusters after th
 | Expected | Actual | Status |
 |---|---|---|
 | Refresh or Cut | Watch | reduced; the clear Round 5 Watch miss is fixed, remaining Watch rows are below safe evidence floors or ambiguous |
-| Watch | Protect | unresolved borderline under Claude Round 4 independent scoring; no safe no-touch policy change made in Round 5 |
+| Watch | Protect | fixed for the reviewed high-volume below-benchmark high-CPA no-touch shape |
 | Scale | not represented | no valid expected examples in represented set |
 | Campaign Check | not represented | no valid expected examples in represented set |
 
@@ -43,6 +44,7 @@ The fixed confusions are exactly the high-confidence classes from Claude's fix p
 - validating trend-collapse admission remains mature-evidence guarded
 - mature high-relative non-test rows should not remain passive `Watch` when they have strong baseline-backed evidence and no context blocker
 - materially below-benchmark validating rows with zero recent ROAS should not remain passive `Watch` when spend/purchase/impression evidence is meaningful
+- high-volume stable no-touch rows below benchmark with elevated CPA should not remain passive `Protect`
 
 ## Business Impact
 
@@ -50,4 +52,4 @@ The fixed confusions are exactly the high-confidence classes from Claude's fix p
 - `Refresh` catches more meaningful collapse without promoting very new creatives.
 - `Test More` is cleaner and less likely to mask thin evidence.
 - `Protect` is less likely to hide mild above-baseline collapse.
-- `Watch` has the clear Round 5 miss fixed; strict final acceptance still depends on whether the remaining Protect/no-touch borderline is accepted or separately fixed.
+- `Watch` has the clear Round 5 miss fixed, and the remaining reviewed Protect/no-touch borderline now routes to Watch.

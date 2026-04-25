@@ -8,7 +8,7 @@ Result: Claude fix plan, the high-relative Watch floor-policy fix, and the Round
 
 Round 5 fixed the clear remaining Watch miss identified in Claude's latest independent review: a validating, below-benchmark, zero-recent-ROAS row now routes to `Refresh` instead of passive `Watch`.
 
-Creative Recovery is still not accepted as final under the strict owner target because Claude's Round 4 independent review left `Protect` at `88/100` and pdf-company-01 at `88/100`. This pass did not make a broad no-touch/Protect policy change because the remaining Protect disagreement is borderline and not safely fixable without a separate policy decision.
+The follow-up Protect boundary investigation found one narrow no-touch false positive in Claude's Round 4 reviewed set. A high-volume stable winner below active benchmark with elevated CPA no longer stays in passive `Protect`; it routes to `Watch` instead. True protected/no-touch winners remain Protect.
 
 ## Fresh Baseline
 
@@ -65,8 +65,8 @@ Expected independent score impact:
 
 Remaining strict-target blocker:
 
-- `Protect` remains `88/100` in Claude's Round 4 reviewed set unless a separate no-touch boundary fix is made.
-- pdf-company-01 remains about `88/100`; remaining disagreements are minor fatigued/Test More boundary calls, not severe Scale/Cut errors.
+- `Protect` moved from `88/100` to about `90/100` in the reviewed set after the no-touch boundary guard.
+- pdf-company-01 remains about `88/100`; investigation found that this is not a remaining Protect/no-touch defect. The remaining disagreement is a minor business-level fatigued/Test More/Refresh boundary, not a severe Scale/Cut error.
 
 ## Fresh Live Cohort Summary
 
@@ -103,6 +103,7 @@ Fresh post-patch live segment distribution:
 5. existing fatigued/refresh-replace CPA blowout `Cut` behavior remains intact
 6. mature high-relative non-test `Watch` false negatives can now route to review-only `Scale Review`
 7. validating, below-benchmark, zero-recent-ROAS Watch rows with enough evidence can now route to review-only `Refresh`
+8. below-benchmark high-CPA stable no-touch winners now route to `Watch` instead of passive `Protect`
 
 ## High-Relative Watch Trace
 
@@ -124,8 +125,8 @@ The new gate is intentionally narrower than normal Scale Review admission: it re
 
 ## Is Current Output Better Than Manual Table Reading?
 
-It is better for the reviewed Cut/Refresh/NED/Test More/Watch failure classes. It is not yet accepted as final under the owner's strict `90+` per-represented-segment target because the remaining Protect/pdf-company-01 borderlines need either a separate narrow policy decision or owner acceptance as monitoring-only risk.
+It is better for the reviewed Cut/Refresh/NED/Test More/Watch/Protect failure classes. The remaining pdf-company-01 business-score gap is documented as a minor judgment boundary, not a severe Scale/Cut miss and not a Protect/no-touch defect.
 
 ## Another Implementation Pass
 
-No additional broad implementation pass is recommended. If the owner requires strict closure before another review, the next narrow investigation should focus only on the remaining Protect/no-touch borderline.
+No additional broad implementation pass is recommended. Claude equal-segment re-review should run before PR #65 is merged.

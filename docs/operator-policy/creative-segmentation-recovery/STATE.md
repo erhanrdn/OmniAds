@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, and the Round 5 Watch-as-Refresh closure while honoring the supervisor target: every represented user-facing segment should reach `90+`.
+Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, the Round 5 Watch-as-Refresh closure, and the Protect/no-touch boundary investigation while honoring the supervisor target: every represented user-facing segment should reach `90+`.
 
-Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. Creative Recovery is still not accepted as final because the strict independent target still has a documented `Protect` / pdf-company-01 borderline that was not safely fixed in this pass.
+Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. The Protect/no-touch investigation fixed the remaining reviewed Protect false positive without changing true no-touch safety. Creative Recovery still needs Claude equal-segment re-review before PR #65 is merged.
 
 ## Program Status
 
@@ -27,6 +27,7 @@ Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. Creat
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
 - Claude fix-plan implementation, Watch floor-policy fix, and Round 5 closure: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
+- Protect/no-touch boundary investigation: implemented on PR #65 branch
 
 ## Current PR
 
@@ -89,6 +90,7 @@ Implemented:
 7. validating below-benchmark rows with zero recent ROAS and enough spend/purchase/impression evidence can now route from `Watch` to review-only `Refresh`.
 8. PR #65 P1 hardening: high-relative non-test review candidates are excluded from true `Scale` intent / `scaleAction`, so favorable business validation cannot promote that review-only path into `scale_ready` or queue eligibility.
 9. PR #65 P2 hardening: the new below-benchmark collapse Refresh gate now requires known creative age `>= 7` days, so unknown-age creatives stay conservative.
+10. Protect/no-touch boundary fix: high-volume stable winners below active benchmark with elevated CPA now route to `Watch` instead of passive `Protect`, while explicit protected watchlist rows remain Protect.
 
 Preserved / not changed:
 
@@ -102,15 +104,15 @@ Preserved / not changed:
 
 | Metric | Before | After |
 |---|---:|---:|
-| Macro segment score | `87/100` | about `89-90/100` under Claude's Round 4 independent scoring plus Round 5 |
-| Raw row accuracy | `~88%` | about `89-90%` |
+| Macro segment score | `87/100` | about `90/100` under Claude's Round 4 independent scoring plus Round 5 and Protect boundary fix |
+| Raw row accuracy | `~88%` | about `90%` |
 | Watch score | `75/100` | about `90/100` after Round 5 |
 | Refresh score | `88/100` | about `90/100` after Round 5 |
-| Protect score | `88/100` | `88/100` unchanged under the Round 4 reviewed set |
+| Protect score | `88/100` | about `90/100` after Protect boundary fix |
 | Test More score | `83/100` | `90/100` |
 | Not Enough Data score | `88/100` | `92/100` |
 | Cut recall | `~92%` | `~94%` |
-| pdf-company-01 | `88/100` | `88/100` unchanged |
+| pdf-company-01 | `88/100` | `88/100` unchanged; remaining gap is not a Protect/no-touch defect |
 | pdf-company-02 | `87/100` | about `90/100` after Round 5 |
 
 ## Watch Floor Policy Fix
@@ -137,7 +139,7 @@ The fix remains review-only:
 
 ## Round 5 Equal-Segment Target Closure
 
-Status: partially fixed; strict final acceptance still blocked.
+Status: fixed for the clear Watch miss; followed by Protect boundary investigation.
 
 Fixed gate:
 
@@ -158,40 +160,72 @@ Surface alignment:
 - the fixed row now has `Refresh` label, `Refresh` instruction headline, and Refresh-specific reason / next observation
 - queue/apply remain false
 
-## Remaining Blockers
+## Protect Boundary Investigation
 
-Strict owner acceptance remains blocked if Claude's Round 4 independent scoring set is treated as authoritative:
+Status: implemented in current branch.
 
-- `Protect` remains `88/100`
-- pdf-company-01 remains about `88/100`
-- the remaining disagreement is a no-touch / Protect boundary, not a severe Scale/Cut miss
-- no safe Round 5 patch was applied because changing stable winner no-touch handling without trend-collapse or severe failure evidence would be a broader policy decision
+Result:
 
-The fresh live top-spend artifact has only one `Protect` row and it is clean, but that does not prove the Round 4 Protect borderline is solved by policy.
+- the issue was real as a narrow reviewed-set boundary
+- sanitized reviewed row: `company-05 / company-05-creative-01`
+- before: `Protect`
+- expected: `Watch`
+- gate responsible: unconditional `hold_no_touch` fallback to `protected_winner`
+- fix: added a narrow below-benchmark high-CPA stable winner guard that routes to `hold_monitor` / Watch
+
+Admission requires:
+
+- lifecycle `stable_winner`
+- primary action `hold_no_touch`
+- not explicitly `protected_watchlist`
+- reliable relative baseline
+- spend at least `max(1000, 1.25x peer median spend)`
+- mature purchase, impression, and creative-age evidence
+- ROAS at or below `0.90x` active benchmark
+- CPA at least `1.50x` peer median CPA
+- no campaign/ad set blocker
+
+Preserved:
+
+- true protected watchlist rows remain Protect
+- healthy above-benchmark no-touch winners remain Protect
+- scale-worthy review-only rows remain Scale Review
+- trend-collapse winners still route to Refresh only through existing trend gates
+- queue/push/apply safety unchanged
+
+Score read:
+
+- Protect: `88/100` -> about `90/100`
+- pdf-company-01: remains about `88/100`, but investigation found the remaining gap is not this Protect/no-touch boundary and is a minor business-level fatigued/Test More/Refresh judgment
+- every represented segment is now at or about `90+`, pending Claude re-review
 
 ## Validation
 
 - targeted Creative policy tests: passed
-- targeted Creative policy/surface/Decision OS/prescription/audit tests: passed
+- targeted Creative policy/surface/Decision OS/prescription tests: passed
+- targeted Creative UI surface tests: passed
+- targeted Command Center safety tests: passed
 - full `npm test`: passed
 - `npx tsc --noEmit`: passed
 - `npm run build`: passed
-- GitHub CI for PR #65: passed (`typecheck`, `test`, `build`)
 - `/creatives` localhost smoke: passed through expected auth redirect/load
 - `/platforms/meta` localhost smoke: passed through expected auth redirect/load
 - `git diff --check`: passed
 - hidden/bidi/control scan: passed
-- raw ID scan: passed; only a sanitized no-token artifact key matched
+- raw ID scan on touched docs: passed
+- live-firm audit rerun attempt: blocked by production DB query timeout over the SSH tunnel (`DB query timed out after 8000ms`); no committed live-firm artifact changed
 - Round 5 targeted policy/surface tests: passed
 - Round 5 live-firm audit rerun: passed
 - PR #65 P1 regression test for review-only non-test Scale Review: passed
 - PR #65 P2 regression test for unknown-age below-benchmark collapse rows: passed
+- Protect boundary policy tests: passed
 
 ## Reports
 
 - Claude fix plan implementation: `docs/operator-policy/creative-segmentation-recovery/reports/claude-fix-plan-implementation/final.md`
 - Watch floor policy fix: `docs/operator-policy/creative-segmentation-recovery/reports/watch-floor-policy-fix/final.md`
 - Round 5 target closure: `docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md`
+- Protect boundary investigation: `docs/operator-policy/creative-segmentation-recovery/reports/protect-boundary-investigation/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -199,4 +233,4 @@ The fresh live top-spend artifact has only one `Protect` row and it is clean, bu
 
 ## Next Recommended Action
 
-Do not merge PR #65 yet. Either run one narrow Protect/no-touch boundary investigation or get explicit owner acceptance that the remaining `88/100` Protect / pdf-company-01 borderline is monitoring-only risk.
+Do not merge PR #65 yet. Run Claude equal-segment re-review against the updated PR #65 branch. If that review confirms the represented segments are at or above the strict target or documents only monitoring-level business borderlines, PR #65 can leave draft/merge review after supervisor approval.

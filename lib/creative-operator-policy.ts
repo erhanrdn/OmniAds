@@ -612,6 +612,33 @@ function isProtectedTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyI
   return trendRatio <= 0.4;
 }
 
+function isProtectedBelowBaselineMonitorCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (input.lifecycleState !== "stable_winner") return false;
+  if (input.primaryAction !== "hold_no_touch") return false;
+  if (input.trust?.operatorDisposition === "protected_watchlist") return false;
+  if (hasWeakCampaignContext(input)) return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(1_000, medianSpend * 1.25)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 4) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.9) return false;
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  return metrics.cpa >= medianCpa * 1.5;
+}
+
 function isFatiguedCpaRatioCutCandidate(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -915,6 +942,9 @@ function resolveSegment(params: {
   }
   if (isLowPurchaseCatastrophicCpaLoser(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
+  if (isProtectedBelowBaselineMonitorCandidate(input)) {
+    return "hold_monitor";
   }
   if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
     return "protected_winner";
