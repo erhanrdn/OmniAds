@@ -6,7 +6,7 @@ Last updated: 2026-04-25 by Codex
 
 Implement deterministic Creative media-buyer scoring as the routing layer for Creative segmentation, replacing ad hoc isolated gate routing while preserving all queue/push/apply safety.
 
-Current result: the media-buyer scorecard layer is implemented and `assessCreativeOperatorPolicy()` now routes the operator segment through `mediaBuyerScorecard.operatorSegment`. Fresh acceptance scoring remains blocked: a live audit rerun through the local SSH DB tunnel hit repeated `60000ms` database query timeouts on Meta campaign/ad set context reads, so no new valid current-code equal-segment artifact was produced.
+Current result: the media-buyer scorecard layer is implemented and `assessCreativeOperatorPolicy()` now routes the operator segment through `mediaBuyerScorecard.operatorSegment`. Fresh acceptance scoring remains blocked by runtime access: the audit helper now writes a blocked PR #65 current-output artifact, but the latest reruns could not generate valid current-code scores because the local SSH DB tunnel dropped or timed out during Meta runtime discovery/context reads.
 
 ## Program Status
 
@@ -30,7 +30,8 @@ Current result: the media-buyer scorecard layer is implemented and `assessCreati
 - Protect/no-touch boundary investigation: implemented on PR #65 branch
 - Round 6 Watch-as-Refresh edge verification: implemented on PR #65 branch; no additional policy change required
 - PR #65 score reconciliation: complete; no policy change made
-- Creative media-buyer scoring engine: implemented on PR #65 branch; fresh live/equal-segment score pending runtime rerun
+- Creative media-buyer scoring engine: implemented on PR #65 branch
+- PR #65 fresh scoring unblock: source-read/audit helper hardened; fresh current-output artifact exists but is blocked and invalid for acceptance
 
 ## Current PR
 
@@ -39,8 +40,8 @@ Current result: the media-buyer scorecard layer is implemented and `assessCreati
 - status: open; do not merge
 - merge status: not merged
 - latest commit: media-buyer scoring engine update on PR #65 branch
-- latest checks: targeted media-buyer scoring, Creative operator policy, Creative surface/Decision OS, operator prescription, API, and Command Center safety tests passed locally; `npm test`, `npx tsc --noEmit`, `npm run build`, scoped diff check, hidden/bidi scan, raw report scan, and unauthenticated localhost smoke passed
-- reason: current exact equal-segment scores are still not proven from a fresh current artifact; do not merge before a fresh Claude/supervisor review of a valid artifact or explicit owner acceptance
+- latest checks: targeted audit-helper/scoring tests and `npx tsc --noEmit` pass after the fresh-scoring unblock changes; full validation still pending after the runtime artifact block
+- reason: current exact equal-segment scores are still not proven from a fresh valid current-output artifact; do not merge before a fresh Claude/supervisor review of a valid artifact or explicit owner acceptance
 
 ## Media Buyer Scoring Engine
 
@@ -86,19 +87,52 @@ Safety preserved:
 Audit helper update:
 
 - `scripts/creative-live-firm-audit.ts` now emits sanitized scorecard summaries for each sampled row.
+- the helper no longer performs a duplicate campaign/ad set source-snapshot read after Decision OS has already resolved delivery context.
+- the helper writes `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json`.
+- the helper records per-business source-read failures and can write a blocked current-output artifact instead of failing without an artifact.
+- Decision OS source reads now scope campaign/ad set context to campaign IDs referenced by the primary Creative decision window.
 
-Fresh live audit attempt:
+Fresh live audit attempts:
 
 - SSH tunnel to local `127.0.0.1:15432` was established.
 - `scripts/creative-live-firm-audit.ts` was run with production DB URL rewritten to the tunnel.
-- the run hit repeated `60000ms` DB query timeouts on Meta campaign/ad set context reads.
-- no valid fresh current-code score artifact was produced.
+- first runs hit DB query timeouts on Meta campaign/ad set context reads.
+- after source-read hardening, reruns progressed farther but the SSH DB tunnel dropped or returned connection timeouts/refusals during discovery/evaluation.
+- a fresh blocked artifact was written at `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json`.
+- artifact status: `blocked`
+- `valid_for_acceptance: false`
+- `validForClaudeReview: false`
+- runtime blockers: `discovery:db_tunnel_connection_refused`, `prior_live_run:db_tunnel_connection_timeout`, `prior_live_run:database_query_timeout_meta_campaign_adset_context`
 
 Current acceptance status:
 
 - represented segment scores are not re-proven after the scoring engine pass.
 - Creative Recovery is not accepted yet.
-- Next recommended action is to fix/work around the live audit timeout, regenerate current artifacts, then run Claude/supervisor review.
+- Next recommended action is to restore stable DB/runtime access, regenerate a valid current-output artifact, then run Claude/supervisor review.
+
+## PR #65 Fresh Scoring Unblock
+
+Status: blocked by runtime after helper/source hardening.
+
+Root cause found:
+
+- The original live audit path duplicated campaign/ad set context reads after Decision OS had already fetched source context.
+- The core source path also read broad campaign/ad set context for the full business, which was too slow over the SSH tunnel.
+- After narrowing those reads to referenced campaign IDs, the remaining blocker is SSH/DB tunnel stability, not a proven policy/scoring defect.
+
+What was fixed:
+
+- audit active-status sampling now uses Decision OS delivery context.
+- Decision OS campaign/ad set context reads are campaign-ID scoped from the primary Creative decision window.
+- blocked current-output artifacts are persisted instead of silently missing.
+
+Fresh acceptance scoring:
+
+- not run
+- no current scores are valid for acceptance
+- Claude review should not run yet
+
+Last updated by Codex: 2026-04-25
 
 ## Fresh Baseline Audit
 

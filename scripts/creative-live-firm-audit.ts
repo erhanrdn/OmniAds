@@ -1,18 +1,21 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadEnvConfig } from "@next/env";
 import { NextRequest } from "next/server";
-import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
-import type { MetaAdSetData } from "@/lib/api/meta";
 import type { CreativeDecisionInputRow } from "@/lib/ai/generate-creative-decisions";
 import type {
+  CreativeDecisionDeliveryContext,
   CreativeDecisionOsCreative,
   CreativeDecisionRelativeBaseline,
 } from "@/lib/creative-decision-os";
+import { CREATIVE_DECISION_OS_ENGINE_VERSION } from "@/lib/creative-decision-os";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { buildCreativeOldRuleChallenger } from "@/lib/creative-old-rule-challenger";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
+import { CREATIVE_MEDIA_BUYER_SCORING_VERSION } from "@/lib/creative-media-buyer-scoring";
+import { CREATIVE_OPERATOR_POLICY_VERSION } from "@/lib/creative-operator-policy";
 import {
   buildCreativeOperatorItem,
   creativeOperatorSegmentLabel,
@@ -23,10 +26,6 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import { addDaysToIsoDate } from "@/lib/meta/history";
-import {
-  getMetaDecisionSourceSnapshot,
-  getMetaDecisionWindowContext,
-} from "@/lib/meta/operator-decision-source";
 import {
   assessRuntimeTokenReadability,
   buildAliasFactory,
@@ -169,6 +168,8 @@ type PrivateAuditRow = SanitizedAuditRow & {
 
 type BusinessAuditSummary = {
   companyAlias: string;
+  evaluationStatus?: "evaluated" | "failed";
+  failureReason?: string;
   screeningLiveRows: number;
   currentDecisionOsRows: number;
   sampledCreatives: number;
@@ -193,7 +194,10 @@ type SanitizedAuditArtifact = {
     eligibleCandidates: number;
     runtimeEligibleBusinesses: number;
     runtimeSkippedCandidates: number;
-    runtimeSkippedCandidatesByReason: Record<RuntimeCandidateSkipReason, number>;
+    runtimeSkippedCandidatesByReason: Record<
+      RuntimeCandidateSkipReason,
+      number
+    >;
     runtimeTokenReadabilityStatus: RuntimeTokenReadabilityStatus;
   };
   globalSummary: {
@@ -206,9 +210,71 @@ type SanitizedAuditArtifact = {
   rows: SanitizedAuditRow[];
 };
 
-type PrivateAuditArtifact = Omit<SanitizedAuditArtifact, "sanitization" | "rows" | "businesses"> & {
+type PrivateAuditArtifact = Omit<
+  SanitizedAuditArtifact,
+  "sanitization" | "rows" | "businesses"
+> & {
   rows: PrivateAuditRow[];
-  businesses: Array<BusinessAuditSummary & { businessId: string; businessName: string | null }>;
+  businesses: Array<
+    BusinessAuditSummary & { businessId: string; businessName: string | null }
+  >;
+};
+
+type Pr65CurrentOutputArtifact = {
+  generatedAt: string;
+  source: "pr65_current_output_fresh";
+  artifactStatus: "complete_current_output" | "blocked";
+  prBranchCommit: string;
+  decisionOsEngineVersion: typeof CREATIVE_DECISION_OS_ENGINE_VERSION;
+  scoringEngineVersion: typeof CREATIVE_MEDIA_BUYER_SCORING_VERSION;
+  policyVersion: typeof CREATIVE_OPERATOR_POLICY_VERSION;
+  valid_for_acceptance: false;
+  validForClaudeReview: boolean;
+  acceptanceBlockers: string[];
+  runtimeBlockers: string[];
+  auditWindow: AuditWindow;
+  sanitization: SanitizedAuditArtifact["sanitization"];
+  cohort: SanitizedAuditArtifact["cohort"];
+  globalSummary: SanitizedAuditArtifact["globalSummary"];
+  businesses: BusinessAuditSummary[];
+  rows: Array<{
+    companyAlias: string;
+    accountAlias: string;
+    campaignAlias: string;
+    adSetAlias: string;
+    creativeAlias: string;
+    activeStatus: boolean;
+    currentAdsecuteSegment: string;
+    currentInternalSegment: string | null;
+    currentPrimaryDecision: string | null;
+    instruction: string;
+    benchmarkSummary: {
+      scope: string;
+      label: string;
+      reliability: string;
+      accountBaseline: AuditBaselineSummary;
+      campaignBaseline: AuditBaselineSummary | null;
+    };
+    evidenceSummary: {
+      spend30d: number;
+      recent7d: Record<string, number> | null;
+      mid30d: Record<string, number> | null;
+      long90d: Record<string, number> | null;
+      lifecycleState: string;
+      primaryAction: string;
+      commercialTruthAvailability: SanitizedAuditRow["commercialTruthAvailability"];
+      businessValidationStatus: SanitizedAuditRow["businessValidationStatus"];
+      pushReadiness: string | null;
+      queueEligible: boolean;
+      canApply: boolean;
+      evidenceSource: string;
+      trustState: string;
+      previewWindow: string | null;
+      deploymentCompatibility: string;
+      deploymentTargetLane: string | null;
+    };
+    scorecardSummary: SanitizedAuditRow["mediaBuyerScorecard"];
+  }>;
 };
 
 type RuntimeEligibleBusiness = {
@@ -221,10 +287,20 @@ type RuntimeEligibleBusiness = {
 const OUTPUT_DIR =
   "docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit";
 const ARTIFACT_DIR = path.join(OUTPUT_DIR, "artifacts");
-const SANITIZED_ARTIFACT_PATH = path.join(ARTIFACT_DIR, "sanitized-live-firm-audit.json");
-const LOCAL_PRIVATE_ARTIFACT_PATH = "/tmp/adsecute-creative-live-firm-audit-local.json";
-const MAX_ROWS_PER_BUSINESS = Number(process.env.CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS ?? 10);
-const SCREEN_TIMEOUT_MS = Number(process.env.CREATIVE_LIVE_FIRM_AUDIT_SCREEN_TIMEOUT_MS ?? 90_000);
+const SANITIZED_ARTIFACT_PATH = path.join(
+  ARTIFACT_DIR,
+  "sanitized-live-firm-audit.json",
+);
+const PR65_CURRENT_OUTPUT_ARTIFACT_PATH =
+  "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json";
+const LOCAL_PRIVATE_ARTIFACT_PATH =
+  "/tmp/adsecute-creative-live-firm-audit-local.json";
+const MAX_ROWS_PER_BUSINESS = Number(
+  process.env.CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS ?? 10,
+);
+const SCREEN_TIMEOUT_MS = Number(
+  process.env.CREATIVE_LIVE_FIRM_AUDIT_SCREEN_TIMEOUT_MS ?? 90_000,
+);
 const DEBUG = process.env.CREATIVE_LIVE_FIRM_AUDIT_DEBUG?.trim() === "1";
 const DEFAULT_AUDIT_BASE_URL = "http://127.0.0.1:3000";
 
@@ -249,23 +325,62 @@ function nullableRound(value: number | null | undefined, digits = 2) {
   return round(value, digits);
 }
 
-function increment(map: Record<string, number>, key: string | null | undefined) {
+function increment(
+  map: Record<string, number>,
+  key: string | null | undefined,
+) {
   const normalized = key?.trim() || "missing";
   map[normalized] = (map[normalized] ?? 0) + 1;
 }
 
 function debug(message: string, extra?: Record<string, unknown>) {
   if (!DEBUG) return;
-  console.error(`[creative-live-firm-audit] ${message}${extra ? ` ${JSON.stringify(extra)}` : ""}`);
+  console.error(
+    `[creative-live-firm-audit] ${message}${extra ? ` ${JSON.stringify(extra)}` : ""}`,
+  );
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string) {
+function getCurrentGitCommitHash() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return process.env.GITHUB_SHA?.trim() || "unknown";
+  }
+}
+
+function classifyAuditRuntimeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/127\.0\.0\.1:15432|port 15432|ECONNREFUSED/i.test(message)) {
+    return "db_tunnel_connection_refused";
+  }
+  if (/connection terminated due to connection timeout/i.test(message)) {
+    return "db_tunnel_connection_timeout";
+  }
+  if (/timed out/i.test(message)) return "database_query_timeout";
+  if (/fetch failed/i.test(message) || /ECONNREFUSED/i.test(message)) {
+    return "local_refresh_fetch_failed";
+  }
+  return "audit_source_read_failed";
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMessage: string,
+) {
   let timeoutId: NodeJS.Timeout | null = null;
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+        timeoutId = setTimeout(
+          () => reject(new Error(errorMessage)),
+          timeoutMs,
+        );
       }),
     ]);
   } finally {
@@ -276,10 +391,14 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessa
 function currentLocalIsoDate(
   timezone = process.env.CREATIVE_LIVE_FIRM_AUDIT_TIMEZONE ?? "Europe/Istanbul",
 ) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
+    new Date(),
+  );
 }
 
-export function resolveAuditWindow(todayReference = currentLocalIsoDate()): AuditWindow {
+export function resolveAuditWindow(
+  todayReference = currentLocalIsoDate(),
+): AuditWindow {
   const endDate = addDaysToIsoDate(todayReference, -1);
   return {
     todayReference,
@@ -298,29 +417,40 @@ function isActiveMetaStatus(value: string | null | undefined) {
   return normalizeStatus(value) === "ACTIVE";
 }
 
-function buildCampaignStatusMap(rows: MetaCampaignRow[]) {
-  return new Map(rows.map((row) => [row.id, normalizeStatus(row.status)]));
-}
-
-function buildAdSetStatusMap(rows: MetaAdSetData[]) {
-  return new Map(rows.map((row) => [row.id, normalizeStatus(row.status)]));
-}
-
 export function deriveCurrentActiveContext(input: {
   contextRow: Pick<MetaCreativeRow, "campaignId" | "adSetId"> | null;
-  campaignStatusById: Map<string, string | null>;
-  adSetStatusById: Map<string, string | null>;
+  deliveryContext?: Pick<
+    CreativeDecisionDeliveryContext,
+    "campaignStatus" | "adSetStatus" | "activeDelivery" | "pausedDelivery"
+  > | null;
+  campaignStatusById?: Map<string, string | null>;
+  adSetStatusById?: Map<string, string | null>;
 }): ActiveContext {
-  const campaignStatus = input.contextRow?.campaignId
-    ? (input.campaignStatusById.get(input.contextRow.campaignId) ?? null)
-    : null;
-  const adSetStatus = input.contextRow?.adSetId
-    ? (input.adSetStatusById.get(input.contextRow.adSetId) ?? null)
-    : null;
+  const campaignStatus =
+    normalizeStatus(input.deliveryContext?.campaignStatus) ??
+    (input.contextRow?.campaignId
+      ? (input.campaignStatusById?.get(input.contextRow.campaignId) ?? null)
+      : null);
+  const adSetStatus =
+    normalizeStatus(input.deliveryContext?.adSetStatus) ??
+    (input.contextRow?.adSetId
+      ? (input.adSetStatusById?.get(input.contextRow.adSetId) ?? null)
+      : null);
+  const hasDeliveryActivity =
+    typeof input.deliveryContext?.activeDelivery === "boolean" ||
+    typeof input.deliveryContext?.pausedDelivery === "boolean";
+  const deliveryAllowsActive =
+    Boolean(input.deliveryContext?.activeDelivery) &&
+    !Boolean(input.deliveryContext?.pausedDelivery);
 
   if (adSetStatus) {
+    const statusIsActive =
+      isActiveMetaStatus(adSetStatus) &&
+      (campaignStatus == null || isActiveMetaStatus(campaignStatus));
     return {
-      isActive: isActiveMetaStatus(adSetStatus) && (campaignStatus == null || isActiveMetaStatus(campaignStatus)),
+      isActive: hasDeliveryActivity
+        ? deliveryAllowsActive && statusIsActive
+        : statusIsActive,
       campaignStatus,
       adSetStatus,
       source: "campaign_and_adset",
@@ -328,8 +458,11 @@ export function deriveCurrentActiveContext(input: {
   }
 
   if (campaignStatus) {
+    const statusIsActive = isActiveMetaStatus(campaignStatus);
     return {
-      isActive: isActiveMetaStatus(campaignStatus),
+      isActive: hasDeliveryActivity
+        ? deliveryAllowsActive && statusIsActive
+        : statusIsActive,
       campaignStatus,
       adSetStatus,
       source: "campaign_only",
@@ -351,7 +484,8 @@ export function selectDeterministicAuditSample<T extends AuditSampleCandidate>(
   const sortRows = (input: T[]) =>
     [...input].sort(
       (left, right) =>
-        right.spend - left.spend || left.creativeId.localeCompare(right.creativeId),
+        right.spend - left.spend ||
+        left.creativeId.localeCompare(right.creativeId),
     );
 
   const active = sortRows(rows.filter((row) => row.isActive));
@@ -376,7 +510,9 @@ function metricWindow(
   };
 }
 
-function summarizeBaseline(baseline: CreativeDecisionRelativeBaseline): AuditBaselineSummary {
+function summarizeBaseline(
+  baseline: CreativeDecisionRelativeBaseline,
+): AuditBaselineSummary {
   return {
     scope: baseline.scope,
     reliability: baseline.reliability,
@@ -394,7 +530,9 @@ function summarizeBaseline(baseline: CreativeDecisionRelativeBaseline): AuditBas
   };
 }
 
-function summarizeCampaignBaseline(creative: CreativeDecisionOsCreative): AuditBaselineSummary | null {
+function summarizeCampaignBaseline(
+  creative: CreativeDecisionOsCreative,
+): AuditBaselineSummary | null {
   if (creative.benchmarkScope !== "campaign") return null;
   return summarizeBaseline(creative.relativeBaseline);
 }
@@ -409,9 +547,10 @@ function toOldRuleInput(
     creativeFormat: creative.creativeFormat,
     creativeAgeDays: creative.creativeAgeDays,
     spendVelocity: creative.spend / Math.max(1, creative.creativeAgeDays || 1),
-    frequency: contextRow?.impressions && contextRow.impressions > 0
-      ? round(contextRow.clicks / Math.max(1, contextRow.impressions), 4)
-      : 0,
+    frequency:
+      contextRow?.impressions && contextRow.impressions > 0
+        ? round(contextRow.clicks / Math.max(1, contextRow.impressions), 4)
+        : 0,
     spend: creative.spend,
     purchaseValue: creative.purchaseValue,
     roas: creative.roas,
@@ -428,7 +567,9 @@ function toOldRuleInput(
     watchRate: contextRow?.video50 ?? 0,
     video75Rate: contextRow?.video75 ?? 0,
     clickToPurchaseRate:
-      creative.linkClicks > 0 ? (creative.purchases / creative.linkClicks) * 100 : 0,
+      creative.linkClicks > 0
+        ? (creative.purchases / creative.linkClicks) * 100
+        : 0,
     atcToPurchaseRate: contextRow?.atcToPurchaseRatio ?? 0,
     accountId: contextRow?.accountId ?? null,
     accountName: contextRow?.accountName ?? null,
@@ -445,7 +586,8 @@ function hasNumber(value: number | null | undefined): value is number {
 
 function hasRelativeBaselineContext(creative: CreativeDecisionOsCreative) {
   const baseline = creative.relativeBaseline;
-  const reliable = baseline.reliability === "strong" || baseline.reliability === "medium";
+  const reliable =
+    baseline.reliability === "strong" || baseline.reliability === "medium";
   return (
     reliable &&
     baseline.sampleSize >= 3 &&
@@ -461,7 +603,9 @@ function hasRelativeBaselineContext(creative: CreativeDecisionOsCreative) {
   );
 }
 
-function hasStrongRelativeBaselineContext(creative: CreativeDecisionOsCreative) {
+function hasStrongRelativeBaselineContext(
+  creative: CreativeDecisionOsCreative,
+) {
   const baseline = creative.relativeBaseline;
   return (
     hasRelativeBaselineContext(creative) &&
@@ -479,7 +623,11 @@ function hasRelativeScaleReviewEvidence(creative: CreativeDecisionOsCreative) {
   const medianRoas = baseline.medianRoas ?? 0;
   const medianCpa = baseline.medianCpa ?? null;
   if (!hasRelativeBaselineContext(creative)) return false;
-  if (!hasNumber(creative.spend) || !hasNumber(creative.purchases) || !hasNumber(creative.roas)) {
+  if (
+    !hasNumber(creative.spend) ||
+    !hasNumber(creative.purchases) ||
+    !hasNumber(creative.roas)
+  ) {
     return false;
   }
   if (creative.spend < Math.max(80, medianSpend * 0.2)) return false;
@@ -505,11 +653,15 @@ function hasTrueScaleEvidence(creative: CreativeDecisionOsCreative) {
   if (!hasStrongRelativeBaselineContext(creative)) return false;
   if (creative.economics.status !== "eligible") return false;
   if (!hasRelativeScaleReviewEvidence(creative)) return false;
-  if (!hasNumber(creative.spend) || creative.spend < Math.max(300, medianSpend * 1.3)) {
+  if (
+    !hasNumber(creative.spend) ||
+    creative.spend < Math.max(300, medianSpend * 1.3)
+  ) {
     return false;
   }
   if (!hasNumber(creative.purchases) || creative.purchases < 6) return false;
-  if (!hasNumber(creative.roas) || creative.roas < medianRoas * 1.6) return false;
+  if (!hasNumber(creative.roas) || creative.roas < medianRoas * 1.6)
+    return false;
   if (
     hasNumber(creative.cpa) &&
     creative.cpa > 0 &&
@@ -633,9 +785,11 @@ function installAuditLocalRefreshGuard() {
 async function waitForAuditSnapshotRefreshes(timeoutMs = 5_000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const refreshState = (globalThis as typeof globalThis & {
-      __omniadsMetaCreativesRefreshState?: Set<string>;
-    }).__omniadsMetaCreativesRefreshState;
+    const refreshState = (
+      globalThis as typeof globalThis & {
+        __omniadsMetaCreativesRefreshState?: Set<string>;
+      }
+    ).__omniadsMetaCreativesRefreshState;
     if (!refreshState || refreshState.size === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -648,11 +802,15 @@ export function buildRequestUrl(input: {
   decisionAsOf?: string;
   baseUrl?: string;
 }) {
-  const url = new URL("/api/creatives/decision-os", input.baseUrl ?? resolveAuditBaseUrl());
+  const url = new URL(
+    "/api/creatives/decision-os",
+    input.baseUrl ?? resolveAuditBaseUrl(),
+  );
   url.searchParams.set("businessId", input.businessId);
   url.searchParams.set("startDate", input.startDate);
   url.searchParams.set("endDate", input.endDate);
-  if (input.decisionAsOf) url.searchParams.set("decisionAsOf", input.decisionAsOf);
+  if (input.decisionAsOf)
+    url.searchParams.set("decisionAsOf", input.decisionAsOf);
   return url.toString();
 }
 
@@ -661,12 +819,14 @@ async function fetchWindowRows(input: {
   startDate: string;
   endDate: string;
 }) {
-  const request = new NextRequest(buildRequestUrl({
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    decisionAsOf: input.endDate,
-  }));
+  const request = new NextRequest(
+    buildRequestUrl({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      decisionAsOf: input.endDate,
+    }),
+  );
   return fetchCreativePayload({
     request,
     businessId: input.businessId,
@@ -694,7 +854,10 @@ async function discoverRuntimeEligibleBusinesses(auditWindow: AuditWindow) {
     live30d: FetchCreativePayloadResult;
   }> = [];
 
-  for (const [candidateIndex, business] of candidateEligibility.eligible.entries()) {
+  for (const [
+    candidateIndex,
+    business,
+  ] of candidateEligibility.eligible.entries()) {
     debug("screening-candidate", {
       candidate: candidateIndex + 1,
       total: candidateEligibility.eligible.length,
@@ -728,10 +891,13 @@ async function discoverRuntimeEligibleBusinesses(auditWindow: AuditWindow) {
       continue;
     }
 
-    const integration = await getIntegration(business.business_id, "meta").catch(() => null);
-    const assignedAccountIds = await fetchAssignedAccountIds(business.business_id).catch(
-      () => [],
-    );
+    const integration = await getIntegration(
+      business.business_id,
+      "meta",
+    ).catch(() => null);
+    const assignedAccountIds = await fetchAssignedAccountIds(
+      business.business_id,
+    ).catch(() => []);
     const accountProbes =
       live30d.rows.length === 0 && integration?.access_token
         ? await probeLiveMetaAccountAccess({
@@ -768,12 +934,20 @@ async function discoverRuntimeEligibleBusinesses(auditWindow: AuditWindow) {
       runtimeEligibleCandidateCount: runtimeEligibleBusinesses.length,
     })
   ) {
-    throw new Error("No live Meta-readable businesses were available for the live-firm audit.");
+    throw new Error(
+      "No live Meta-readable businesses were available for the live-firm audit.",
+    );
   }
 
+  resetDbClientCache();
   const businessNames = await resolveBusinessNames(
     runtimeEligibleBusinesses.map(({ business }) => business.business_id),
-  );
+  ).catch((error) => {
+    debug("business-name-resolution-failed", {
+      failureReason: classifyAuditRuntimeError(error),
+    });
+    return new Map<string, string | null>();
+  });
   const assigned = assignStableCompanyAliases(
     runtimeEligibleBusinesses.map(({ business, live30d }) => ({
       businessId: business.business_id,
@@ -804,6 +978,7 @@ function isDirectRun() {
 async function persistArtifacts(input: {
   sanitized: SanitizedAuditArtifact;
   localPrivate: PrivateAuditArtifact;
+  pr65CurrentOutput?: Pr65CurrentOutputArtifact;
 }) {
   await mkdir(ARTIFACT_DIR, { recursive: true });
   await writeFile(
@@ -811,6 +986,8 @@ async function persistArtifacts(input: {
     `${JSON.stringify(input.sanitized, null, 2)}\n`,
     "utf8",
   );
+  if (input.pr65CurrentOutput)
+    await persistPr65CurrentOutputArtifact(input.pr65CurrentOutput);
   await writeFile(
     LOCAL_PRIVATE_ARTIFACT_PATH,
     `${JSON.stringify(input.localPrivate, null, 2)}\n`,
@@ -820,6 +997,9 @@ async function persistArtifacts(input: {
     JSON.stringify(
       {
         sanitizedArtifact: SANITIZED_ARTIFACT_PATH,
+        pr65CurrentOutputArtifact: input.pr65CurrentOutput
+          ? PR65_CURRENT_OUTPUT_ARTIFACT_PATH
+          : null,
         localPrivateArtifact: LOCAL_PRIVATE_ARTIFACT_PATH,
         businesses: input.sanitized.cohort.runtimeEligibleBusinesses,
         sampledCreatives: input.sanitized.globalSummary.sampledCreatives,
@@ -831,13 +1011,181 @@ async function persistArtifacts(input: {
   );
 }
 
+async function persistPr65CurrentOutputArtifact(
+  artifact: Pr65CurrentOutputArtifact,
+) {
+  await mkdir(path.dirname(PR65_CURRENT_OUTPUT_ARTIFACT_PATH), {
+    recursive: true,
+  });
+  await writeFile(
+    PR65_CURRENT_OUTPUT_ARTIFACT_PATH,
+    `${JSON.stringify(artifact, null, 2)}\n`,
+    "utf8",
+  );
+  console.log(
+    JSON.stringify(
+      {
+        pr65CurrentOutputArtifact: PR65_CURRENT_OUTPUT_ARTIFACT_PATH,
+        validForClaudeReview: artifact.validForClaudeReview,
+        valid_for_acceptance: artifact.valid_for_acceptance,
+        runtimeBlockers: artifact.runtimeBlockers,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function buildPr65CurrentOutputArtifact(
+  sanitizedArtifact: SanitizedAuditArtifact,
+): Pr65CurrentOutputArtifact {
+  const failedBusinesses = sanitizedArtifact.businesses.filter(
+    (business) => business.evaluationStatus === "failed",
+  );
+  const runtimeBlockers = [
+    ...(sanitizedArtifact.rows.length === 0
+      ? ["no_current_output_rows_generated"]
+      : []),
+    ...failedBusinesses.map(
+      (business) =>
+        `${business.companyAlias}:${business.failureReason ?? "audit_source_read_failed"}`,
+    ),
+  ];
+  return {
+    generatedAt: sanitizedArtifact.generatedAt,
+    source: "pr65_current_output_fresh",
+    artifactStatus: "complete_current_output",
+    prBranchCommit: getCurrentGitCommitHash(),
+    decisionOsEngineVersion: CREATIVE_DECISION_OS_ENGINE_VERSION,
+    scoringEngineVersion: CREATIVE_MEDIA_BUYER_SCORING_VERSION,
+    policyVersion: CREATIVE_OPERATOR_POLICY_VERSION,
+    valid_for_acceptance: false,
+    validForClaudeReview: runtimeBlockers.length === 0,
+    acceptanceBlockers: [
+      "fresh_expected_labels_not_regenerated_in_this_artifact",
+      "artifact_contains_current_adsecute_outputs_only",
+    ],
+    runtimeBlockers,
+    auditWindow: sanitizedArtifact.auditWindow,
+    sanitization: sanitizedArtifact.sanitization,
+    cohort: sanitizedArtifact.cohort,
+    globalSummary: sanitizedArtifact.globalSummary,
+    businesses: sanitizedArtifact.businesses,
+    rows: sanitizedArtifact.rows.map((row) => ({
+      companyAlias: row.companyAlias,
+      accountAlias: row.accountAlias,
+      campaignAlias: row.campaignAlias,
+      adSetAlias: row.adSetAlias,
+      creativeAlias: row.creativeAlias,
+      activeStatus: row.activeStatus,
+      currentAdsecuteSegment: row.currentUserFacingSegment,
+      currentInternalSegment: row.currentDecisionOsInternalSegment,
+      currentPrimaryDecision:
+        row.mediaBuyerScorecard?.recommendedSegment ?? null,
+      instruction: row.currentInstructionHeadline,
+      benchmarkSummary: {
+        scope: row.benchmarkScope,
+        label: row.benchmarkScopeLabel,
+        reliability: row.baselineReliability,
+        accountBaseline: row.accountBaseline,
+        campaignBaseline: row.campaignBaseline,
+      },
+      evidenceSummary: {
+        spend30d: row.spend30d,
+        recent7d: row.recent7d,
+        mid30d: row.mid30d,
+        long90d: row.long90d,
+        lifecycleState: row.lifecycleState,
+        primaryAction: row.primaryAction,
+        commercialTruthAvailability: row.commercialTruthAvailability,
+        businessValidationStatus: row.businessValidationStatus,
+        pushReadiness: row.pushReadiness,
+        queueEligible: row.queueEligible,
+        canApply: row.canApply,
+        evidenceSource: row.evidenceSource,
+        trustState: row.trustState,
+        previewWindow: row.previewWindow,
+        deploymentCompatibility: row.deploymentCompatibility,
+        deploymentTargetLane: row.deploymentTargetLane,
+      },
+      scorecardSummary: row.mediaBuyerScorecard,
+    })),
+  };
+}
+
+function buildBlockedPr65CurrentOutputArtifact(input: {
+  generatedAt: string;
+  auditWindow: AuditWindow;
+  blocker: string;
+}): Pr65CurrentOutputArtifact {
+  return {
+    generatedAt: input.generatedAt,
+    source: "pr65_current_output_fresh",
+    artifactStatus: "blocked",
+    prBranchCommit: getCurrentGitCommitHash(),
+    decisionOsEngineVersion: CREATIVE_DECISION_OS_ENGINE_VERSION,
+    scoringEngineVersion: CREATIVE_MEDIA_BUYER_SCORING_VERSION,
+    policyVersion: CREATIVE_OPERATOR_POLICY_VERSION,
+    valid_for_acceptance: false,
+    validForClaudeReview: false,
+    acceptanceBlockers: [
+      "fresh_current_output_not_generated",
+      "fresh_expected_labels_not_regenerated",
+    ],
+    runtimeBlockers: [input.blocker],
+    auditWindow: input.auditWindow,
+    sanitization: {
+      rawIdsIncluded: false,
+      rawNamesIncluded: false,
+      notes: [
+        "No raw business IDs, account IDs, or names are included.",
+        "This artifact records a runtime block before current-output rows could be generated.",
+      ],
+    },
+    cohort: {
+      historicalSnapshotCandidates: 0,
+      eligibleCandidates: 0,
+      runtimeEligibleBusinesses: 0,
+      runtimeSkippedCandidates: 0,
+      runtimeSkippedCandidatesByReason: EMPTY_RUNTIME_SKIPS,
+      runtimeTokenReadabilityStatus: "not_needed",
+    },
+    globalSummary: {
+      sampledCreatives: 0,
+      businessesWithZeroScale: 0,
+      businessesWithZeroScaleReview: 0,
+      userFacingSegments: {},
+    },
+    businesses: [],
+    rows: [],
+  };
+}
+
 export async function runCreativeLiveFirmAudit() {
   const restoreRuntime = installSanitizedRuntimeGuards();
   const restoreFetch = installAuditLocalRefreshGuard();
   try {
     const generatedAt = new Date().toISOString();
     const auditWindow = resolveAuditWindow();
-    const discovery = await discoverRuntimeEligibleBusinesses(auditWindow);
+    const discovery = await discoverRuntimeEligibleBusinesses(
+      auditWindow,
+    ).catch(async (error) => {
+      const blocker = `discovery:${classifyAuditRuntimeError(error)}`;
+      await persistPr65CurrentOutputArtifact(
+        buildBlockedPr65CurrentOutputArtifact({
+          generatedAt,
+          auditWindow,
+          blocker,
+        }),
+      );
+      return null;
+    });
+    if (!discovery) {
+      return {
+        sanitizedArtifact: null,
+        privateArtifact: null,
+      };
+    }
     const sanitizedRows: SanitizedAuditRow[] = [];
     const localPrivateRows: PrivateAuditRow[] = [];
     const businessSummaries: BusinessAuditSummary[] = [];
@@ -848,245 +1196,304 @@ export async function runCreativeLiveFirmAudit() {
       debug("evaluating-business", {
         companyAlias: runtimeEligible.companyAlias,
       });
-      const request = new NextRequest(
-        buildRequestUrl({
+      try {
+        const request = new NextRequest(
+          buildRequestUrl({
+            businessId,
+            startDate: auditWindow.startDate,
+            endDate: auditWindow.endDate,
+            decisionAsOf: auditWindow.endDate,
+          }),
+        );
+        const decisionOs = await getCreativeDecisionOsForRange({
+          request,
           businessId,
           startDate: auditWindow.startDate,
           endDate: auditWindow.endDate,
+          analyticsStartDate: auditWindow.startDate,
+          analyticsEndDate: auditWindow.endDate,
           decisionAsOf: auditWindow.endDate,
-        }),
-      );
-      const decisionOs = await getCreativeDecisionOsForRange({
-        request,
-        businessId,
-        startDate: auditWindow.startDate,
-        endDate: auditWindow.endDate,
-        analyticsStartDate: auditWindow.startDate,
-        analyticsEndDate: auditWindow.endDate,
-        decisionAsOf: auditWindow.endDate,
-      });
-
-      const decisionContext = await getMetaDecisionWindowContext({
-        businessId,
-        startDate: auditWindow.startDate,
-        endDate: auditWindow.endDate,
-        decisionAsOf: auditWindow.endDate,
-      });
-      const sourceSnapshot = await getMetaDecisionSourceSnapshot({
-        businessId,
-        decisionWindows: decisionContext.decisionWindows,
-      });
-      const last7 = await fetchWindowRows({
-        businessId,
-        startDate: addDaysToIsoDate(auditWindow.endDate, -6),
-        endDate: auditWindow.endDate,
-      });
-      const last90 = await fetchWindowRows({
-        businessId,
-        startDate: addDaysToIsoDate(auditWindow.endDate, -89),
-        endDate: auditWindow.endDate,
-      });
-      const live30d = runtimeEligible.live30d;
-
-      const currentRowsById = new Map(live30d.rows.map((row) => [row.id, row]));
-      const last7ById = new Map(last7.rows.map((row) => [row.id, row]));
-      const last90ById = new Map(last90.rows.map((row) => [row.id, row]));
-      const campaignStatusById = buildCampaignStatusMap(sourceSnapshot.campaigns.rows ?? []);
-      const adSetStatusById = buildAdSetStatusMap(sourceSnapshot.adSets.rows ?? []);
-
-      const sampled = selectDeterministicAuditSample(
-        decisionOs.creatives.map((creative) => {
-          const contextRow = currentRowsById.get(creative.creativeId) ?? null;
-          const active = deriveCurrentActiveContext({
-            contextRow,
-            campaignStatusById,
-            adSetStatusById,
-          });
-          return {
-            creativeId: creative.creativeId,
-            spend: creative.spend,
-            isActive: active.isActive,
-            creative,
-            contextRow,
-            active,
-          };
-        }),
-      );
-
-      const accountAliasFactory = buildAliasFactory(`${runtimeEligible.companyAlias}-account`);
-      const campaignAliasFactory = buildAliasFactory(`${runtimeEligible.companyAlias}-campaign`);
-      const adSetAliasFactory = buildAliasFactory(`${runtimeEligible.companyAlias}-adset`);
-      const creativeAliasFactory = buildAliasFactory(`${runtimeEligible.companyAlias}-creative`);
-
-      const allOldRule = buildCreativeOldRuleChallenger(
-        decisionOs.creatives.map((creative) =>
-          toOldRuleInput(creative, currentRowsById.get(creative.creativeId) ?? null),
-        ),
-      );
-      const oldRuleById = new Map(allOldRule.map((row) => [row.creativeId, row]));
-
-      const segmentCounts: Record<string, number> = {};
-      const oldChallengerCounts: Record<string, number> = {};
-
-      for (const entry of sampled) {
-        const creative = entry.creative;
-        const operatorItem = buildCreativeOperatorItem(creative);
-        const oldRule = oldRuleById.get(creative.creativeId) ?? null;
-        const companyAlias = runtimeEligible.companyAlias;
-        const accountAlias = accountAliasFactory(entry.contextRow?.accountId ?? entry.contextRow?.accountName);
-        const campaignAlias = campaignAliasFactory(entry.contextRow?.campaignName ?? entry.contextRow?.campaignId);
-        const adSetAlias = adSetAliasFactory(entry.contextRow?.adSetName ?? entry.contextRow?.adSetId);
-        const creativeAlias = creativeAliasFactory(creative.name);
-        const replacements: Array<[string | null | undefined, string]> = [
-          [entry.contextRow?.accountName, accountAlias],
-          [entry.contextRow?.accountId, accountAlias],
-          [entry.contextRow?.campaignName, campaignAlias],
-          [entry.contextRow?.campaignId, campaignAlias],
-          [entry.contextRow?.adSetName, adSetAlias],
-          [entry.contextRow?.adSetId, adSetAlias],
-          [creative.name, creativeAlias],
-          [creative.creativeId, creativeAlias],
-        ];
-        const userFacingSegment = creativeOperatorSegmentLabel(creative);
-        const oldRuleSegment = oldRule?.challengerAction ?? null;
-        const commercialTruthConfigured =
-          decisionOs.commercialTruthCoverage.configuredSections.targetPack;
-        const businessValidationStatus = resolveBusinessValidationStatus({
-          creative,
-          commercialTruthConfigured,
         });
-        const relativeStrengthClass = hasTrueScaleEvidence(creative)
-          ? isReviewOnlyScaleCandidate({
-              creative,
-              commercialTruthConfigured,
-            })
-            ? "review_only_scale_candidate"
-            : "true_scale_candidate"
-          : hasRelativeScaleReviewEvidence(creative)
-            ? "strong_relative"
-            : "none";
 
-        const sanitizedRow: SanitizedAuditRow = {
-          companyAlias,
-          accountAlias,
-          campaignAlias,
-          adSetAlias,
-          creativeAlias,
-          activeStatus: entry.active.isActive,
-          activeStatusSource: entry.active.source,
-          campaignStatus: entry.active.campaignStatus,
-          adSetStatus: entry.active.adSetStatus,
-          spend30d: round(creative.spend),
-          recent7d: metricWindow(last7ById, creative.creativeId),
-          mid30d: metricWindow(currentRowsById, creative.creativeId),
-          long90d: metricWindow(last90ById, creative.creativeId),
-          currentDecisionOsInternalSegment: creative.operatorPolicy?.segment ?? null,
-          currentUserFacingSegment: userFacingSegment,
-          mediaBuyerScorecard: creative.operatorPolicy?.mediaBuyerScorecard
-            ? {
-                relativePerformanceClass:
-                  creative.operatorPolicy.mediaBuyerScorecard.relativePerformanceClass,
-                evidenceMaturity:
-                  creative.operatorPolicy.mediaBuyerScorecard.evidenceMaturity,
-                trendState: creative.operatorPolicy.mediaBuyerScorecard.trendState,
-                efficiencyRisk: creative.operatorPolicy.mediaBuyerScorecard.efficiencyRisk,
-                winnerSignal: creative.operatorPolicy.mediaBuyerScorecard.winnerSignal,
-                loserSignal: creative.operatorPolicy.mediaBuyerScorecard.loserSignal,
-                contextState: creative.operatorPolicy.mediaBuyerScorecard.contextState,
-                businessValidation:
-                  creative.operatorPolicy.mediaBuyerScorecard.businessValidation,
-                recommendedSegment:
-                  creative.operatorPolicy.mediaBuyerScorecard.recommendedSegment,
-                confidence: round(creative.operatorPolicy.mediaBuyerScorecard.confidence, 3),
-                reasons: creative.operatorPolicy.mediaBuyerScorecard.reasons,
-                reviewOnly: creative.operatorPolicy.mediaBuyerScorecard.reviewOnly,
-                blockedActions: creative.operatorPolicy.mediaBuyerScorecard.blockedActions,
-                metrics: {
-                  roasToBenchmark: nullableRound(
-                    creative.operatorPolicy.mediaBuyerScorecard.metrics.roasToBenchmark,
-                    3,
-                  ),
-                  cpaToBenchmark: nullableRound(
-                    creative.operatorPolicy.mediaBuyerScorecard.metrics.cpaToBenchmark,
-                    3,
-                  ),
-                  trendRoasRatio: nullableRound(
-                    creative.operatorPolicy.mediaBuyerScorecard.metrics.trendRoasRatio,
-                    3,
-                  ),
-                  spendToMedian: nullableRound(
-                    creative.operatorPolicy.mediaBuyerScorecard.metrics.spendToMedian,
-                    3,
-                  ),
-                },
-              }
-            : null,
-          currentInstructionHeadline: sanitizeText(operatorItem.instruction?.headline ?? "", replacements),
-          reasonSummary: sanitizeText(operatorItem.reason, replacements),
-          nextObservation: (operatorItem.instruction?.nextObservation ?? []).map((value) =>
-            sanitizeText(value, replacements),
-          ),
-          benchmarkScope: creative.benchmarkScope,
-          benchmarkScopeLabel: sanitizeText(creative.benchmarkScopeLabel, replacements),
-          baselineReliability: creative.benchmarkReliability,
-          accountBaseline: summarizeBaseline(creative.relativeBaseline),
-          campaignBaseline: summarizeCampaignBaseline(creative),
-          commercialTruthAvailability: {
-            targetPackConfigured: commercialTruthConfigured,
-            missingInputs: decisionOs.commercialTruthCoverage.missingInputs,
-          },
-          businessValidationStatus,
-          pushReadiness: creative.operatorPolicy?.pushReadiness ?? null,
-          queueEligible: creative.operatorPolicy?.queueEligible ?? false,
-          canApply: creative.operatorPolicy?.canApply ?? false,
-          lifecycleState: creative.lifecycleState,
-          primaryAction: creative.primaryAction,
-          evidenceSource: creative.evidenceSource,
-          trustState: creative.trust.truthState,
-          previewWindow: creative.previewStatus?.liveDecisionWindow ?? null,
-          deploymentCompatibility: creative.deployment.compatibility.status,
-          deploymentTargetLane: creative.deployment.targetLane ?? null,
-          oldRuleChallengerAction: oldRule?.challengerAction ?? null,
-          oldRuleChallengerSegment: mapOldRuleSegmentLabel(oldRule?.challengerAction),
-          oldRuleChallengerReason: oldRule ? sanitizeText(oldRule.reason, replacements) : null,
-          relativeStrengthClass,
-          campaignContextLimited: hasWeakCampaignContext(creative),
-        };
-
-        const privateRow: PrivateAuditRow = {
-          ...sanitizedRow,
+        const last7 = await fetchWindowRows({
           businessId,
-          businessName: runtimeEligible.businessName,
-          accountName: entry.contextRow?.accountName ?? null,
-          campaignName: entry.contextRow?.campaignName ?? null,
-          adSetName: entry.contextRow?.adSetName ?? null,
-          creativeName: creative.name,
-          creativeId: creative.creativeId,
-        };
+          startDate: addDaysToIsoDate(auditWindow.endDate, -6),
+          endDate: auditWindow.endDate,
+        });
+        const last90 = await fetchWindowRows({
+          businessId,
+          startDate: addDaysToIsoDate(auditWindow.endDate, -89),
+          endDate: auditWindow.endDate,
+        });
+        const live30d = runtimeEligible.live30d;
 
-        sanitizedRows.push(sanitizedRow);
-        localPrivateRows.push(privateRow);
-        increment(segmentCounts, userFacingSegment);
-        increment(oldChallengerCounts, oldRuleSegment);
-        increment(globalSegments, userFacingSegment);
+        const currentRowsById = new Map(
+          live30d.rows.map((row) => [row.id, row]),
+        );
+        const last7ById = new Map(last7.rows.map((row) => [row.id, row]));
+        const last90ById = new Map(last90.rows.map((row) => [row.id, row]));
+
+        const sampled = selectDeterministicAuditSample(
+          decisionOs.creatives.map((creative) => {
+            const contextRow = currentRowsById.get(creative.creativeId) ?? null;
+            const active = deriveCurrentActiveContext({
+              contextRow,
+              deliveryContext: creative.deliveryContext ?? null,
+            });
+            return {
+              creativeId: creative.creativeId,
+              spend: creative.spend,
+              isActive: active.isActive,
+              creative,
+              contextRow,
+              active,
+            };
+          }),
+        );
+
+        const accountAliasFactory = buildAliasFactory(
+          `${runtimeEligible.companyAlias}-account`,
+        );
+        const campaignAliasFactory = buildAliasFactory(
+          `${runtimeEligible.companyAlias}-campaign`,
+        );
+        const adSetAliasFactory = buildAliasFactory(
+          `${runtimeEligible.companyAlias}-adset`,
+        );
+        const creativeAliasFactory = buildAliasFactory(
+          `${runtimeEligible.companyAlias}-creative`,
+        );
+
+        const allOldRule = buildCreativeOldRuleChallenger(
+          decisionOs.creatives.map((creative) =>
+            toOldRuleInput(
+              creative,
+              currentRowsById.get(creative.creativeId) ?? null,
+            ),
+          ),
+        );
+        const oldRuleById = new Map(
+          allOldRule.map((row) => [row.creativeId, row]),
+        );
+
+        const segmentCounts: Record<string, number> = {};
+        const oldChallengerCounts: Record<string, number> = {};
+
+        for (const entry of sampled) {
+          const creative = entry.creative;
+          const operatorItem = buildCreativeOperatorItem(creative);
+          const oldRule = oldRuleById.get(creative.creativeId) ?? null;
+          const companyAlias = runtimeEligible.companyAlias;
+          const accountAlias = accountAliasFactory(
+            entry.contextRow?.accountId ?? entry.contextRow?.accountName,
+          );
+          const campaignAlias = campaignAliasFactory(
+            entry.contextRow?.campaignName ?? entry.contextRow?.campaignId,
+          );
+          const adSetAlias = adSetAliasFactory(
+            entry.contextRow?.adSetName ?? entry.contextRow?.adSetId,
+          );
+          const creativeAlias = creativeAliasFactory(creative.name);
+          const replacements: Array<[string | null | undefined, string]> = [
+            [entry.contextRow?.accountName, accountAlias],
+            [entry.contextRow?.accountId, accountAlias],
+            [entry.contextRow?.campaignName, campaignAlias],
+            [entry.contextRow?.campaignId, campaignAlias],
+            [entry.contextRow?.adSetName, adSetAlias],
+            [entry.contextRow?.adSetId, adSetAlias],
+            [creative.name, creativeAlias],
+            [creative.creativeId, creativeAlias],
+          ];
+          const userFacingSegment = creativeOperatorSegmentLabel(creative);
+          const oldRuleSegment = oldRule?.challengerAction ?? null;
+          const commercialTruthConfigured =
+            decisionOs.commercialTruthCoverage.configuredSections.targetPack;
+          const businessValidationStatus = resolveBusinessValidationStatus({
+            creative,
+            commercialTruthConfigured,
+          });
+          const relativeStrengthClass = hasTrueScaleEvidence(creative)
+            ? isReviewOnlyScaleCandidate({
+                creative,
+                commercialTruthConfigured,
+              })
+              ? "review_only_scale_candidate"
+              : "true_scale_candidate"
+            : hasRelativeScaleReviewEvidence(creative)
+              ? "strong_relative"
+              : "none";
+
+          const sanitizedRow: SanitizedAuditRow = {
+            companyAlias,
+            accountAlias,
+            campaignAlias,
+            adSetAlias,
+            creativeAlias,
+            activeStatus: entry.active.isActive,
+            activeStatusSource: entry.active.source,
+            campaignStatus: entry.active.campaignStatus,
+            adSetStatus: entry.active.adSetStatus,
+            spend30d: round(creative.spend),
+            recent7d: metricWindow(last7ById, creative.creativeId),
+            mid30d: metricWindow(currentRowsById, creative.creativeId),
+            long90d: metricWindow(last90ById, creative.creativeId),
+            currentDecisionOsInternalSegment:
+              creative.operatorPolicy?.segment ?? null,
+            currentUserFacingSegment: userFacingSegment,
+            mediaBuyerScorecard: creative.operatorPolicy?.mediaBuyerScorecard
+              ? {
+                  relativePerformanceClass:
+                    creative.operatorPolicy.mediaBuyerScorecard
+                      .relativePerformanceClass,
+                  evidenceMaturity:
+                    creative.operatorPolicy.mediaBuyerScorecard
+                      .evidenceMaturity,
+                  trendState:
+                    creative.operatorPolicy.mediaBuyerScorecard.trendState,
+                  efficiencyRisk:
+                    creative.operatorPolicy.mediaBuyerScorecard.efficiencyRisk,
+                  winnerSignal:
+                    creative.operatorPolicy.mediaBuyerScorecard.winnerSignal,
+                  loserSignal:
+                    creative.operatorPolicy.mediaBuyerScorecard.loserSignal,
+                  contextState:
+                    creative.operatorPolicy.mediaBuyerScorecard.contextState,
+                  businessValidation:
+                    creative.operatorPolicy.mediaBuyerScorecard
+                      .businessValidation,
+                  recommendedSegment:
+                    creative.operatorPolicy.mediaBuyerScorecard
+                      .recommendedSegment,
+                  confidence: round(
+                    creative.operatorPolicy.mediaBuyerScorecard.confidence,
+                    3,
+                  ),
+                  reasons: creative.operatorPolicy.mediaBuyerScorecard.reasons,
+                  reviewOnly:
+                    creative.operatorPolicy.mediaBuyerScorecard.reviewOnly,
+                  blockedActions:
+                    creative.operatorPolicy.mediaBuyerScorecard.blockedActions,
+                  metrics: {
+                    roasToBenchmark: nullableRound(
+                      creative.operatorPolicy.mediaBuyerScorecard.metrics
+                        .roasToBenchmark,
+                      3,
+                    ),
+                    cpaToBenchmark: nullableRound(
+                      creative.operatorPolicy.mediaBuyerScorecard.metrics
+                        .cpaToBenchmark,
+                      3,
+                    ),
+                    trendRoasRatio: nullableRound(
+                      creative.operatorPolicy.mediaBuyerScorecard.metrics
+                        .trendRoasRatio,
+                      3,
+                    ),
+                    spendToMedian: nullableRound(
+                      creative.operatorPolicy.mediaBuyerScorecard.metrics
+                        .spendToMedian,
+                      3,
+                    ),
+                  },
+                }
+              : null,
+            currentInstructionHeadline: sanitizeText(
+              operatorItem.instruction?.headline ?? "",
+              replacements,
+            ),
+            reasonSummary: sanitizeText(operatorItem.reason, replacements),
+            nextObservation: (
+              operatorItem.instruction?.nextObservation ?? []
+            ).map((value) => sanitizeText(value, replacements)),
+            benchmarkScope: creative.benchmarkScope,
+            benchmarkScopeLabel: sanitizeText(
+              creative.benchmarkScopeLabel,
+              replacements,
+            ),
+            baselineReliability: creative.benchmarkReliability,
+            accountBaseline: summarizeBaseline(creative.relativeBaseline),
+            campaignBaseline: summarizeCampaignBaseline(creative),
+            commercialTruthAvailability: {
+              targetPackConfigured: commercialTruthConfigured,
+              missingInputs: decisionOs.commercialTruthCoverage.missingInputs,
+            },
+            businessValidationStatus,
+            pushReadiness: creative.operatorPolicy?.pushReadiness ?? null,
+            queueEligible: creative.operatorPolicy?.queueEligible ?? false,
+            canApply: creative.operatorPolicy?.canApply ?? false,
+            lifecycleState: creative.lifecycleState,
+            primaryAction: creative.primaryAction,
+            evidenceSource: creative.evidenceSource,
+            trustState: creative.trust.truthState,
+            previewWindow: creative.previewStatus?.liveDecisionWindow ?? null,
+            deploymentCompatibility: creative.deployment.compatibility.status,
+            deploymentTargetLane: creative.deployment.targetLane ?? null,
+            oldRuleChallengerAction: oldRule?.challengerAction ?? null,
+            oldRuleChallengerSegment: mapOldRuleSegmentLabel(
+              oldRule?.challengerAction,
+            ),
+            oldRuleChallengerReason: oldRule
+              ? sanitizeText(oldRule.reason, replacements)
+              : null,
+            relativeStrengthClass,
+            campaignContextLimited: hasWeakCampaignContext(creative),
+          };
+
+          const privateRow: PrivateAuditRow = {
+            ...sanitizedRow,
+            businessId,
+            businessName: runtimeEligible.businessName,
+            accountName: entry.contextRow?.accountName ?? null,
+            campaignName: entry.contextRow?.campaignName ?? null,
+            adSetName: entry.contextRow?.adSetName ?? null,
+            creativeName: creative.name,
+            creativeId: creative.creativeId,
+          };
+
+          sanitizedRows.push(sanitizedRow);
+          localPrivateRows.push(privateRow);
+          increment(segmentCounts, userFacingSegment);
+          increment(oldChallengerCounts, oldRuleSegment);
+          increment(globalSegments, userFacingSegment);
+        }
+
+        businessSummaries.push({
+          companyAlias: runtimeEligible.companyAlias,
+          evaluationStatus: "evaluated",
+          screeningLiveRows: runtimeEligible.live30d.rows.length,
+          currentDecisionOsRows: decisionOs.creatives.length,
+          sampledCreatives: sampled.length,
+          activeCreativesSampled: sampled.filter((row) => row.isActive).length,
+          userFacingSegments: segmentCounts,
+          oldChallengerSegments: oldChallengerCounts,
+          zeroScale: (segmentCounts.Scale ?? 0) === 0,
+          zeroScaleReview: (segmentCounts["Scale Review"] ?? 0) === 0,
+        });
+        debug("evaluated-business", {
+          companyAlias: runtimeEligible.companyAlias,
+          creatives: decisionOs.creatives.length,
+          sampled: sampled.length,
+        });
+      } catch (error) {
+        const failureReason = classifyAuditRuntimeError(error);
+        businessSummaries.push({
+          companyAlias: runtimeEligible.companyAlias,
+          evaluationStatus: "failed",
+          failureReason,
+          screeningLiveRows: runtimeEligible.live30d.rows.length,
+          currentDecisionOsRows: 0,
+          sampledCreatives: 0,
+          activeCreativesSampled: 0,
+          userFacingSegments: {},
+          oldChallengerSegments: {},
+          zeroScale: true,
+          zeroScaleReview: true,
+        });
+        debug("business-evaluation-failed", {
+          companyAlias: runtimeEligible.companyAlias,
+          failureReason,
+        });
       }
-
-      businessSummaries.push({
-        companyAlias: runtimeEligible.companyAlias,
-        screeningLiveRows: runtimeEligible.live30d.rows.length,
-        currentDecisionOsRows: decisionOs.creatives.length,
-        sampledCreatives: sampled.length,
-        activeCreativesSampled: sampled.filter((row) => row.isActive).length,
-        userFacingSegments: segmentCounts,
-        oldChallengerSegments: oldChallengerCounts,
-        zeroScale: (segmentCounts.Scale ?? 0) === 0,
-        zeroScaleReview: (segmentCounts["Scale Review"] ?? 0) === 0,
-      });
-      debug("evaluated-business", {
-        companyAlias: runtimeEligible.companyAlias,
-        creatives: decisionOs.creatives.length,
-        sampled: sampled.length,
-      });
     }
 
     const sanitizedArtifact: SanitizedAuditArtifact = {
@@ -1108,13 +1515,18 @@ export async function runCreativeLiveFirmAudit() {
         runtimeSkippedCandidates: countRuntimeSkippedCandidates(
           discovery.runtimeSkippedCandidatesByReason,
         ),
-        runtimeSkippedCandidatesByReason: discovery.runtimeSkippedCandidatesByReason,
+        runtimeSkippedCandidatesByReason:
+          discovery.runtimeSkippedCandidatesByReason,
         runtimeTokenReadabilityStatus: discovery.runtimeTokenReadability.status,
       },
       globalSummary: {
         sampledCreatives: sanitizedRows.length,
-        businessesWithZeroScale: businessSummaries.filter((row) => row.zeroScale).length,
-        businessesWithZeroScaleReview: businessSummaries.filter((row) => row.zeroScaleReview).length,
+        businessesWithZeroScale: businessSummaries.filter(
+          (row) => row.zeroScale,
+        ).length,
+        businessesWithZeroScaleReview: businessSummaries.filter(
+          (row) => row.zeroScaleReview,
+        ).length,
         userFacingSegments: globalSegments,
       },
       businesses: businessSummaries,
@@ -1124,19 +1536,19 @@ export async function runCreativeLiveFirmAudit() {
     const privateArtifact: PrivateAuditArtifact = {
       ...sanitizedArtifact,
       businesses: discovery.runtimeEligibleBusinesses.map((business) => {
-        const summary =
-          businessSummaries.find((row) => row.companyAlias === business.companyAlias) ??
-          {
-            companyAlias: business.companyAlias,
-            screeningLiveRows: business.live30d.rows.length,
-            currentDecisionOsRows: 0,
-            sampledCreatives: 0,
-            activeCreativesSampled: 0,
-            userFacingSegments: {},
-            oldChallengerSegments: {},
-            zeroScale: true,
-            zeroScaleReview: true,
-          };
+        const summary = businessSummaries.find(
+          (row) => row.companyAlias === business.companyAlias,
+        ) ?? {
+          companyAlias: business.companyAlias,
+          screeningLiveRows: business.live30d.rows.length,
+          currentDecisionOsRows: 0,
+          sampledCreatives: 0,
+          activeCreativesSampled: 0,
+          userFacingSegments: {},
+          oldChallengerSegments: {},
+          zeroScale: true,
+          zeroScaleReview: true,
+        };
         return {
           ...summary,
           businessId: business.business.business_id,
@@ -1146,17 +1558,21 @@ export async function runCreativeLiveFirmAudit() {
       rows: localPrivateRows,
     };
 
+    const pr65CurrentOutputArtifact =
+      buildPr65CurrentOutputArtifact(sanitizedArtifact);
+
     await persistArtifacts({
       sanitized: sanitizedArtifact,
       localPrivate: privateArtifact,
+      pr65CurrentOutput: pr65CurrentOutputArtifact,
     });
-    await waitForAuditSnapshotRefreshes();
 
     return {
       sanitizedArtifact,
       privateArtifact,
     };
   } finally {
+    await waitForAuditSnapshotRefreshes().catch(() => null);
     restoreFetch();
     restoreRuntime();
   }

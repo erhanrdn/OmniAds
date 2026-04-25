@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-04-25T21:37:13.703Z",
+  "source": "pr65_current_output_fresh",
+  "artifactStatus": "blocked",
+  "prBranchCommit": "290975da163cea44be23c6a8911a733a4bf29c39",
+  "decisionOsEngineVersion": "2026-04-11-phase-05-v2",
+  "scoringEngineVersion": "creative-media-buyer-scoring.v1",
+  "policyVersion": "creative-operator-policy.v1",
+  "valid_for_acceptance": false,
+  "validForClaudeReview": false,
+  "acceptanceBlockers": [
+    "fresh_current_output_not_generated",
+    "fresh_expected_labels_not_regenerated"
+  ],
+  "runtimeBlockers": [
+    "discovery:db_tunnel_connection_refused",
+    "prior_live_run:db_tunnel_connection_timeout",
+    "prior_live_run:database_query_timeout_meta_campaign_adset_context"
+  ],
+  "auditWindow": {
+    "todayReference": "2026-04-26",
+    "startDate": "2026-03-27",
+    "endDate": "2026-04-25",
+    "days": 30,
+    "excludesToday": true
+  },
+  "sanitization": {
+    "rawIdsIncluded": false,
+    "rawNamesIncluded": false,
+    "notes": [
+      "No raw business IDs, account IDs, or names are included.",
+      "This artifact records a runtime block before current-output rows could be generated."
+    ]
+  },
+  "cohort": {
+    "historicalSnapshotCandidates": 0,
+    "eligibleCandidates": 0,
+    "runtimeEligibleBusinesses": 0,
+    "runtimeSkippedCandidates": 0,
+    "runtimeSkippedCandidatesByReason": {
+      "no_current_meta_connection": 0,
+      "meta_connection_not_connected": 0,
+      "no_access_token": 0,
+      "no_accounts_assigned": 0,
+      "meta_token_checkpointed": 0,
+      "provider_read_failure": 0,
+      "no_current_creative_activity": 0
+    },
+    "runtimeTokenReadabilityStatus": "not_needed"
+  },
+  "globalSummary": {
+    "sampledCreatives": 0,
+    "businessesWithZeroScale": 0,
+    "businessesWithZeroScaleReview": 0,
+    "userFacingSegments": {}
+  },
+  "businesses": [],
+  "rows": []
+}
