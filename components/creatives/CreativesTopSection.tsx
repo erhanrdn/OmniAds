@@ -615,12 +615,20 @@ export function CreativesTopSection({
               {quickFilters.map((filter) => {
                 const active = activeQuickFilterKey === filter.key;
                 const toneClasses = performanceFilterToneClasses(filter, active);
+                const scaleReviewRequired =
+                  filter.key === "scale"
+                    ? (filter.reviewOnlyCount ?? 0) + (filter.mutedCount ?? 0)
+                    : 0;
                 return (
                   <button
                     key={filter.key}
                     type="button"
                     onClick={() => onToggleQuickFilter(filter.key)}
-                    aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} visible rows in the current reporting set`}
+                    aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} visible rows in the current reporting set${
+                      scaleReviewRequired > 0
+                        ? `, ${scaleReviewRequired.toLocaleString()} require review before scale action`
+                        : ""
+                    }`}
                     data-count={filter.count}
                     data-testid={`creative-performance-filter-${filter.key}`}
                     className={cn(
@@ -629,6 +637,19 @@ export function CreativesTopSection({
                     )}
                   >
                     <span>{creativeQuickFilterShortLabel(filter.key)}</span>
+                    {scaleReviewRequired > 0 ? (
+                      <span
+                        className={cn(
+                          "hidden rounded-full border px-1.5 py-0.5 text-[10px] font-semibold sm:inline-flex",
+                          active
+                            ? "border-white/30 bg-white/15 text-white"
+                            : "border-sky-200 bg-sky-50 text-sky-800",
+                        )}
+                        data-testid="creative-performance-filter-scale-review-required"
+                      >
+                        {scaleReviewRequired.toLocaleString()} review first
+                      </span>
+                    ) : null}
                     <span
                       className={cn(
                         "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold",

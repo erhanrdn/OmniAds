@@ -4,12 +4,11 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Swap the Creative UI to the accepted primary-decision model.
+Harden review-only Scale presentation after the primary-decision UI swap.
 
-Creative Recovery remains under product-truth review. Claude's taxonomy
-simplification direction is accepted. The parallel resolver is implemented,
-and this pass moves the Creative UI from the old 10 top-level labels to the
-six primary operator decisions.
+Creative Recovery remains under product-truth review. PR #71 moved the UI to
+six primary decisions, but review-only Scale rows must never drive direct-scale
+surface emphasis.
 
 ## Program Status
 
@@ -31,7 +30,60 @@ six primary operator decisions.
 - trend-collapse evidence hardening: merged through PR #63
 - Creative Decision OS manual snapshots: merged through PR #66
 - Creative primary-decision resolver: merged through PR #69
-- Creative primary-decision UI swap: implemented in current pass
+- Creative primary-decision UI swap: merged through PR #71
+- Creative review-only Scale surface hardening: implemented in current pass
+
+## PR #71 P1 Review-Only Scale Surface Issue
+
+Status: fixed in current branch; PR flow pending.
+
+Issue:
+
+- `buildCreativeOperatorSurfaceModel` used total primary `scale` count to set
+  `act_now` emphasis and Scale headlines.
+- primary `Scale` intentionally includes review-only Scale Review rows.
+- if all Scale rows were review-only, muted, or non-live, the surface could
+  still imply direct scale action was ready.
+
+Fix summary:
+
+- added presentation-only Scale actionability counts:
+  - total primary Scale
+  - direct-action Scale
+  - review-first Scale
+  - muted / non-live Scale
+- direct-action Scale now requires existing policy/readiness safety:
+  - resolved primary `scale`
+  - not `review_only`
+  - not muted/thin/archive
+  - live or legacy-unset evidence source
+  - `scale_ready` policy segment
+  - queue/apply eligible, `safe_to_queue`, or `eligible_for_push_when_enabled`
+- review-only Scale remains grouped under the Scale filter but cannot set
+  `act_now` emphasis.
+- when no direct-action Scale exists, surface copy says Scale candidates need
+  operator review and no creatives are ready for direct Scale.
+
+Tests/checks:
+
+- targeted Creative operator surface/UI tests passed
+- targeted operator prescription test passed
+- `npm test` passed
+- `npx tsc --noEmit` passed
+- `npm run build` passed
+- `git diff --check` passed
+- hidden/bidi/control scan passed
+- raw ID scan on touched docs passed
+- runtime smoke passed with expected auth redirects for `/creatives` and `/platforms/meta`
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/scale-review-surface-hardening/final.md`
+
+Next recommended action:
+
+- open PR `Harden review-only Scale surface emphasis`
+- after merge, rerun Claude primary-decision UI review
 
 ## Creative Primary-Decision Resolver
 
@@ -74,7 +126,7 @@ Report:
 
 ## Creative Primary-Decision UI Swap
 
-Status: implemented in current branch; PR flow pending.
+Status: complete and merged through PR #71.
 
 Active primary-decision taxonomy:
 
@@ -135,9 +187,8 @@ Report:
 
 Next recommended action:
 
-- finish full validation and runtime smoke
-- open PR `Swap Creative UI to primary operator decisions`
-- after PR checks pass, run Claude product review on the simplified UI
+- complete the review-only Scale surface hardening pass before rerunning
+  Claude product review on the simplified UI
 
 ## Creative Decision OS Manual Snapshot Pass
 

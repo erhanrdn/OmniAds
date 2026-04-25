@@ -73,6 +73,16 @@ export interface CreativeQuickFilter {
   count: number;
   creativeIds: string[];
   tone: OperatorAuthorityState;
+  actionableCount?: number;
+  reviewOnlyCount?: number;
+  mutedCount?: number;
+}
+
+export interface CreativeScaleActionabilityCounts {
+  total: number;
+  actionable: number;
+  reviewOnly: number;
+  muted: number;
 }
 
 const CREATIVE_QUICK_FILTER_DEFS: Record<
@@ -812,6 +822,53 @@ function isCreativeMuted(creative: CreativeDecisionOsCreative) {
   return materiality === "thin_signal" || materiality === "immaterial" || creative.trust.surfaceLane === "archive_context";
 }
 
+function isLiveCreativeEvidence(creative: CreativeDecisionOsCreative) {
+  return creative.evidenceSource === undefined || creative.evidenceSource === "live";
+}
+
+function isCreativeActionableScale(
+  creative: CreativeDecisionOsCreative,
+  decision: CreativeOperatorDecisionResolution = resolveCreativeOperatorDecision(creative),
+) {
+  if (decision.primary !== "scale") return false;
+  if (decision.subTone === "review_only") return false;
+  if (isCreativeMuted(creative) || !isLiveCreativeEvidence(creative)) return false;
+
+  const policy = creative.operatorPolicy;
+  if (!policy || policy.segment !== "scale_ready") return false;
+  if (policy.queueEligible || policy.canApply) return true;
+  return (
+    policy.pushReadiness === "safe_to_queue" ||
+    policy.pushReadiness === "eligible_for_push_when_enabled"
+  );
+}
+
+function scaleActionabilityBucket(
+  creative: CreativeDecisionOsCreative,
+  decision: CreativeOperatorDecisionResolution = resolveCreativeOperatorDecision(creative),
+) {
+  if (decision.primary !== "scale") return null;
+  if (isCreativeActionableScale(creative, decision)) return "actionable" as const;
+  if (isCreativeMuted(creative) || !isLiveCreativeEvidence(creative)) return "muted" as const;
+  return "reviewOnly" as const;
+}
+
+export function buildCreativeScaleActionabilityCounts(
+  creatives: CreativeDecisionOsCreative[],
+): CreativeScaleActionabilityCounts {
+  return creatives.reduce(
+    (acc, creative) => {
+      const decision = resolveCreativeOperatorDecision(creative);
+      const bucket = scaleActionabilityBucket(creative, decision);
+      if (!bucket) return acc;
+      acc.total += 1;
+      acc[bucket] += 1;
+      return acc;
+    },
+    { total: 0, actionable: 0, reviewOnly: 0, muted: 0 },
+  );
+}
+
 export function resolveCreativeAuthorityState(creative: CreativeDecisionOsCreative) {
   if (creative.operatorPolicy) {
     if (
@@ -1062,11 +1119,12 @@ function compactMetrics(metrics: OperatorSurfaceMetric[]) {
 }
 
 function resolveCreativePrimaryAuthorityState(
+  creative: CreativeDecisionOsCreative,
   decision: CreativeOperatorDecisionResolution,
 ): OperatorAuthorityState {
   switch (decision.primary) {
     case "scale":
-      return decision.subTone === "review_only" ? "watch" : "act_now";
+      return isCreativeActionableScale(creative, decision) ? "act_now" : "watch";
     case "test_more":
       return "watch";
     case "protect":
@@ -1082,7 +1140,7 @@ function resolveCreativePrimaryAuthorityState(
 
 export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative): OperatorSurfaceItem {
   const decision = resolveCreativeOperatorDecision(creative);
-  const authorityState = resolveCreativePrimaryAuthorityState(decision);
+  const authorityState = resolveCreativePrimaryAuthorityState(creative, decision);
   const muted = isCreativeMuted(creative);
   const blocker = creativeBlocker(creative, authorityState);
   const primaryAction = creativeActionLabel(creative);
@@ -1213,23 +1271,52 @@ export function buildCreativeQuickFilters(
   for (const key of CREATIVE_QUICK_FILTER_ORDER) {
     creativeIdsByFilter.set(key, []);
   }
+  const scaleCreatives: CreativeDecisionOsCreative[] = [];
 
   for (const creative of decisionOs.creatives) {
     if (visibleIds && !visibleIds.has(creative.creativeId)) continue;
-    const filterKey = resolveCreativeQuickFilterKey(creative);
+    const decision = resolveCreativeOperatorDecision(creative);
+    const filterKey = decision.primary;
     if (filterKey) {
       creativeIdsByFilter.get(filterKey)?.push(creative.creativeId);
+      if (filterKey === "scale") scaleCreatives.push(creative);
     }
   }
+
+  const scaleActionability = buildCreativeScaleActionabilityCounts(scaleCreatives);
 
   return CREATIVE_QUICK_FILTER_ORDER
     .map((key) => {
       const creativeIds = creativeIdsByFilter.get(key) ?? [];
+      const base = CREATIVE_QUICK_FILTER_DEFS[key];
+      const scaleSummary =
+        key === "scale" && creativeIds.length > 0
+          ? scaleActionability.actionable > 0
+            ? `${scaleActionability.actionable} direct-scale ready; ${scaleActionability.reviewOnly + scaleActionability.muted} require review before action.`
+            : "Scale candidates require operator review before action."
+          : base.summary;
+      const scaleTone =
+        key === "scale"
+          ? scaleActionability.actionable > 0
+            ? "act_now"
+            : scaleActionability.total > 0
+              ? "watch"
+              : base.tone
+          : base.tone;
 
       return {
-        ...CREATIVE_QUICK_FILTER_DEFS[key],
+        ...base,
+        summary: scaleSummary,
+        tone: scaleTone,
         count: creativeIds.length,
         creativeIds,
+        ...(key === "scale"
+          ? {
+              actionableCount: scaleActionability.actionable,
+              reviewOnlyCount: scaleActionability.reviewOnly,
+              mutedCount: scaleActionability.muted,
+            }
+          : {}),
       } satisfies CreativeQuickFilter;
     })
     .filter((filter) => includeZeroCounts || filter.count > 0);
@@ -1252,6 +1339,9 @@ export function buildCreativeTaxonomyCounts(
       {
         count: filter.count,
         creativeIds: filter.creativeIds,
+        actionableCount: filter.actionableCount,
+        reviewOnlyCount: filter.reviewOnlyCount,
+        mutedCount: filter.mutedCount,
       },
     ]),
   );
@@ -1263,6 +1353,15 @@ export function buildCreativeTaxonomyCounts(
       ...filter,
       count: override.count,
       creativeIds: override.creativeIds,
+      ...(override.actionableCount !== undefined
+        ? { actionableCount: override.actionableCount }
+        : {}),
+      ...(override.reviewOnlyCount !== undefined
+        ? { reviewOnlyCount: override.reviewOnlyCount }
+        : {}),
+      ...(override.mutedCount !== undefined
+        ? { mutedCount: override.mutedCount }
+        : {}),
     };
   });
 }
@@ -1314,12 +1413,24 @@ export function buildCreativeOperatorSurfaceModel(
   const previewMissing = creatives.filter(
     (creative) => creative.previewStatus?.liveDecisionWindow === "missing",
   ).length;
+  const scaleActionability = buildCreativeScaleActionabilityCounts(creatives);
+  const scaleReviewRequiredCount =
+    scaleActionability.reviewOnly + scaleActionability.muted;
+  const scaleActionabilityNote =
+    scaleActionability.total > 0
+      ? scaleActionability.actionable > 0
+        ? `${scaleActionability.actionable} Scale ${scaleActionability.actionable === 1 ? "row is" : "rows are"} direct-action ready; ${scaleReviewRequiredCount} ${scaleReviewRequiredCount === 1 ? "Scale row needs" : "Scale rows need"} operator review first.`
+        : `No creatives are ready for direct Scale; ${scaleActionability.total} Scale ${scaleActionability.total === 1 ? "candidate needs" : "candidates need"} operator review first.`
+      : null;
 
   let emphasis: OperatorAuthorityState = "no_action";
   let headline = "No material creative move is ready yet.";
-  if (primaryCounts.scale > 0) {
+  if (scaleActionability.actionable > 0) {
     emphasis = "act_now";
-    headline = `${primaryCounts.scale} creative ${primaryCounts.scale === 1 ? "is" : "are"} in Scale.`;
+    headline = `${scaleActionability.actionable} creative ${scaleActionability.actionable === 1 ? "is" : "are"} ready for direct Scale.`;
+  } else if (primaryCounts.scale > 0) {
+    emphasis = "watch";
+    headline = `${primaryCounts.scale} Scale ${primaryCounts.scale === 1 ? "candidate needs" : "candidates need"} operator review before action.`;
   } else if (primaryCounts.cut + primaryCounts.refresh > 0) {
     emphasis = "blocked";
     const count = primaryCounts.cut + primaryCounts.refresh;
@@ -1334,14 +1445,24 @@ export function buildCreativeOperatorSurfaceModel(
     headline = `${primaryCounts.protect} creative ${primaryCounts.protect === 1 ? "is" : "are"} protected.`;
   }
 
+  const decisionSummary =
+    decisionOs.summary.message ??
+    "Selected range remains analysis context only.";
+  const note = previewTruth
+    ? [previewTruth.summary, scaleActionabilityNote, decisionSummary].filter(Boolean).join(" ")
+    : [
+        scaleActionabilityNote,
+        decisionOs.summary.message ??
+          "Preview readiness gates authoritative creative action; selected range remains analysis context.",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
   return {
     surfaceLabel: "Creative",
     heading: "Primary Decisions",
     headline,
-    note: previewTruth
-      ? `${previewTruth.summary} ${decisionOs.summary.message ?? "Selected range remains analysis context only."}`
-      : decisionOs.summary.message ??
-        "Preview readiness gates authoritative creative action; selected range remains analysis context.",
+    note,
     emphasis,
     authorityLabels: {
       act_now: "Scale",

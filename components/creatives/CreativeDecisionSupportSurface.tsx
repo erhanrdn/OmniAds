@@ -199,6 +199,10 @@ export function CreativeDecisionSupportSurface({
               <div className="grid gap-2 lg:grid-cols-6" data-testid="creative-quick-filters">
                 {quickFilters.map((filter) => {
                   const active = activeQuickFilterKey === filter.key;
+                  const scaleReviewRequired =
+                    filter.key === "scale"
+                      ? (filter.reviewOnlyCount ?? 0) + (filter.mutedCount ?? 0)
+                      : 0;
                   return (
                     <button
                       key={filter.key}
@@ -215,6 +219,14 @@ export function CreativeDecisionSupportSurface({
                         <div>
                           <p className="text-sm font-semibold">{filter.label}</p>
                           <p className="mt-1 text-xs opacity-85">{filter.summary}</p>
+                          {scaleReviewRequired > 0 ? (
+                            <p
+                              className="mt-1 text-[11px] font-semibold opacity-85"
+                              data-testid="creative-support-scale-review-required"
+                            >
+                              {scaleReviewRequired.toLocaleString()} require review before scale action
+                            </p>
+                          ) : null}
                         </div>
                         <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", active ? "bg-white/20" : "bg-black/5")}>
                           {filter.count}

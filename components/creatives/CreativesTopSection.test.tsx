@@ -48,12 +48,15 @@ describe("CreativesTopSection", () => {
         onCsvExport={vi.fn()}
         quickFilters={[
           {
-            key: "diagnose",
-            label: "Diagnose",
-            summary: "Rows where evidence or context needs diagnosis.",
-            count: 9,
+            key: "scale",
+            label: "Scale",
+            summary: "Scale candidates require operator review before action.",
+            count: 2,
             creativeIds: [],
-            tone: "needs_truth",
+            tone: "watch",
+            actionableCount: 0,
+            reviewOnlyCount: 2,
+            mutedCount: 0,
           },
         ]}
         activeQuickFilterKey={null}
@@ -65,7 +68,8 @@ describe("CreativesTopSection", () => {
     expect(html).toContain("Counts follow the visible reporting set");
     expect(html).toContain("row segments use the Decision OS window");
     expect(html).toContain(
-      "Diagnose: 9 visible rows in the current reporting set",
+      "Scale: 2 visible rows in the current reporting set, 2 require review before scale action",
     );
+    expect(html).toContain("2 review first");
   });
 });
