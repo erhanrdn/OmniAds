@@ -1,12 +1,12 @@
 # Creative Segmentation Recovery State
 
-Last updated: 2026-04-25 by Codex
+Last updated: 2026-04-26 by Codex
 
 ## Current Goal
 
 Implement deterministic Creative media-buyer scoring as the routing layer for Creative segmentation, replacing ad hoc isolated gate routing while preserving all queue/push/apply safety.
 
-Current result: the media-buyer scorecard layer is implemented and `assessCreativeOperatorPolicy()` now routes the operator segment through `mediaBuyerScorecard.operatorSegment`. Fresh acceptance scoring remains blocked by runtime access: the audit helper now writes a blocked PR #65 current-output artifact, but the latest reruns could not generate valid current-code scores because the local SSH DB tunnel dropped or timed out during Meta runtime discovery/context reads.
+Current result: the media-buyer scorecard layer is implemented and `assessCreativeOperatorPolicy()` now routes the operator segment through `mediaBuyerScorecard.operatorSegment`. Fresh current-output artifact generation is unblocked through server-side Docker execution from the PR #65 commit. The artifact is valid for Claude review, but not valid for acceptance scoring because fresh expected labels were not regenerated.
 
 ## Program Status
 
@@ -32,6 +32,7 @@ Current result: the media-buyer scorecard layer is implemented and `assessCreati
 - PR #65 score reconciliation: complete; no policy change made
 - Creative media-buyer scoring engine: implemented on PR #65 branch
 - PR #65 fresh scoring unblock: source-read/audit helper hardened; fresh current-output artifact exists but is blocked and invalid for acceptance
+- PR #65 scoring runtime recovery: server-side Docker audit completed; fresh current-output artifact is valid for Claude review
 
 ## Current PR
 
@@ -40,8 +41,8 @@ Current result: the media-buyer scorecard layer is implemented and `assessCreati
 - status: open; do not merge
 - merge status: not merged
 - latest commit: media-buyer scoring engine update on PR #65 branch
-- latest checks: targeted audit-helper/scoring tests and `npx tsc --noEmit` pass after the fresh-scoring unblock changes; full validation still pending after the runtime artifact block
-- reason: current exact equal-segment scores are still not proven from a fresh valid current-output artifact; do not merge before a fresh Claude/supervisor review of a valid artifact or explicit owner acceptance
+- latest checks: server-side current-output artifact generation completed from PR commit `8eca958977378fb67fcb2dde45669b49f97d02f9`; local validation for the runtime-recovery changes is pending final rerun in this pass
+- reason: current exact equal-segment scores are still not proven because fresh expected labels were not regenerated; do not merge before Claude/supervisor review of the valid current-output artifact or explicit owner acceptance
 
 ## Media Buyer Scoring Engine
 
@@ -104,21 +105,70 @@ Fresh live audit attempts:
 - `validForClaudeReview: false`
 - runtime blockers: `discovery:db_tunnel_connection_refused`, `prior_live_run:db_tunnel_connection_timeout`, `prior_live_run:database_query_timeout_meta_campaign_adset_context`
 
+Server-side runtime recovery:
+
+- runtime path: temporary Docker worker image built on the app server from PR #65 commit `8eca958977378fb67fcb2dde45669b49f97d02f9`
+- production services were not restarted or modified
+- the audit used the production-equivalent environment path from the app server and avoided the local SSH Postgres tunnel
+- current-output artifact: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json`
+- artifact status: `complete_current_output`
+- `valid_for_claude_review: true`
+- `valid_for_acceptance: false`
+- reason acceptance remains false: artifact has fresh current outputs, but no fresh expected-label scoring
+- readable businesses: `8`
+- sampled creatives: `78`
+- current segment counts: `Scale 0`, `Scale Review 1`, `Test More 6`, `Protect 6`, `Watch 10`, `Refresh 21`, `Retest 0`, `Cut 13`, `Campaign Check 0`, `Not Enough Data 16`, `Not eligible 5`
+
 Current acceptance status:
 
 - represented segment scores are not re-proven after the scoring engine pass.
 - Creative Recovery is not accepted yet.
-- Next recommended action is to restore stable DB/runtime access, regenerate a valid current-output artifact, then run Claude/supervisor review.
+- Next recommended action is to run Claude/supervisor review against the valid fresh current-output artifact.
+
+## PR #65 Scoring Runtime Recovery
+
+Status: current-output artifact unblocked; acceptance scoring still not valid.
+
+Chosen runtime path:
+
+- server-side temporary Docker audit image built from the PR #65 branch
+- production-equivalent app server environment
+- no local SSH DB tunnel
+
+Why:
+
+- local tunnel runs repeatedly failed with DB query timeouts and tunnel drops
+- server-side container execution completed the audit without runtime blockers
+
+Artifact status:
+
+- path: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json`
+- `artifactStatus: complete_current_output`
+- `valid_for_claude_review: true`
+- `valid_for_acceptance: false`
+
+Fresh equal-segment scoring:
+
+- not run
+- stale expected labels were not used
+- Claude should independently score from the fresh artifact
+
+Merge status:
+
+- PR #65 must remain unmerged until review/acceptance completes
+
+Last updated by Codex: 2026-04-26
 
 ## PR #65 Fresh Scoring Unblock
 
-Status: blocked by runtime after helper/source hardening.
+Status: superseded by PR #65 scoring runtime recovery.
 
 Root cause found:
 
 - The original live audit path duplicated campaign/ad set context reads after Decision OS had already fetched source context.
 - The core source path also read broad campaign/ad set context for the full business, which was too slow over the SSH tunnel.
-- After narrowing those reads to referenced campaign IDs, the remaining blocker is SSH/DB tunnel stability, not a proven policy/scoring defect.
+- After narrowing those reads to referenced campaign IDs, the remaining local-tunnel blocker was SSH/DB tunnel stability, not a proven policy/scoring defect.
+- This blocker was resolved for current-output artifact generation by running the audit in a server-side temporary Docker image.
 
 What was fixed:
 
@@ -130,9 +180,9 @@ Fresh acceptance scoring:
 
 - not run
 - no current scores are valid for acceptance
-- Claude review should not run yet
+- Claude review may now run against the fresh current-output artifact, but PR #65 must not merge before review/acceptance
 
-Last updated by Codex: 2026-04-25
+Last updated by Codex: 2026-04-26
 
 ## Fresh Baseline Audit
 

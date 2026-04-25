@@ -2,6 +2,8 @@
 
 Date: 2026-04-25
 
+Superseded on 2026-04-26 by `docs/operator-policy/creative-segmentation-recovery/reports/pr65-scoring-runtime-recovery/final.md`: current-output artifact generation is now unblocked through server-side Docker execution. Acceptance scoring remains invalid because fresh expected labels were not regenerated.
+
 Branch: `feature/adsecute-creative-claude-fix-plan-implementation`
 
 PR: `https://github.com/erhanrdn/OmniAds/pull/65`

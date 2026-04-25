@@ -229,6 +229,7 @@ type Pr65CurrentOutputArtifact = {
   scoringEngineVersion: typeof CREATIVE_MEDIA_BUYER_SCORING_VERSION;
   policyVersion: typeof CREATIVE_OPERATOR_POLICY_VERSION;
   valid_for_acceptance: false;
+  valid_for_claude_review: boolean;
   validForClaudeReview: boolean;
   acceptanceBlockers: string[];
   runtimeBlockers: string[];
@@ -1026,6 +1027,7 @@ async function persistPr65CurrentOutputArtifact(
     JSON.stringify(
       {
         pr65CurrentOutputArtifact: PR65_CURRENT_OUTPUT_ARTIFACT_PATH,
+        valid_for_claude_review: artifact.valid_for_claude_review,
         validForClaudeReview: artifact.validForClaudeReview,
         valid_for_acceptance: artifact.valid_for_acceptance,
         runtimeBlockers: artifact.runtimeBlockers,
@@ -1060,6 +1062,7 @@ function buildPr65CurrentOutputArtifact(
     scoringEngineVersion: CREATIVE_MEDIA_BUYER_SCORING_VERSION,
     policyVersion: CREATIVE_OPERATOR_POLICY_VERSION,
     valid_for_acceptance: false,
+    valid_for_claude_review: runtimeBlockers.length === 0,
     validForClaudeReview: runtimeBlockers.length === 0,
     acceptanceBlockers: [
       "fresh_expected_labels_not_regenerated_in_this_artifact",
@@ -1127,6 +1130,7 @@ function buildBlockedPr65CurrentOutputArtifact(input: {
     scoringEngineVersion: CREATIVE_MEDIA_BUYER_SCORING_VERSION,
     policyVersion: CREATIVE_OPERATOR_POLICY_VERSION,
     valid_for_acceptance: false,
+    valid_for_claude_review: false,
     validForClaudeReview: false,
     acceptanceBlockers: [
       "fresh_current_output_not_generated",
