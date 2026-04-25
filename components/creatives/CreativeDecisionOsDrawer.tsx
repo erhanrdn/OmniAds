@@ -13,8 +13,7 @@ import type {
   CreativeDecisionOsSnapshot,
   CreativeDecisionOsSnapshotStatus,
 } from "@/lib/creative-decision-os-snapshots";
-import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
-import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
+import { CreativeDecisionOsContent } from "@/components/creatives/CreativeDecisionOsContent";
 
 const CREATIVE_DECISION_OS_DRAWER_STORAGE_KEY = "creative-decision-os-drawer-width-v1";
 export const CREATIVE_DECISION_OS_DRAWER_DEFAULT_WIDTH = 1240;
@@ -155,43 +154,37 @@ export function CreativeDecisionOsDrawer({
         />
 
         <header className="border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Decision Support
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Decision OS
               </p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Decision Support</h2>
-              <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                {decisionOs?.summary.message ??
-                  "Decision OS has not been run for this scope. Run analysis to generate a saved snapshot."}
+              <h2 className="text-xl font-semibold leading-tight tracking-tight text-slate-950">
+                Creative System Intelligence
+              </h2>
+              <p className="mt-0.5 text-[13px] tabular-nums text-slate-500">
+                {decisionOs
+                  ? `${decisionOs.decisionAsOf} · ${decisionOs.decisionWindows.primary30d.startDate} – ${decisionOs.decisionWindows.primary30d.endDate} · ${decisionOs.summary.totalCreatives} creatives`
+                  : snapshot
+                  ? `Last analyzed ${snapshotTimestamp ?? snapshot.generatedAt} UTC`
+                  : "Run analysis to generate a snapshot"}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                The page worklist stays primary. This drawer is support for live-window decision context only.
-              </p>
-              {decisionOs ? (
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
-                </p>
-              ) : null}
-              {snapshot ? (
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Last analyzed {snapshotTimestamp ?? snapshot.generatedAt} UTC · analysis scope {snapshot.scope.analysisScopeLabel} · benchmark {snapshot.scope.benchmarkScopeLabel}
-                </p>
-              ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={onRunAnalysis}
                 disabled={!onRunAnalysis || isRunningAnalysis}
                 className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isRunningAnalysis ? "Running analysis" : "Run Creative Analysis"}
+                {isRunningAnalysis ? "Running…" : "Run Analysis"}
               </button>
               {decisionOs?.summary.operatingMode ? (
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">
-                  Operating Mode <span className="font-semibold text-slate-950">{decisionOs.summary.operatingMode}</span>
+                <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
+                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  <span className="text-slate-400">Mode:</span>
+                  <span className="font-medium text-slate-900">{decisionOs.summary.operatingMode}</span>
                 </span>
               ) : null}
               <button
@@ -209,14 +202,14 @@ export function CreativeDecisionOsDrawer({
                     ),
                   );
                 }}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
                 Reset width
               </button>
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 aria-label="Close Creative Decision OS"
               >
                 <X className="h-4 w-4" />
@@ -225,51 +218,38 @@ export function CreativeDecisionOsDrawer({
           </div>
         </header>
 
-        <div className={cn("flex-1 overflow-y-auto px-5 py-5 md:px-6")}>
-          {!hasReadySnapshot ? (
-            <section
-              className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-              data-testid="creative-decision-os-not-run-state"
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Analysis snapshot
-              </p>
-              <h3 className="mt-1 text-base font-semibold text-slate-950">
-                {isRunningAnalysis
-                  ? "Decision OS analysis is running"
-                  : "Decision OS has not been run for this scope."}
-              </h3>
-              <p className="mt-2 text-sm text-slate-600">
-                Reporting range changes do not recompute Creative Decision OS.
-                Run analysis when you want to create or refresh the saved operator snapshot.
-              </p>
-              {snapshotError ? (
-                <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                  {snapshotError}
+        <div className="flex-1 overflow-y-auto">
+          {!hasReadySnapshot && (
+            <div className="px-5 pt-5 md:px-6">
+              <section
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                data-testid="creative-decision-os-not-run-state"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Analysis snapshot
                 </p>
-              ) : null}
-            </section>
-          ) : null}
-          <CreativeDecisionSupportSurface
+                <h3 className="mt-1 text-base font-semibold text-slate-950">
+                  {isRunningAnalysis
+                    ? "Decision OS analysis is running…"
+                    : "Decision OS has not been run for this scope."}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  Reporting range changes do not recompute Creative Decision OS. Run analysis to create or refresh the saved operator snapshot.
+                </p>
+                {snapshotError && (
+                  <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                    {snapshotError}
+                  </p>
+                )}
+              </section>
+            </div>
+          )}
+          <CreativeDecisionOsContent
             decisionOs={decisionOs}
-            allRows={allRows}
-            selectedRows={selectedRows}
-            quickFilters={quickFilters}
-            activeQuickFilterKey={activeQuickFilterKey}
-            onToggleQuickFilter={onSelectQuickFilter}
-            className="mb-6"
-          />
-          <CreativeDecisionOsOverview
-            decisionOs={decisionOs}
-            quickFilters={quickFilters}
             isLoading={isLoading}
-            activeFamilyId={activeFamilyId}
+            quickFilters={quickFilters}
             activeQuickFilterKey={activeQuickFilterKey}
-            onSelectFamily={onSelectFamily}
             onSelectQuickFilter={onSelectQuickFilter}
-            onClearFilters={onClearFilters}
-            showHeader={false}
-            className="border-0 bg-transparent p-0 shadow-none"
           />
         </div>
       </aside>
