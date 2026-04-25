@@ -283,6 +283,12 @@ export function CreativeDecisionOsOverview({
             >
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{filter.label}</p>
               <p className="mt-1 text-2xl font-semibold text-slate-950">{filter.count}</p>
+              {filter.key === "scale" ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {(filter.actionableCount ?? 0).toLocaleString()} direct ·{" "}
+                  {((filter.reviewOnlyCount ?? 0) + (filter.mutedCount ?? 0)).toLocaleString()} review first
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

@@ -277,6 +277,22 @@ function resolverCreative(overrides: Record<string, unknown> = {}) {
 describe("creative operator surface", () => {
   it("maps preview-blocked and truth-capped creatives into explicit operator states", () => {
     const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Creative evidence is material."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Deterministic Creative policy allows this as operator work.",
+    };
     const model = buildCreativeOperatorSurfaceModel(fixture);
     expect(model).not.toBeNull();
 
@@ -286,7 +302,7 @@ describe("creative operator surface", () => {
     expect(buildCreativeOperatorItem(fixture.creatives[0])).toMatchObject({
       primaryAction: "Scale",
       authorityState: "act_now",
-      authorityLabel: "Scale",
+      authorityLabel: "Queue ready",
     });
     expect(truth).toMatchObject({
       id: "truth",
@@ -727,6 +743,146 @@ describe("creative operator surface", () => {
     expect(review.instruction?.headline).toBe("Scale Review: Promote Winner");
     expect(review.instruction?.primaryMove).toContain("relative winner before any scale move");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale");
+  });
+
+  it("does not promote review-only Scale rows into actionable surface emphasis", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "investigate",
+      segment: "scale_review",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Missing commercial input: target_pack"],
+      blockers: [],
+      missingEvidence: ["commercial_truth"],
+      requiredEvidence: ["commercial_truth", "relative_baseline"],
+      explanation: "Review manually before any scale move.",
+    };
+    fixture.creatives[0].trust.truthState = "degraded_missing_truth";
+    fixture.creatives[0].trust.operatorDisposition = "profitable_truth_capped";
+
+    const filters = buildCreativeQuickFilters(fixture, { includeZeroCounts: true });
+    const scaleFilter = filters.find((filter) => filter.key === "scale");
+    const model = buildCreativeOperatorSurfaceModel(fixture);
+    const item = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(scaleFilter).toMatchObject({
+      count: 1,
+      actionableCount: 0,
+      reviewOnlyCount: 1,
+      mutedCount: 0,
+      tone: "watch",
+    });
+    expect(scaleFilter?.summary).toContain("require operator review before action");
+    expect(item).toMatchObject({
+      primaryAction: "Scale",
+      authorityState: "watch",
+      authorityLabel: "Review only",
+    });
+    expect(model?.emphasis).not.toBe("act_now");
+    expect(model?.headline).toBe("1 Scale candidate needs operator review before action.");
+    expect(model?.headline.toLowerCase()).not.toContain("ready");
+    expect(model?.note).toContain("No creatives are ready for direct Scale");
+  });
+
+  it("separates direct-action Scale rows from review-only Scale rows in surface emphasis", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 2);
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Creative evidence is material."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Deterministic Creative policy allows this as operator work.",
+    };
+    fixture.creatives[1].evidenceSource = "live";
+    fixture.creatives[1].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "investigate",
+      segment: "scale_review",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      missingEvidence: ["commercial_truth"],
+      explanation: "Review manually before any scale move.",
+    };
+
+    const filters = buildCreativeQuickFilters(fixture, { includeZeroCounts: true });
+    const scaleFilter = filters.find((filter) => filter.key === "scale");
+    const model = buildCreativeOperatorSurfaceModel(fixture);
+
+    expect(scaleFilter).toMatchObject({
+      count: 2,
+      actionableCount: 1,
+      reviewOnlyCount: 1,
+      mutedCount: 0,
+      tone: "act_now",
+    });
+    expect(model?.emphasis).toBe("act_now");
+    expect(model?.headline).toBe("1 creative is ready for direct Scale.");
+    expect(model?.note).toContain("1 Scale row is direct-action ready; 1 Scale row needs operator review first.");
+    expect(buildCreativeOperatorItem(fixture.creatives[1])).toMatchObject({
+      primaryAction: "Scale",
+      authorityState: "watch",
+      authorityLabel: "Review only",
+    });
+  });
+
+  it("keeps non-live Scale rows out of actionable Scale emphasis", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0].evidenceSource = "snapshot";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "snapshot",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Snapshot evidence cannot authorize action."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Snapshot evidence remains review-only.",
+    };
+
+    const filters = buildCreativeQuickFilters(fixture, { includeZeroCounts: true });
+    const scaleFilter = filters.find((filter) => filter.key === "scale");
+    const model = buildCreativeOperatorSurfaceModel(fixture);
+    const item = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(scaleFilter).toMatchObject({
+      count: 1,
+      actionableCount: 0,
+      reviewOnlyCount: 0,
+      mutedCount: 1,
+      tone: "watch",
+    });
+    expect(item).toMatchObject({
+      primaryAction: "Scale",
+      authorityState: "watch",
+    });
+    expect(model?.emphasis).not.toBe("act_now");
+    expect(model?.headline).toBe("1 Scale candidate needs operator review before action.");
   });
 
   it("keeps protected expansion candidates visible as Scale Review instead of passive Protect", () => {

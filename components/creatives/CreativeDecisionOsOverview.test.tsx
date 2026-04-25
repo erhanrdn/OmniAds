@@ -475,6 +475,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Primary Decision Counts");
     expect(html).toContain("Same resolver primary-decision mapping as the Creative filters.");
     expect(html).toMatch(/data-testid="creative-taxonomy-count-scale"[\s\S]*>Scale<[\s\S]*>1</);
+    expect(html).toContain("1 direct");
+    expect(html).toContain("0 review first");
     expect(html).toMatch(/data-testid="creative-taxonomy-count-test_more"[\s\S]*>Test More<[\s\S]*>0</);
     expect(html).toMatch(/data-testid="creative-taxonomy-count-refresh"[\s\S]*>Refresh<[\s\S]*>0</);
     expect(html).toMatch(/data-testid="creative-taxonomy-count-cut"[\s\S]*>Cut<[\s\S]*>0</);
