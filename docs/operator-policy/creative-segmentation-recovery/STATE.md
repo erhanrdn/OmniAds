@@ -4,11 +4,12 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Finish the Creative Decision OS manual snapshot pass.
+Add the Creative taxonomy simplification resolver as a parallel, non-UI layer.
 
-Creative Recovery remains not accepted as final until the Creative page stops
-auto-mutating operator analysis from reporting-range changes and the snapshot
-pass is merged.
+Creative Recovery remains under product-truth review. Claude's taxonomy
+simplification direction is accepted, but the current 10-label UI remains
+active until the new resolver is reviewed and a separate UI swap pass is
+approved.
 
 ## Program Status
 
@@ -29,6 +30,52 @@ pass is merged.
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
 - Creative Decision OS manual snapshots: merged through PR #66
+- Creative primary-decision resolver: implemented in current pass
+
+## Creative Primary-Decision Resolver
+
+Status: implemented in this pass; UI swap not performed.
+
+Direction accepted:
+
+- current 10 user-facing labels mix operator action, confidence, evidence, and context states
+- target primary decisions are `scale`, `test_more`, `protect`, `refresh`, `cut`, and `diagnose`
+- secondary reason tags preserve the nuance currently carried by Scale Review, Watch, Retest, Campaign Check, and Not Enough Data
+
+Implementation summary:
+
+- added exported `CreativeOperatorPrimaryDecision`, `CreativeOperatorSubTone`, and `CreativeOperatorReasonTag` types
+- added `resolveCreativeOperatorDecision(creative)` as a pure parallel resolver in `lib/creative-operator-surface.ts`
+- resolver returns one primary decision, one sub-tone, and up to two deterministic reason tags
+- `Scale Review` maps to `scale` with `review_only`
+- paused historical Retest maps to `refresh` with `revive`
+- Campaign Check maps to `diagnose` with `campaign_context_blocker`
+- Not Enough Data maps to diagnostic low-evidence handling
+- Watch is not a primary decision in the resolver
+
+Safety and product boundaries:
+
+- current 10-label Creative UI remains active
+- no Creative policy thresholds changed
+- no Scale / Scale Review gates changed
+- no queue/push/apply safety changed
+- old-rule challenger output remains comparison-only
+- no snapshot schema or UI filter change was made
+
+Tests added:
+
+- direct resolver mapping tests for Scale, Scale Review, Test More, Protect, Watch-like, Refresh, Retest, Cut, Campaign Check, and Not Enough Data rows
+- safety invariance tests for review-only Scale and non-live/fallback evidence
+- sanitized live-firm audit fixture test proving every row resolves to one of six primaries and Diagnose rows carry diagnostic reason tags
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/taxonomy-simplification-resolver/final.md`
+
+Next recommended action:
+
+- review/accept the parallel resolver
+- then start a separate UI swap pass to move Creative filters/cards/drawer labels to six primary decisions plus reason tags
 
 ## Creative Decision OS Manual Snapshot Pass
 

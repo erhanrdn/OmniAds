@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   buildCreativeOperatorItem,
   buildCreativeOperatorSurfaceModel,
@@ -10,6 +12,7 @@ import {
   creativeBusinessValidationNote,
   creativeOperatorSegmentLabel,
   creativeQuickFilterShortLabel,
+  resolveCreativeOperatorDecision,
   resolveCreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 
@@ -148,6 +151,126 @@ function creativeDecisionOsFixture() {
         },
       },
     ],
+  } as any;
+}
+
+const diagnosticReasonTags = new Set([
+  "campaign_context_blocker",
+  "low_evidence",
+  "preview_missing",
+  "creative_learning_incomplete",
+]);
+
+function policyForSegment(segment: string, overrides: Record<string, unknown> = {}) {
+  const state =
+    segment === "scale_ready"
+      ? "do_now"
+      : segment === "protected_winner" || segment === "no_touch"
+        ? "do_not_touch"
+        : segment === "blocked"
+          ? "blocked"
+          : segment === "contextual_only"
+            ? "contextual_only"
+            : segment === "hold_monitor" ||
+                segment === "promising_under_sampled" ||
+                segment === "false_winner_low_evidence" ||
+                segment === "creative_learning_incomplete"
+              ? "watch"
+              : "investigate";
+  const actionClass =
+    segment === "scale_ready" || segment === "scale_review"
+      ? "scale"
+      : segment === "protected_winner" || segment === "no_touch"
+        ? "protect"
+        : segment === "fatigued_winner" || segment === "needs_new_variant"
+          ? "refresh"
+          : segment === "kill_candidate" || segment === "spend_waste"
+            ? "kill"
+            : segment === "promising_under_sampled" ||
+                segment === "false_winner_low_evidence" ||
+                segment === "creative_learning_incomplete"
+              ? "test"
+              : segment === "investigate" || segment === "blocked" || segment === "contextual_only"
+                ? "contextual"
+                : "monitor";
+
+  return {
+    contractVersion: "operator-policy.v1",
+    policyVersion: "creative-operator-policy.v1",
+    state,
+    segment,
+    actionClass,
+    evidenceSource: "live",
+    pushReadiness:
+      segment === "scale_ready"
+        ? "safe_to_queue"
+        : state === "watch"
+          ? "read_only_insight"
+          : "operator_review_required",
+    queueEligible: segment === "scale_ready",
+    canApply: false,
+    reasons: ["Resolver test policy."],
+    blockers: [],
+    missingEvidence: [],
+    requiredEvidence: ["row_provenance"],
+    explanation: "Resolver test policy.",
+    ...overrides,
+  };
+}
+
+function resolverCreative(overrides: Record<string, unknown> = {}) {
+  const fixture = creativeDecisionOsFixture();
+  return {
+    ...fixture.creatives[0],
+    evidenceSource: "live",
+    creativeAgeDays: 24,
+    impressions: 18_000,
+    cpa: 28,
+    benchmarkScope: "account",
+    benchmarkScopeLabel: "Account-wide",
+    benchmarkReliability: "strong",
+    relativeBaseline: {
+      scope: "account",
+      benchmarkKey: "account:all",
+      scopeId: null,
+      scopeLabel: "Account-wide",
+      source: "account_default",
+      reliability: "strong",
+      sampleSize: 8,
+      creativeCount: 8,
+      eligibleCreativeCount: 8,
+      spendBasis: 2_400,
+      purchaseBasis: 40,
+      weightedRoas: 2.1,
+      weightedCpa: 32,
+      medianRoas: 2,
+      medianCpa: 34,
+      medianSpend: 240,
+      missingContext: [],
+    },
+    benchmark: {
+      missingContext: [],
+    },
+    fatigue: {
+      status: "none",
+      confidence: 0.2,
+      evidence: [],
+      missingContext: [],
+      frequencyPressure: null,
+    },
+    deployment: {
+      targetLane: "Testing",
+      constraints: [],
+      compatibility: { status: "compatible", reasons: [] },
+    },
+    deliveryContext: {
+      campaignStatus: "ACTIVE",
+      adSetStatus: "ACTIVE",
+      campaignIsTestLike: false,
+      activeDelivery: true,
+      pausedDelivery: false,
+    },
+    ...overrides,
   } as any;
 }
 
@@ -1462,5 +1585,345 @@ describe("creative operator surface", () => {
       "Not Enough Data",
     ]);
     expect(labels).not.toEqual(expect.arrayContaining(["Review", "Check", "Hold", "Evergreen"]));
+  });
+
+  it("resolves current Creative segments into six primary operator decisions with reason tags", () => {
+    const scaleReady = resolverCreative({
+      operatorPolicy: policyForSegment("scale_ready"),
+    });
+    const scaleReview = resolverCreative({
+      trust: {
+        surfaceLane: "watchlist",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "profitable_truth_capped",
+        evidence: { materiality: "material" },
+      },
+      operatorPolicy: policyForSegment("scale_review", {
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        missingEvidence: ["commercial_truth", "business_validation"],
+      }),
+    });
+    const testMore = resolverCreative({
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      operatorPolicy: policyForSegment("promising_under_sampled", {
+        missingEvidence: ["evidence_floor"],
+      }),
+    });
+    const protect = resolverCreative({
+      primaryAction: "hold_no_touch",
+      lifecycleState: "stable_winner",
+      operatorPolicy: policyForSegment("protected_winner"),
+    });
+    const promisingWatch = resolverCreative({
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      operatorPolicy: policyForSegment("hold_monitor", {
+        missingEvidence: ["evidence_floor"],
+      }),
+    });
+    const collapsedWatch = resolverCreative({
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      recentRoas: 0,
+      roas: 2.2,
+      operatorPolicy: policyForSegment("hold_monitor", {
+        reasons: ["Trend collapse is visible in the recent window."],
+      }),
+    });
+    const contextWatch = resolverCreative({
+      operatorPolicy: policyForSegment("hold_monitor", {
+        blockers: ["Campaign or ad set context limits this creative interpretation."],
+        missingEvidence: ["campaign_or_adset_context"],
+      }),
+      deployment: {
+        targetLane: "Testing",
+        constraints: [],
+        compatibility: {
+          status: "blocked",
+          reasons: ["Campaign or ad set context limits this creative interpretation."],
+        },
+      },
+    });
+    const refresh = resolverCreative({
+      primaryAction: "refresh_replace",
+      lifecycleState: "fatigued_winner",
+      fatigue: {
+        status: "fatigued",
+        confidence: 0.8,
+        evidence: ["Frequency pressure is high."],
+        missingContext: [],
+        frequencyPressure: 3.4,
+      },
+      operatorPolicy: policyForSegment("fatigued_winner"),
+    });
+    const retest = resolverCreative({
+      primaryAction: "hold_no_touch",
+      lifecycleState: "stable_winner",
+      deliveryContext: {
+        campaignStatus: "PAUSED",
+        adSetStatus: "CAMPAIGN_PAUSED",
+        campaignIsTestLike: false,
+        activeDelivery: false,
+        pausedDelivery: true,
+      },
+      operatorPolicy: policyForSegment("needs_new_variant"),
+    });
+    const cut = resolverCreative({
+      primaryAction: "block_deploy",
+      lifecycleState: "retired",
+      cpa: 90,
+      roas: 0.5,
+      operatorPolicy: policyForSegment("spend_waste"),
+    });
+    const campaignCheck = resolverCreative({
+      operatorPolicy: policyForSegment("investigate", {
+        blockers: ["Campaign or ad set context limits this creative interpretation."],
+        missingEvidence: ["campaign_or_adset_context"],
+      }),
+    });
+    const notEnoughData = resolverCreative({
+      spend: 44,
+      purchases: 0,
+      impressions: 2_000,
+      creativeAgeDays: 4,
+      operatorPolicy: policyForSegment("creative_learning_incomplete", {
+        missingEvidence: ["evidence_floor"],
+      }),
+    });
+
+    expect(resolveCreativeOperatorDecision(scaleReady)).toMatchObject({
+      primary: "scale",
+      subTone: "queue_ready",
+      reasons: expect.arrayContaining(["strong_relative_winner"]),
+    });
+    expect(resolveCreativeOperatorDecision(scaleReview)).toMatchObject({
+      primary: "scale",
+      subTone: "review_only",
+      reasons: expect.arrayContaining([
+        "strong_relative_winner",
+        "business_validation_missing",
+      ]),
+    });
+    expect(resolveCreativeOperatorDecision(testMore).primary).toBe("test_more");
+    expect(resolveCreativeOperatorDecision(protect).primary).toBe("protect");
+
+    const promisingWatchDecision = resolveCreativeOperatorDecision(promisingWatch);
+    expect(["test_more", "diagnose"]).toContain(promisingWatchDecision.primary);
+    expect(promisingWatchDecision.primary).not.toBe("watch");
+
+    expect(resolveCreativeOperatorDecision(collapsedWatch)).toMatchObject({
+      primary: "refresh",
+      reasons: expect.arrayContaining(["trend_collapse"]),
+    });
+    expect(resolveCreativeOperatorDecision(contextWatch)).toMatchObject({
+      primary: "diagnose",
+      reasons: expect.arrayContaining(["campaign_context_blocker"]),
+    });
+    expect(resolveCreativeOperatorDecision(refresh)).toMatchObject({
+      primary: "refresh",
+      reasons: expect.arrayContaining(["fatigue_pressure"]),
+    });
+    expect(resolveCreativeOperatorDecision(retest)).toMatchObject({
+      primary: "refresh",
+      subTone: "revive",
+      reasons: expect.arrayContaining(["paused_winner"]),
+    });
+    expect(resolveCreativeOperatorDecision(cut)).toMatchObject({
+      primary: "cut",
+      reasons: expect.arrayContaining(["catastrophic_cpa"]),
+    });
+    expect(resolveCreativeOperatorDecision(campaignCheck)).toMatchObject({
+      primary: "diagnose",
+      reasons: expect.arrayContaining(["campaign_context_blocker"]),
+    });
+
+    const notEnoughDataDecision = resolveCreativeOperatorDecision(notEnoughData);
+    expect(["diagnose", "test_more"]).toContain(notEnoughDataDecision.primary);
+    expect(notEnoughDataDecision.reasons).toEqual(
+      expect.arrayContaining(["creative_learning_incomplete"]),
+    );
+    if (notEnoughDataDecision.primary === "diagnose") {
+      expect(notEnoughDataDecision.reasons.some((reason) => diagnosticReasonTags.has(reason))).toBe(true);
+    }
+  });
+
+  it("keeps resolver output parallel to queue and push safety", () => {
+    const reviewOnly = resolverCreative({
+      trust: {
+        surfaceLane: "watchlist",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "profitable_truth_capped",
+        evidence: { materiality: "material" },
+      },
+      operatorPolicy: policyForSegment("scale_review", {
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        missingEvidence: ["commercial_truth", "business_validation"],
+      }),
+    });
+    const fallback = resolverCreative({
+      evidenceSource: "fallback",
+      operatorPolicy: policyForSegment("contextual_only", {
+        evidenceSource: "fallback",
+        state: "contextual_only",
+        pushReadiness: "blocked_from_push",
+        queueEligible: false,
+        canApply: false,
+      }),
+    });
+    const missingReasonDiagnose = resolverCreative({
+      operatorPolicy: policyForSegment("investigate", {
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: [],
+      }),
+    });
+
+    const reviewOnlyDecision = resolveCreativeOperatorDecision(reviewOnly);
+    const fallbackDecision = resolveCreativeOperatorDecision(fallback);
+    const diagnoseDecision = resolveCreativeOperatorDecision(missingReasonDiagnose);
+
+    expect(reviewOnlyDecision).toMatchObject({
+      primary: "scale",
+      subTone: "review_only",
+    });
+    expect(reviewOnly.operatorPolicy.pushReadiness).toBe("operator_review_required");
+    expect(reviewOnly.operatorPolicy.queueEligible).toBe(false);
+    expect(reviewOnly.operatorPolicy.canApply).toBe(false);
+
+    expect(fallbackDecision.primary).toBe("diagnose");
+    expect(fallback.operatorPolicy.pushReadiness).toBe("blocked_from_push");
+    expect(fallback.operatorPolicy.queueEligible).toBe(false);
+    expect(fallback.operatorPolicy.canApply).toBe(false);
+
+    expect(diagnoseDecision.primary).toBe("diagnose");
+    expect(diagnoseDecision.reasons.some((reason) => diagnosticReasonTags.has(reason))).toBe(true);
+  });
+
+  it("resolves the sanitized live-firm audit fixture without reintroducing Watch as a primary", () => {
+    const fixturePath = path.join(
+      process.cwd(),
+      "docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json",
+    );
+    const artifact = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+      rows: Array<Record<string, any>>;
+    };
+
+    expect(artifact.rows.length).toBeGreaterThan(0);
+
+    for (const row of artifact.rows) {
+      const internalSegment = row.currentDecisionOsInternalSegment;
+      const baseline = row.accountBaseline ?? row.campaignBaseline ?? null;
+      const auditCreative = resolverCreative({
+        creativeId: row.creativeAlias,
+        name: row.creativeAlias,
+        creativeAgeDays: 30,
+        spend: row.spend30d ?? row.mid30d?.spend ?? 0,
+        purchaseValue: row.mid30d?.purchaseValue ?? 0,
+        roas: row.mid30d?.roas ?? 0,
+        cpa: row.mid30d?.cpa ?? 0,
+        purchases: row.mid30d?.purchases ?? 0,
+        impressions: row.mid30d?.impressions ?? 0,
+        evidenceSource: row.evidenceSource ?? "live",
+        lifecycleState: row.lifecycleState ?? "validating",
+        primaryAction: row.primaryAction ?? "keep_in_test",
+        summary: row.reasonSummary ?? "",
+        relativeBaseline: baseline,
+        benchmarkScope: row.benchmarkScope,
+        benchmarkScopeLabel: row.benchmarkScopeLabel,
+        benchmarkReliability: row.baselineReliability,
+        benchmark: {
+          missingContext: baseline?.missingContext ?? [],
+        },
+        previewStatus: {
+          liveDecisionWindow: row.previewWindow ?? "ready",
+          reason: null,
+        },
+        trust: {
+          surfaceLane: row.activeStatus ? "action_core" : "watchlist",
+          truthState: row.trustState ?? "live_confident",
+          operatorDisposition:
+            row.businessValidationStatus === "missing"
+              ? "profitable_truth_capped"
+              : "standard",
+          evidence: { materiality: "material" },
+        },
+        deployment: {
+          targetLane: row.deploymentTargetLane ?? null,
+          constraints: [],
+          compatibility: {
+            status: row.deploymentCompatibility ?? "compatible",
+            reasons: row.campaignContextLimited
+              ? ["Campaign or ad set context limits this creative interpretation."]
+              : [],
+          },
+        },
+        deliveryContext: {
+          campaignStatus: row.campaignStatus ?? null,
+          adSetStatus: row.adSetStatus ?? null,
+          campaignIsTestLike: false,
+          activeDelivery: Boolean(row.activeStatus),
+          pausedDelivery:
+            row.campaignStatus === "PAUSED" || row.adSetStatus === "CAMPAIGN_PAUSED",
+        },
+        operatorPolicy: policyForSegment(internalSegment, {
+          evidenceSource: row.evidenceSource ?? "live",
+          pushReadiness: row.pushReadiness ?? "blocked_from_push",
+          queueEligible: Boolean(row.queueEligible),
+          canApply: Boolean(row.canApply),
+          reasons: [row.reasonSummary].filter(Boolean),
+          blockers: row.campaignContextLimited
+            ? ["Campaign or ad set context limits this creative interpretation."]
+            : [],
+          missingEvidence:
+            row.currentUserFacingSegment === "Not Enough Data"
+              ? ["evidence_floor"]
+              : row.currentUserFacingSegment === "Scale Review"
+                ? ["business_validation"]
+                : [],
+          explanation: row.reasonSummary ?? "Sanitized live audit row.",
+        }),
+      });
+
+      const decision = resolveCreativeOperatorDecision(auditCreative);
+      expect([
+        "scale",
+        "test_more",
+        "protect",
+        "refresh",
+        "cut",
+        "diagnose",
+      ]).toContain(decision.primary);
+
+      if (internalSegment === "scale_ready" || internalSegment === "scale_review") {
+        expect(decision.primary).toBe("scale");
+      }
+      if (internalSegment === "spend_waste" || internalSegment === "kill_candidate") {
+        expect(decision.primary).toBe("cut");
+      }
+      if (internalSegment === "protected_winner" || internalSegment === "no_touch") {
+        expect(decision.primary).toBe("protect");
+      }
+      if (internalSegment === "fatigued_winner" || internalSegment === "needs_new_variant") {
+        expect(decision.primary).toBe("refresh");
+      }
+      if (internalSegment === "promising_under_sampled") {
+        expect(decision.primary).toBe("test_more");
+      }
+      if (internalSegment === "hold_monitor") {
+        expect(["test_more", "refresh", "cut", "diagnose"]).toContain(decision.primary);
+      }
+      if (decision.primary === "diagnose") {
+        expect(decision.reasons.some((reason) => diagnosticReasonTags.has(reason))).toBe(true);
+      }
+      if (internalSegment === "scale_review") {
+        expect(decision.subTone).toBe("review_only");
+        expect(auditCreative.operatorPolicy.queueEligible).toBe(false);
+        expect(auditCreative.operatorPolicy.canApply).toBe(false);
+      }
+    }
   });
 });
