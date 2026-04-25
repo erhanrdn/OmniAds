@@ -590,6 +590,35 @@ function isFatiguedCpaRatioCutCandidate(input: CreativeOperatorPolicyInput) {
   return belowBaselineFailure || zeroRecentCpaBlowout;
 }
 
+function isFatiguedHighSpendBelowBaselineCutCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianSpend = baseline?.medianSpend ?? 0;
+  const refreshPath =
+    input.primaryAction === "refresh_replace" ||
+    (input.primaryAction === "hold_no_touch" &&
+      input.lifecycleState === "fatigued_winner" &&
+      input.fatigue?.status === "fatigued" &&
+      input.trust?.operatorDisposition !== "protected_watchlist");
+
+  if (input.lifecycleState !== "fatigued_winner" && input.fatigue?.status !== "fatigued") {
+    return false;
+  }
+  if (!refreshPath) return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(1_500, medianSpend * 3)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 1) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  return metrics.roas <= medianRoas * 0.8;
+}
+
 function isBlockedCpaRatioLoser(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -776,6 +805,9 @@ function resolveSegment(params: {
   }
   if (isPausedHistoricalWinnerRetestCandidate(input)) {
     return "needs_new_variant";
+  }
+  if (isFatiguedHighSpendBelowBaselineCutCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
   }
   if (isFatiguedCpaRatioCutCandidate(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
@@ -968,6 +1000,8 @@ export function assessCreativeOperatorPolicy(
   const matureCpaRatioLoser = isMatureCpaRatioLoser(input);
   const protectedTrendCollapseRefreshCandidate =
     isProtectedTrendCollapseRefreshCandidate(input);
+  const fatiguedHighSpendBelowBaselineCutCandidate =
+    isFatiguedHighSpendBelowBaselineCutCandidate(input);
   const fatiguedCpaRatioCutCandidate = isFatiguedCpaRatioCutCandidate(input);
   const blockedCpaRatioLoser = isBlockedCpaRatioLoser(input);
   const highSpendBelowBaselineCutCandidate =
@@ -981,6 +1015,7 @@ export function assessCreativeOperatorPolicy(
     matureTrendCollapseLoser ||
     matureCpaRatioLoser ||
     protectedTrendCollapseRefreshCandidate ||
+    fatiguedHighSpendBelowBaselineCutCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
     highSpendBelowBaselineCutCandidate ||
@@ -994,6 +1029,7 @@ export function assessCreativeOperatorPolicy(
     matureTrendCollapseLoser ||
     matureCpaRatioLoser ||
     protectedTrendCollapseRefreshCandidate ||
+    fatiguedHighSpendBelowBaselineCutCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
     highSpendBelowBaselineCutCandidate ||
@@ -1029,6 +1065,7 @@ export function assessCreativeOperatorPolicy(
     (matureTrendCollapseLoser ||
       matureCpaRatioLoser ||
       protectedTrendCollapseRefreshCandidate ||
+      fatiguedHighSpendBelowBaselineCutCandidate ||
       fatiguedCpaRatioCutCandidate ||
       blockedCpaRatioLoser ||
       highSpendBelowBaselineCutCandidate ||
