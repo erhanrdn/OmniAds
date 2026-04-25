@@ -34,6 +34,15 @@ pass is merged.
 
 Status: implemented on `feature/adsecute-creative-decision-os-snapshots`; PR pending.
 
+PR:
+
+- URL: `https://github.com/erhanrdn/OmniAds/pull/66`
+- title: `Add manual Creative Decision OS analysis snapshots`
+- branch: `feature/adsecute-creative-decision-os-snapshots`
+- local validation: passed
+- GitHub status contexts: none reported by the connector at PR-open time
+- merge status: pending normal PR merge
+
 Root issue:
 
 - `app/(dashboard)/creatives/page.tsx` enabled a `creative-decision-os` query on page load.
