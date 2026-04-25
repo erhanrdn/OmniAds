@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
 import { useIntegrationsStore } from "@/store/integrations-store";
@@ -39,7 +40,10 @@ import {
 } from "@/components/creatives/creatives-top-section-support";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
-import { getCreativeDecisionOs } from "@/src/services";
+import {
+  getCreativeDecisionOsSnapshot,
+  runCreativeDecisionOsAnalysis,
+} from "@/src/services";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
@@ -124,8 +128,16 @@ const CreativeDecisionOsDrawer = dynamic(
   { ssr: false, loading: () => null }
 );
 
+function formatSnapshotTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 export default function CreativesPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
   const { plan: currentPlan } = usePlanState();
@@ -401,24 +413,63 @@ export default function CreativesPage() {
       setBenchmarkScopeMode("account");
     }
   }, [benchmarkScopeMode, campaignBenchmarkContext]);
-  const creativeDecisionOsQuery = useQuery({
-    queryKey: [
-      "creative-decision-os",
+  const creativeDecisionOsSnapshotQueryKey = useMemo(
+    () => [
+      "creative-decision-os-snapshot",
       businessId,
-      drStart,
-      drEnd,
       activeBenchmarkScope.scope,
-      activeBenchmarkScope.scopeId,
+      activeBenchmarkScope.scopeId ?? null,
+    ],
+    [activeBenchmarkScope.scope, activeBenchmarkScope.scopeId, businessId],
+  );
+  const creativeDecisionOsSnapshotQuery = useQuery({
+    queryKey: [
+      ...creativeDecisionOsSnapshotQueryKey,
     ],
     enabled: canLoadCreatives,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: () =>
-      getCreativeDecisionOs(businessId, drStart, drEnd, {
+      getCreativeDecisionOsSnapshot(businessId, {
         benchmarkScope: activeBenchmarkScope,
       }),
   });
-  const creativeDecisionOs = creativeDecisionOsQuery.data ?? null;
+  const creativeDecisionOsRunMutation = useMutation({
+    mutationFn: () =>
+      runCreativeDecisionOsAnalysis(businessId, drStart, drEnd, {
+        benchmarkScope: activeBenchmarkScope,
+      }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(creativeDecisionOsSnapshotQueryKey, payload);
+    },
+  });
+  const creativeDecisionSnapshotResponse = creativeDecisionOsSnapshotQuery.data ?? null;
+  const creativeDecisionSnapshot = creativeDecisionSnapshotResponse?.snapshot ?? null;
+  const creativeDecisionOs = creativeDecisionSnapshotResponse?.decisionOs ?? null;
+  const decisionSnapshotGeneratedAt = formatSnapshotTimestamp(
+    creativeDecisionSnapshot?.generatedAt,
+  );
+  const decisionSnapshotReportingRangeDiffers =
+    Boolean(creativeDecisionSnapshot) &&
+    (creativeDecisionSnapshot?.sourceWindow.reportingStartDate !== drStart ||
+      creativeDecisionSnapshot?.sourceWindow.reportingEndDate !== drEnd);
+  const decisionSnapshotStatusLabel = creativeDecisionOsRunMutation.isPending
+    ? "Decision OS: Running"
+    : creativeDecisionOs
+      ? `Last analyzed: ${decisionSnapshotGeneratedAt ?? "available"}`
+      : creativeDecisionOsSnapshotQuery.isLoading
+        ? "Decision OS snapshot loading"
+        : "Decision OS has not been run for this scope.";
+  const decisionSnapshotSafeError =
+    creativeDecisionOsRunMutation.error instanceof Error
+      ? creativeDecisionOsRunMutation.error.message
+      : creativeDecisionOsSnapshotQuery.error instanceof Error
+        ? creativeDecisionOsSnapshotQuery.error.message
+        : creativeDecisionSnapshotResponse?.error?.message ?? null;
+  const handleRunCreativeAnalysis = useCallback(() => {
+    if (!canLoadCreatives || creativeDecisionOsRunMutation.isPending) return;
+    creativeDecisionOsRunMutation.mutate();
+  }, [canLoadCreatives, creativeDecisionOsRunMutation]);
 
   const familyFocusIds = useMemo(() => {
     if (!creativeDecisionOs || !decisionOsFamilyFilter) return null;
@@ -890,22 +941,55 @@ export default function CreativesPage() {
               onToggleQuickFilter={handlePerformanceQuickFilter}
               showDecisionSupportSurface={false}
               actionsPrefix={
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <CreativeBenchmarkScopeControl
-                    value={benchmarkScopeMode}
-                    campaignContext={campaignBenchmarkContext}
-                    onChange={setBenchmarkScopeMode}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={() => setDecisionOsDrawerOpen(true)}
+                <div className="flex max-w-full flex-col items-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <CreativeBenchmarkScopeControl
+                      value={benchmarkScopeMode}
+                      campaignContext={campaignBenchmarkContext}
+                      onChange={setBenchmarkScopeMode}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      disabled={!canLoadCreatives || creativeDecisionOsRunMutation.isPending}
+                      onClick={handleRunCreativeAnalysis}
+                    >
+                      <Sparkles
+                        className={`mr-2 h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
+                      />
+                      {creativeDecisionOsRunMutation.isPending
+                        ? "Running analysis"
+                        : "Run Creative Analysis"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => setDecisionOsDrawerOpen(true)}
+                    >
+                      Decision support
+                    </Button>
+                  </div>
+                  <div
+                    className="max-w-[720px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-right text-[11px] leading-relaxed text-slate-600 shadow-sm"
+                    data-testid="creative-decision-os-snapshot-status"
                   >
-                    {creativeDecisionOsQuery.isLoading && !creativeDecisionOs
-                      ? "Decision support · Loading..."
-                      : "Decision support"}
-                  </Button>
+                    <p className="font-semibold text-slate-800">{decisionSnapshotStatusLabel}</p>
+                    <p>
+                      Analysis scope: {creativeDecisionSnapshot?.scope.analysisScopeLabel ?? activeBenchmarkScope.scopeLabel ?? "Account-wide"} · Benchmark:{" "}
+                      {creativeDecisionSnapshot?.scope.benchmarkScopeLabel ?? activeBenchmarkScope.scopeLabel ?? "Account-wide"}
+                      {creativeDecisionOs?.decisionAsOf ? ` · Decision as of ${creativeDecisionOs.decisionAsOf}` : null}
+                    </p>
+                    {decisionSnapshotReportingRangeDiffers ? (
+                      <p className="text-amber-700">
+                        Reporting range changed. This Decision OS snapshot remains unchanged until you run analysis again.
+                      </p>
+                    ) : null}
+                    {decisionSnapshotSafeError ? (
+                      <p className="text-rose-700">{decisionSnapshotSafeError}</p>
+                    ) : null}
+                  </div>
 
                   {(activeQuickFilter || activeDecisionOsFamily) ? (
                     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1028,7 +1112,12 @@ export default function CreativesPage() {
       />
       <CreativeDecisionOsDrawer
         decisionOs={creativeDecisionOs}
-        isLoading={creativeDecisionOsQuery.isLoading}
+        isLoading={creativeDecisionOsSnapshotQuery.isLoading || creativeDecisionOsRunMutation.isPending}
+        snapshot={creativeDecisionSnapshot}
+        snapshotStatus={creativeDecisionSnapshotResponse?.status ?? (creativeDecisionOsSnapshotQuery.isLoading ? "running" : "not_run")}
+        snapshotError={decisionSnapshotSafeError}
+        onRunAnalysis={handleRunCreativeAnalysis}
+        isRunningAnalysis={creativeDecisionOsRunMutation.isPending}
         open={decisionOsDrawerOpen}
         onOpenChange={setDecisionOsDrawerOpen}
         quickFilters={quickFilters}

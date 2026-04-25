@@ -557,6 +557,32 @@ export async function runMigrations(options?: {
           expires_at TIMESTAMPTZ NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS creative_decision_os_snapshots (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          surface                   TEXT NOT NULL DEFAULT 'creative',
+          business_id               TEXT NOT NULL,
+          analysis_scope            TEXT NOT NULL CHECK (analysis_scope IN ('account', 'campaign')),
+          analysis_scope_id         TEXT,
+          analysis_scope_label      TEXT NOT NULL,
+          benchmark_scope           TEXT NOT NULL CHECK (benchmark_scope IN ('account', 'campaign')),
+          benchmark_scope_id        TEXT,
+          benchmark_scope_label     TEXT NOT NULL,
+          decision_as_of            DATE,
+          generated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          generated_by              TEXT,
+          source_window             JSONB NOT NULL DEFAULT '{}'::jsonb,
+          operator_decision_version TEXT,
+          policy_version            TEXT,
+          instruction_version       TEXT,
+          input_hash                TEXT,
+          evidence_hash             TEXT,
+          summary_counts            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          status                    TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready', 'error')),
+          error_json                JSONB,
+          payload                   JSONB,
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_business
           ON provider_account_rollover_state (business_id, provider, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_target
@@ -848,6 +874,16 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_decision_os_snapshots_scope
+          ON creative_decision_os_snapshots (
+            business_id,
+            surface,
+            analysis_scope,
+            COALESCE(analysis_scope_id, ''),
+            benchmark_scope,
+            COALESCE(benchmark_scope_id, ''),
+            generated_at DESC
+          )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_custom_reports_business ON custom_reports (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token ON custom_report_share_snapshots (token)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz ON creative_media_cache (creative_id, business_id, provider)`.catch(() => {}),

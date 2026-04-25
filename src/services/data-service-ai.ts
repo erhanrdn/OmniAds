@@ -6,6 +6,9 @@ import type {
   CreativeDecisionOsV1Response,
   CreativeRuleReportPayload,
 } from "@/lib/creative-decision-os";
+import type {
+  CreativeDecisionOsSnapshotApiResponse,
+} from "@/lib/creative-decision-os-snapshots";
 import {
   buildApiUrl,
   getApiErrorMessage,
@@ -170,6 +173,7 @@ export type AiCreativeDecisionResponse = CreativeDecisionResponse;
 export type CreativeDecisionOs = CreativeDecisionOsV1Response;
 export type CreativeDecisionOsRow = CreativeDecisionOsCreative;
 export type CreativeDecisionOperatorQueue = CreativeDecisionOperatorQueueContract;
+export type CreativeDecisionOsSnapshotResponse = CreativeDecisionOsSnapshotApiResponse;
 export type AiCreativeRuleReportPayload = CreativeRuleReportPayload;
 
 export interface AiCreativeRuleCommentary {
@@ -243,27 +247,41 @@ export async function getCreativeDecisions(
 
 export const getAiCreativeDecisions = getCreativeDecisions;
 
-export async function getCreativeDecisionOs(
+function appendCreativeDecisionOsBenchmarkScope(
+  url: URL,
+  benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null,
+) {
+  if (!benchmarkScope?.scope) return;
+  url.searchParams.set("benchmarkScope", benchmarkScope.scope);
+  if (benchmarkScope.scopeId?.trim()) {
+    url.searchParams.set("benchmarkScopeId", benchmarkScope.scopeId.trim());
+  }
+  if (benchmarkScope.scopeLabel?.trim()) {
+    url.searchParams.set("benchmarkScopeLabel", benchmarkScope.scopeLabel.trim());
+  }
+}
+
+function assertCreativeDecisionOsSnapshotResponse(payload: unknown) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    (payload as { contractVersion?: unknown }).contractVersion !==
+      "creative-decision-os-snapshot.v1"
+  ) {
+    throw new Error("Creative Decision OS snapshot API returned an invalid payload.");
+  }
+  return payload as CreativeDecisionOsSnapshotResponse;
+}
+
+export async function getCreativeDecisionOsSnapshot(
   businessId: string,
-  startDate: string,
-  endDate: string,
   options?: {
     benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
   },
-): Promise<CreativeDecisionOsV1Response> {
+): Promise<CreativeDecisionOsSnapshotResponse> {
   const url = getClientApiUrl("/api/creatives/decision-os");
   url.searchParams.set("businessId", businessId);
-  url.searchParams.set("startDate", startDate);
-  url.searchParams.set("endDate", endDate);
-  if (options?.benchmarkScope?.scope) {
-    url.searchParams.set("benchmarkScope", options.benchmarkScope.scope);
-    if (options.benchmarkScope.scopeId?.trim()) {
-      url.searchParams.set("benchmarkScopeId", options.benchmarkScope.scopeId.trim());
-    }
-    if (options.benchmarkScope.scopeLabel?.trim()) {
-      url.searchParams.set("benchmarkScopeLabel", options.benchmarkScope.scopeLabel.trim());
-    }
-  }
+  appendCreativeDecisionOsBenchmarkScope(url, options?.benchmarkScope);
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -276,22 +294,55 @@ export async function getCreativeDecisionOs(
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS snapshot.")
+        : `Creative Decision OS snapshot request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return assertCreativeDecisionOsSnapshotResponse(payload);
+}
+
+export async function runCreativeDecisionOsAnalysis(
+  businessId: string,
+  startDate: string,
+  endDate: string,
+  options?: {
+    benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
+  },
+): Promise<CreativeDecisionOsSnapshotResponse> {
+  const url = getClientApiUrl("/api/creatives/decision-os");
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      businessId,
+      startDate,
+      endDate,
+      analyticsStartDate: startDate,
+      analyticsEndDate: endDate,
+      benchmarkScope: options?.benchmarkScope ?? null,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
         ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS.")
         : `Creative Decision OS request failed with status ${response.status}`;
     throw new Error(message);
   }
 
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    (payload as { contractVersion?: unknown }).contractVersion !== "creative-decision-os.v1" ||
-    !Array.isArray((payload as { creatives?: unknown }).creatives)
-  ) {
-    throw new Error("Creative Decision OS API returned an invalid payload.");
-  }
-
-  return payload as CreativeDecisionOsV1Response;
+  return assertCreativeDecisionOsSnapshotResponse(payload);
 }
+
+export const getCreativeDecisionOs = runCreativeDecisionOsAnalysis;
 
 export async function getAiCreativeRuleCommentary(
   businessId: string,
