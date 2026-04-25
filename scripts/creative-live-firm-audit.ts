@@ -102,6 +102,27 @@ type SanitizedAuditRow = {
   long90d: Record<string, number> | null;
   currentDecisionOsInternalSegment: string | null;
   currentUserFacingSegment: string;
+  mediaBuyerScorecard: {
+    relativePerformanceClass: string;
+    evidenceMaturity: string;
+    trendState: string;
+    efficiencyRisk: string;
+    winnerSignal: string;
+    loserSignal: string;
+    contextState: string;
+    businessValidation: string;
+    recommendedSegment: string;
+    confidence: number;
+    reasons: string[];
+    reviewOnly: boolean;
+    blockedActions: string[];
+    metrics: {
+      roasToBenchmark: number | null;
+      cpaToBenchmark: number | null;
+      trendRoasRatio: number | null;
+      spendToMedian: number | null;
+    };
+  } | null;
   currentInstructionHeadline: string;
   reasonSummary: string;
   nextObservation: string[];
@@ -961,6 +982,45 @@ export async function runCreativeLiveFirmAudit() {
           long90d: metricWindow(last90ById, creative.creativeId),
           currentDecisionOsInternalSegment: creative.operatorPolicy?.segment ?? null,
           currentUserFacingSegment: userFacingSegment,
+          mediaBuyerScorecard: creative.operatorPolicy?.mediaBuyerScorecard
+            ? {
+                relativePerformanceClass:
+                  creative.operatorPolicy.mediaBuyerScorecard.relativePerformanceClass,
+                evidenceMaturity:
+                  creative.operatorPolicy.mediaBuyerScorecard.evidenceMaturity,
+                trendState: creative.operatorPolicy.mediaBuyerScorecard.trendState,
+                efficiencyRisk: creative.operatorPolicy.mediaBuyerScorecard.efficiencyRisk,
+                winnerSignal: creative.operatorPolicy.mediaBuyerScorecard.winnerSignal,
+                loserSignal: creative.operatorPolicy.mediaBuyerScorecard.loserSignal,
+                contextState: creative.operatorPolicy.mediaBuyerScorecard.contextState,
+                businessValidation:
+                  creative.operatorPolicy.mediaBuyerScorecard.businessValidation,
+                recommendedSegment:
+                  creative.operatorPolicy.mediaBuyerScorecard.recommendedSegment,
+                confidence: round(creative.operatorPolicy.mediaBuyerScorecard.confidence, 3),
+                reasons: creative.operatorPolicy.mediaBuyerScorecard.reasons,
+                reviewOnly: creative.operatorPolicy.mediaBuyerScorecard.reviewOnly,
+                blockedActions: creative.operatorPolicy.mediaBuyerScorecard.blockedActions,
+                metrics: {
+                  roasToBenchmark: nullableRound(
+                    creative.operatorPolicy.mediaBuyerScorecard.metrics.roasToBenchmark,
+                    3,
+                  ),
+                  cpaToBenchmark: nullableRound(
+                    creative.operatorPolicy.mediaBuyerScorecard.metrics.cpaToBenchmark,
+                    3,
+                  ),
+                  trendRoasRatio: nullableRound(
+                    creative.operatorPolicy.mediaBuyerScorecard.metrics.trendRoasRatio,
+                    3,
+                  ),
+                  spendToMedian: nullableRound(
+                    creative.operatorPolicy.mediaBuyerScorecard.metrics.spendToMedian,
+                    3,
+                  ),
+                },
+              }
+            : null,
           currentInstructionHeadline: sanitizeText(operatorItem.instruction?.headline ?? "", replacements),
           reasonSummary: sanitizeText(operatorItem.reason, replacements),
           nextObservation: (operatorItem.instruction?.nextObservation ?? []).map((value) =>

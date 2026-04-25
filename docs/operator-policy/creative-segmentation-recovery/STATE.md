@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Reconcile PR #65 scoring truth before any more policy work. The latest Claude review, STATE.md, and local artifacts disagree about whether `company-08 / creative-10` is `Watch` or `Refresh` and whether represented segments are actually `90+`.
+Implement deterministic Creative media-buyer scoring as the routing layer for Creative segmentation, replacing ad hoc isolated gate routing while preserving all queue/push/apply safety.
 
-Current result: `company-08 / company-08-creative-10` is `Refresh` in the current committed PR #65 live artifact, so Claude's `Watch` observation is stale for that row. However, the acceptance-level score claims in STATE were overconfident because no fresh executable equal-segment scoring artifact was regenerated from current code and current expected media-buyer labels.
+Current result: the media-buyer scorecard layer is implemented and `assessCreativeOperatorPolicy()` now routes the operator segment through `mediaBuyerScorecard.operatorSegment`. Fresh acceptance scoring remains blocked: a live audit rerun through the local SSH DB tunnel hit repeated `60000ms` database query timeouts on Meta campaign/ad set context reads, so no new valid current-code equal-segment artifact was produced.
 
 ## Program Status
 
@@ -30,6 +30,7 @@ Current result: `company-08 / company-08-creative-10` is `Refresh` in the curren
 - Protect/no-touch boundary investigation: implemented on PR #65 branch
 - Round 6 Watch-as-Refresh edge verification: implemented on PR #65 branch; no additional policy change required
 - PR #65 score reconciliation: complete; no policy change made
+- Creative media-buyer scoring engine: implemented on PR #65 branch; fresh live/equal-segment score pending runtime rerun
 
 ## Current PR
 
@@ -37,9 +38,67 @@ Current result: `company-08 / company-08-creative-10` is `Refresh` in the curren
 - title: `Implement Claude Creative segment recalibration plan`
 - status: open; do not merge
 - merge status: not merged
-- latest commit: `c5ee6a12bbbc8db795649da05f2120ef251b9063`
-- latest checks: prior PR #65 local validation passed; this reconciliation pass changed reports/artifacts only
-- reason: current exact equal-segment scores are not proven from a fresh current artifact; do not merge before a fresh Claude/supervisor review of the reconciliation artifact or explicit owner acceptance
+- latest commit: media-buyer scoring engine update on PR #65 branch
+- latest checks: targeted media-buyer scoring, Creative operator policy, Creative surface/Decision OS, operator prescription, API, and Command Center safety tests passed locally; `npm test`, `npx tsc --noEmit`, `npm run build`, scoped diff check, hidden/bidi scan, raw report scan, and unauthenticated localhost smoke passed
+- reason: current exact equal-segment scores are still not proven from a fresh current artifact; do not merge before a fresh Claude/supervisor review of a valid artifact or explicit owner acceptance
+
+## Media Buyer Scoring Engine
+
+Status: implemented locally on PR #65 branch.
+
+Added:
+
+- `lib/creative-media-buyer-scoring.ts`
+- `lib/creative-media-buyer-scoring.test.ts`
+
+The scorecard computes:
+
+- relative performance class
+- evidence maturity
+- trend state
+- efficiency risk
+- winner signal
+- loser signal
+- context state
+- business validation state
+- recommended user-facing segment
+- internal operator segment
+- confidence
+- reason tags
+- blocked actions
+- review-only status
+
+Routing change:
+
+- `assessCreativeOperatorPolicy()` builds the scorecard once.
+- `resolveSegment()` now returns `mediaBuyerScorecard.operatorSegment`.
+- The old policy helper logic remains for missing-evidence, required-evidence, reason, and safety surface computation.
+
+Safety preserved:
+
+- `Scale` floors were not changed.
+- `Scale Review` remains review-only when business validation / Commercial Truth is missing.
+- `Cut`, `Refresh`, and `Retest` remain operator-review outcomes.
+- queue/push/apply safety was not loosened.
+- benchmark scope behavior was not changed.
+- old challenger remains comparison-only.
+
+Audit helper update:
+
+- `scripts/creative-live-firm-audit.ts` now emits sanitized scorecard summaries for each sampled row.
+
+Fresh live audit attempt:
+
+- SSH tunnel to local `127.0.0.1:15432` was established.
+- `scripts/creative-live-firm-audit.ts` was run with production DB URL rewritten to the tunnel.
+- the run hit repeated `60000ms` DB query timeouts on Meta campaign/ad set context reads.
+- no valid fresh current-code score artifact was produced.
+
+Current acceptance status:
+
+- represented segment scores are not re-proven after the scoring engine pass.
+- Creative Recovery is not accepted yet.
+- Next recommended action is to fix/work around the live audit timeout, regenerate current artifacts, then run Claude/supervisor review.
 
 ## Fresh Baseline Audit
 

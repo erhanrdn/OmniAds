@@ -2,6 +2,12 @@
 
 Date: 2026-04-25
 
+## 2026-04-25 Media Buyer Scoring Engine Update
+
+The Creative media-buyer scoring engine pass implemented deterministic scorecard routing, but did not produce a new valid equal-segment acceptance score. A live rerun was attempted through the local SSH database tunnel and was stopped after repeated `60000ms` database query timeouts on Meta campaign/ad set context reads.
+
+Therefore, the score estimates below remain historical PR #65 estimates and should not be treated as the current score of record. The current score of record is still blocked pending a fresh artifact generated from current code and current independent expected labels.
+
 ## Executive Result
 
 Result: Claude fix plan, the high-relative Watch floor-policy fix, and the Round 5 validating below-baseline collapse fix are implemented.

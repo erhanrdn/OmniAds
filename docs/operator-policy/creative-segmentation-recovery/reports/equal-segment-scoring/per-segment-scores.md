@@ -2,6 +2,12 @@
 
 Date: 2026-04-25
 
+## 2026-04-25 Media Buyer Scoring Engine Update
+
+The deterministic Creative media-buyer scoring engine is now the policy routing source, but no fresh valid per-segment score was generated in this pass. The live audit rerun through the local DB tunnel hit repeated `60000ms` query timeouts on Meta campaign/ad set context reads.
+
+The scores below remain the prior PR #65 estimates and are not a new acceptance score of record.
+
 Scoring method: equal-weight macro by represented user-facing segment. Scale and Cut misses remain severe product risks, but the macro score does not give Scale or Cut extra numeric weight.
 
 The before state is the PR #63 deterministic replay over Claude's represented mismatch set. The branch then received the Claude fix-plan implementation, the high-relative Watch floor-policy fix, the Round 5 validating below-baseline collapse fix, the Protect/no-touch boundary fix, and a Round 6 verification that the requested Watch-as-Refresh edge was already covered.

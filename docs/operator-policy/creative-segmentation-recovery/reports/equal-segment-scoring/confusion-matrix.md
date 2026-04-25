@@ -2,6 +2,10 @@
 
 Date: 2026-04-25
 
+## 2026-04-25 Media Buyer Scoring Engine Update
+
+No new current-code confusion matrix was generated in the media-buyer scoring engine pass. The live audit rerun was blocked by repeated database query timeouts. This document remains the prior PR #65 confusion summary until a fresh current-code artifact is available.
+
 This matrix summarizes the represented equal-segment confusion clusters after the Claude fix-plan implementation, Watch floor-policy fix, Round 5 closure, Protect boundary investigation, and Round 6 Watch-edge verification. Sanitized aliases only.
 
 ## Newly Fixed Confusions

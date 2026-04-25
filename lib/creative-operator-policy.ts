@@ -13,6 +13,10 @@ import type {
   OperatorPolicyAssessment,
   OperatorPolicyState,
 } from "@/src/types/operator-decision";
+import {
+  buildCreativeMediaBuyerScorecard,
+  type CreativeMediaBuyerScorecard,
+} from "@/lib/creative-media-buyer-scoring";
 
 export const CREATIVE_OPERATOR_POLICY_VERSION = "creative-operator-policy.v1";
 
@@ -92,6 +96,7 @@ export interface CreativeOperatorPolicyAssessment
   segment: CreativeOperatorSegment;
   actionClass: CreativeOperatorActionClass;
   evidenceSource: CreativeEvidenceSource;
+  mediaBuyerScorecard?: CreativeMediaBuyerScorecard;
 }
 
 export interface CreativeOperatorPolicyInput {
@@ -868,157 +873,11 @@ function resolveSegment(params: {
   blockers: string[];
   missingEvidence: string[];
   aggressive: boolean;
+  scorecard?: CreativeMediaBuyerScorecard;
 }): CreativeOperatorSegment {
   const { policyInput: input } = params;
-  const trust = input.trust ?? null;
-  const businessValidationStatus = resolveBusinessValidationStatus(input);
-  const reviewOnlyScaleCandidate = isReviewOnlyScaleCandidate(
-    input,
-    businessValidationStatus,
-  );
-  const activeTestScaleReviewCandidate =
-    isActiveTestStrongRelativeReviewCandidate(input);
-  const nonTestHighRelativeReviewCandidate =
-    isNonTestHighRelativeReviewCandidate(input, businessValidationStatus);
-  const scaleIntent =
-    isScaleIntent(input) ||
-    reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
-  const relativeScaleReviewIntent =
-    isRelativeScaleReviewIntent(input) ||
-    reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate ||
-    nonTestHighRelativeReviewCandidate;
-
-  if (!input.provenance) return "blocked";
-  if (!trust) return "blocked";
-  if (input.evidenceSource !== "live") return "contextual_only";
-  if (input.previewStatus?.liveDecisionWindow === "missing") return "blocked";
-  if (
-    input.previewStatus?.liveDecisionWindow === "metrics_only_degraded" &&
-    (params.aggressive || relativeScaleReviewIntent)
-  ) {
-    return "investigate";
-  }
-  if (trust?.truthState === "inactive_or_immaterial") return "contextual_only";
-  if (trust?.operatorDisposition === "archive_only") return "contextual_only";
-  if (
-    hasWeakCampaignContext(input) &&
-    (isActiveTestStrongRelativeReviewCandidate(input) ||
-      isActiveTestStrongRelativeTestMoreCandidate(input))
-  ) {
-    return "investigate";
-  }
-  if (scaleIntent && hasWeakCampaignContext(input)) {
-    return "investigate";
-  }
-  if (
-    scaleIntent &&
-    businessValidationStatus === "favorable" &&
-    hasTrueScaleEvidence(input)
-  ) {
-    return "scale_ready";
-  }
-  if (isActiveTestStrongRelativeReviewCandidate(input)) {
-    return businessValidationStatus === "unfavorable" ? "hold_monitor" : "scale_review";
-  }
-  if (nonTestHighRelativeReviewCandidate) {
-    return hasWeakCampaignContext(input) ? "investigate" : "scale_review";
-  }
-  if (isActiveTestStrongRelativeTestMoreCandidate(input)) {
-    return "promising_under_sampled";
-  }
-  if (isPausedHistoricalWinnerRetestCandidate(input)) {
-    return "needs_new_variant";
-  }
-  if (isFatiguedCpaRatioCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isProtectedTrendCollapseRefreshCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
-  }
-  if (isBlockedCpaRatioLoser(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isLowPurchaseCatastrophicCpaLoser(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isProtectedBelowBaselineMonitorCandidate(input)) {
-    return "hold_monitor";
-  }
-  if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
-    return "protected_winner";
-  }
-  if (trust?.operatorDisposition === "protected_watchlist" && !reviewOnlyScaleCandidate) {
-    return "protected_winner";
-  }
-  if (scaleIntent && hasRelativeScaleReviewEvidence(input)) {
-    if (businessValidationStatus === "unfavorable") {
-      return "hold_monitor";
-    }
-    return "scale_review";
-  }
-  if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
-  if (isMatureTrendCollapseLoser(input) || isMatureCpaRatioLoser(input)) {
-    if (hasWeakCampaignContext(input)) return "investigate";
-    return shouldRefreshMatureLoser(input) ? "needs_new_variant" : "spend_waste";
-  }
-  if (isMatureZeroPurchaseCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
-  if (isValidatingTrendCollapseRefreshCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
-  }
-  if (isValidatingBelowBaselineCollapseRefreshCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
-  }
-  if (isUnderSampled(input)) {
-    if (
-      !hasMeaningfulPositiveSupport(input) ||
-      input.lifecycleState === "incubating"
-    ) {
-      return "creative_learning_incomplete";
-    }
-    if (!hasUnderSampledTestMoreEvidence(input)) {
-      return "creative_learning_incomplete";
-    }
-    return "promising_under_sampled";
-  }
-  if (isMatureBelowBaselinePurchaseLoser(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isHighSpendBelowBaselineCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (scaleIntent && hasRelativeBaselineContext(input) && !hasRelativeScaleReviewEvidence(input)) {
-    return "hold_monitor";
-  }
-  if (input.primaryAction === "promote_to_scaling" && !hasScaleEvidence(input)) {
-    return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
-  }
-  if (input.primaryAction === "promote_to_scaling") {
-    if (!input.commercialTruthConfigured && !hasRelativeBaselineContext(input)) {
-      return "blocked";
-    }
-    return "hold_monitor";
-  }
-  if (input.lifecycleState === "fatigued_winner" || input.fatigue?.status === "fatigued") {
-    return input.primaryAction === "refresh_replace"
-      ? "fatigued_winner"
-      : "needs_new_variant";
-  }
-  if (input.primaryAction === "block_deploy") {
-    return hasKillEvidence(input)
-      ? "kill_candidate"
-      : hasNumber(input.supportingMetrics?.spend) && input.supportingMetrics!.spend! >= 250
-        ? "spend_waste"
-        : "creative_learning_incomplete";
-  }
-  if (input.primaryAction === "retest_comeback") return "needs_new_variant";
-  if (params.blockers.length > 0) return params.aggressive ? "blocked" : "investigate";
-  if (input.primaryAction === "keep_in_test") return "hold_monitor";
-  return "investigate";
+  const scorecard = params.scorecard ?? buildCreativeMediaBuyerScorecard(input);
+  return scorecard.operatorSegment;
 }
 
 function resolveState(input: {
@@ -1098,6 +957,7 @@ function resolvePushReadiness(input: {
 export function assessCreativeOperatorPolicy(
   input: CreativeOperatorPolicyInput,
 ): CreativeOperatorPolicyAssessment {
+  const mediaBuyerScorecard = buildCreativeMediaBuyerScorecard(input);
   const trust = input.trust ?? null;
   const provenance = input.provenance ?? null;
   const evidenceSource = input.evidenceSource ?? "unknown";
@@ -1310,6 +1170,7 @@ export function assessCreativeOperatorPolicy(
     blockers,
     missingEvidence,
     aggressive,
+    scorecard: mediaBuyerScorecard,
   });
   const state = resolveState({
     segment,
@@ -1346,6 +1207,7 @@ export function assessCreativeOperatorPolicy(
     segment,
     actionClass,
     evidenceSource,
+    mediaBuyerScorecard,
     pushReadiness,
     queueEligible,
     canApply: false,
