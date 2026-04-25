@@ -184,6 +184,7 @@ interface CreativesTopSectionProps {
     minimumReady: number;
   };
   actionsPrefix?: ReactNode;
+  belowToolbar?: ReactNode;
   decisionOs?: CreativeDecisionOsV1Response | null;
   quickFilters?: CreativeQuickFilter[];
   activeQuickFilterKey?: CreativeQuickFilterKey | null;
@@ -531,6 +532,7 @@ export function CreativesTopSection({
   showAiActionsRow = true,
   previewStripSummary,
   actionsPrefix,
+  belowToolbar,
   decisionOs,
   quickFilters = [],
   activeQuickFilterKey = null,
@@ -652,6 +654,8 @@ export function CreativesTopSection({
           </div>
         </div>
       </div>
+
+      {belowToolbar ? <div className="mt-4">{belowToolbar}</div> : null}
 
       {showDecisionSupportSurface ? (
         <CreativeDecisionSupportSurface

@@ -940,13 +940,11 @@ export default function CreativesPage() {
               activeQuickFilterKey={activeQuickFilterKey}
               onToggleQuickFilter={handlePerformanceQuickFilter}
               showDecisionSupportSurface={false}
-            />
-
-            {/* Full-width Decision OS toolbar card — sits below the header row, above the table */}
-            <div
-              className="rounded-2xl border border-slate-200 bg-white shadow-sm"
-              style={{ padding: "16px 18px", fontFamily: "Inter, system-ui, -apple-system, sans-serif" }}
-            >
+              belowToolbar={
+                <div
+                  className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  style={{ padding: "16px 18px", fontFamily: "Inter, system-ui, -apple-system, sans-serif" }}
+                >
                   {/* Row 1: benchmark (left) · status + actions (right) */}
                   <div className="flex flex-wrap items-center justify-between gap-2.5">
                     <CreativeBenchmarkScopeControl
@@ -1106,7 +1104,9 @@ export default function CreativesPage() {
                       {decisionSnapshotSafeError}
                     </p>
                   ) : null}
-            </div>
+                </div>
+              }
+            />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 

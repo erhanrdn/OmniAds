@@ -111,8 +111,8 @@ vi.mock("@/components/creatives/CreativeBenchmarkScopeControl", () => ({
 }));
 
 vi.mock("@/components/creatives/CreativesTopSection", () => ({
-  CreativesTopSection: (props: { actionsPrefix?: React.ReactNode }) =>
-    React.createElement("section", null, props.actionsPrefix),
+  CreativesTopSection: (props: { actionsPrefix?: React.ReactNode; belowToolbar?: React.ReactNode }) =>
+    React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
   applyCreativeFilters: (rows: unknown[]) => rows,
   formatCreativeDateLabel: () => "Last 14 days",
   mapCreativeGroupByToApi: () => "creative",
