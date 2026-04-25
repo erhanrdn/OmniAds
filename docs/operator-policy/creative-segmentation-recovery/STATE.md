@@ -4,9 +4,11 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Request Claude equal-segment re-review against `main`.
+Finish the Creative Decision OS manual snapshot pass.
 
-Creative Recovery is still not accepted as final until that review completes.
+Creative Recovery remains not accepted as final until the Creative page stops
+auto-mutating operator analysis from reporting-range changes and the snapshot
+pass is merged.
 
 ## Program Status
 
@@ -26,6 +28,65 @@ Creative Recovery is still not accepted as final until that review completes.
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
+- Creative Decision OS manual snapshots: implemented on branch, PR pending
+
+## Creative Decision OS Manual Snapshot Pass
+
+Status: implemented on `feature/adsecute-creative-decision-os-snapshots`; PR pending.
+
+Root issue:
+
+- `app/(dashboard)/creatives/page.tsx` enabled a `creative-decision-os` query on page load.
+- that query key included `drStart` and `drEnd`
+- changing the selected reporting range could refetch `/api/creatives/decision-os`
+- the API `GET` path computed Decision OS immediately
+
+Fix summary:
+
+- added `creative_decision_os_snapshots`
+- added `lib/creative-decision-os-snapshots.ts`
+- changed Creative Decision OS API behavior:
+  - `GET /api/creatives/decision-os` loads the latest matching snapshot only
+  - `POST /api/creatives/decision-os` manually computes and saves a snapshot
+- changed the Creative page to:
+  - load snapshot state on page load
+  - show `Run Creative Analysis`
+  - show last analyzed timestamp
+  - show analysis scope and benchmark scope
+  - keep reporting-range changes reporting-only
+  - show not-run state when a matching business/scope snapshot does not exist
+
+Snapshot identity:
+
+- business
+- analysis scope: account or campaign
+- benchmark scope: account or campaign
+- benchmark scope id when campaign-scoped
+
+Reporting dates are stored as context only and are not snapshot authority.
+
+Policy/safety impact:
+
+- no Creative segmentation retune
+- no taxonomy change
+- no Scale / Scale Review floor change
+- no queue/push/apply safety change
+- no Command Center safety change
+
+Validation so far:
+
+- targeted snapshot store/API/page/drawer tests passed
+- full `npm test`
+- `npm run build`
+- `npx tsc --noEmit`
+- `git diff --check`
+- hidden/bidi/control scan
+- raw ID scan on touched docs/reports
+- runtime smoke on `/creatives` and `/platforms/meta`
+
+Remaining before merge:
+
+- PR checks
 
 ## Final Equal-Segment PR Flow
 

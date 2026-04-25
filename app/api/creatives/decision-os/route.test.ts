@@ -38,6 +38,15 @@ vi.mock("@/lib/creative-decision-os-config", () => ({
   isCreativeDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
 
+vi.mock("@/lib/creative-decision-os-snapshots", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/creative-decision-os-snapshots")>();
+  return {
+    ...actual,
+    getLatestCreativeDecisionOsSnapshot: vi.fn(),
+    saveCreativeDecisionOsSnapshot: vi.fn(),
+  };
+});
+
 vi.mock("@/lib/creative-decision-os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/creative-decision-os")>();
   return {
@@ -55,8 +64,11 @@ const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const decisionWindowSource = await import("@/lib/meta/operator-decision-source");
 const config = await import("@/lib/creative-decision-os-config");
+const snapshotStore = await import("@/lib/creative-decision-os-snapshots");
 const decisionOs = await import("@/lib/creative-decision-os");
-const { GET } = await import("@/app/api/creatives/decision-os/route");
+const route = await import("@/app/api/creatives/decision-os/route");
+const GET = route.GET as (request: NextRequest) => Promise<Response>;
+const POST = route.POST as (request: NextRequest) => Promise<Response>;
 
 function buildCreativeApiRow() {
   return {
@@ -154,6 +166,39 @@ describe("GET /api/creatives/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(snapshotStore.getLatestCreativeDecisionOsSnapshot).mockResolvedValue(null);
+    vi.mocked(snapshotStore.saveCreativeDecisionOsSnapshot).mockImplementation(
+      async (input) =>
+        ({
+          snapshotId: "snap_1",
+          surface: "creative",
+          businessId: input.businessId,
+          scope: snapshotStore.resolveCreativeDecisionOsSnapshotScope(input.benchmarkScope),
+          decisionAsOf: input.payload.decisionAsOf,
+          generatedAt: "2026-04-10T01:00:00.000Z",
+          generatedBy: input.generatedBy ?? null,
+          sourceWindow: {
+            analyticsStartDate: input.analyticsStartDate ?? input.payload.analyticsWindow.startDate,
+            analyticsEndDate: input.analyticsEndDate ?? input.payload.analyticsWindow.endDate,
+            reportingStartDate: input.reportingStartDate ?? input.payload.startDate,
+            reportingEndDate: input.reportingEndDate ?? input.payload.endDate,
+            decisionWindowStartDate: input.payload.decisionWindows.primary30d.startDate,
+            decisionWindowEndDate: input.payload.decisionWindows.primary30d.endDate,
+            decisionWindowLabel: input.payload.decisionWindows.primary30d.label,
+          },
+          versions: {
+            operatorDecisionVersion: input.payload.engineVersion,
+            policyVersion: null,
+            instructionVersion: null,
+          },
+          inputHash: "input_hash",
+          evidenceHash: "evidence_hash",
+          summaryCounts: {},
+          status: "ready",
+          error: null,
+          payload: input.payload,
+        }) as never,
+    );
     vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockImplementation(
       async (input: {
         businessId: string;
@@ -434,8 +479,72 @@ describe("GET /api/creatives/decision-os", () => {
     } as never);
   });
 
-  it("returns the typed creative decision os payload with no-store caching", async () => {
+  it("loads latest snapshots without computing Creative Decision OS", async () => {
+    vi.mocked(snapshotStore.getLatestCreativeDecisionOsSnapshot).mockResolvedValue({
+      snapshotId: "snap_ready",
+      surface: "creative",
+      businessId: "biz",
+      scope: snapshotStore.resolveCreativeDecisionOsSnapshotScope(null),
+      decisionAsOf: "2026-04-10",
+      generatedAt: "2026-04-10T01:00:00.000Z",
+      generatedBy: "user_1",
+      sourceWindow: {
+        analyticsStartDate: "2026-04-01",
+        analyticsEndDate: "2026-04-10",
+        reportingStartDate: "2026-04-01",
+        reportingEndDate: "2026-04-10",
+        decisionWindowStartDate: "2026-03-12",
+        decisionWindowEndDate: "2026-04-10",
+        decisionWindowLabel: "primary 30d",
+      },
+      versions: {
+        operatorDecisionVersion: "2026-04-10-phase-04-v1",
+        policyVersion: null,
+        instructionVersion: null,
+      },
+      inputHash: "input_hash",
+      evidenceHash: "evidence_hash",
+      summaryCounts: {},
+      status: "ready",
+      error: null,
+      payload: {
+        contractVersion: "creative-decision-os.v1",
+        creatives: [],
+      } as never,
+    });
+
     const response = await GET(
+      new NextRequest("http://localhost/api/creatives/decision-os?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(payload.contractVersion).toBe("creative-decision-os-snapshot.v1");
+    expect(payload.status).toBe("ready");
+    expect(payload.snapshot.snapshotId).toBe("snap_ready");
+    expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(decisionWindowSource.getMetaDecisionWindowContext).not.toHaveBeenCalled();
+    expect(decisionOs.buildCreativeDecisionOs).not.toHaveBeenCalled();
+  });
+
+  it("returns not-run from GET when no matching snapshot exists", async () => {
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/decision-os?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.contractVersion).toBe("creative-decision-os-snapshot.v1");
+    expect(payload.status).toBe("not_run");
+    expect(payload.snapshot).toBeNull();
+    expect(payload.decisionOs).toBeNull();
+    expect(decisionWindowSource.getMetaDecisionWindowContext).not.toHaveBeenCalled();
+    expect(decisionOs.buildCreativeDecisionOs).not.toHaveBeenCalled();
+  });
+
+  it("runs and saves the typed creative decision os payload on POST", async () => {
+    const response = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10",
       ),
@@ -444,8 +553,11 @@ describe("GET /api/creatives/decision-os", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(payload.contractVersion).toBe("creative-decision-os.v1");
-    expect(payload.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
+    expect(payload.contractVersion).toBe("creative-decision-os-snapshot.v1");
+    expect(payload.status).toBe("ready");
+    expect(payload.snapshot.snapshotId).toBe("snap_1");
+    expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.decisionOs.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
     expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
       businessId: "biz",
       startDate: "2026-03-01",
@@ -484,10 +596,19 @@ describe("GET /api/creatives/decision-os", () => {
         end: "2026-04-10",
       }),
     );
+    expect(snapshotStore.saveCreativeDecisionOsSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        analyticsStartDate: "2026-03-01",
+        analyticsEndDate: "2026-03-31",
+        reportingStartDate: "2026-04-01",
+        reportingEndDate: "2026-04-10",
+      }),
+    );
   });
 
   it("lets provider decision timing resolve decisionAsOf when the request omits it", async () => {
-    const responseA = await GET(
+    const responseA = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28",
       ),
@@ -514,7 +635,7 @@ describe("GET /api/creatives/decision-os", () => {
     vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockClear();
     vi.mocked(decisionOs.buildCreativeDecisionOs).mockClear();
 
-    const responseB = await GET(
+    const responseB = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31",
       ),
@@ -535,7 +656,7 @@ describe("GET /api/creatives/decision-os", () => {
 
     vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockClear();
 
-    const responseC = await GET(
+    const responseC = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=%20%20%20",
       ),
@@ -551,7 +672,7 @@ describe("GET /api/creatives/decision-os", () => {
   });
 
   it("falls back to reporting dates when analytics dates are blank", async () => {
-    const response = await GET(
+    const response = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=&analyticsEndDate=",
       ),
@@ -576,7 +697,7 @@ describe("GET /api/creatives/decision-os", () => {
   });
 
   it("forwards explicit benchmark scope metadata into the creative decision build", async () => {
-    const response = await GET(
+    const response = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&benchmarkScope=campaign&benchmarkScopeId=cmp_1&benchmarkScopeLabel=Campaign%201",
       ),
@@ -595,7 +716,7 @@ describe("GET /api/creatives/decision-os", () => {
   });
 
   it("does not silently create campaign benchmark scope from unrelated filters", async () => {
-    const response = await GET(
+    const response = await POST(
       new NextRequest(
         "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&campaignId=cmp_1",
       ),

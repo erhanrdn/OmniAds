@@ -65,4 +65,34 @@ describe("CreativeDecisionOsDrawer", () => {
     expect(html).toContain("creative-support-surface-stub");
     expect(html).toContain("creative-overview-stub");
   });
+
+  it("renders a manual not-run state with a run-analysis action", () => {
+    const html = renderToStaticMarkup(
+      <CreativeDecisionOsDrawer
+        decisionOs={null}
+        isLoading={false}
+        snapshot={null}
+        snapshotStatus="not_run"
+        snapshotError={null}
+        onRunAnalysis={vi.fn()}
+        isRunningAnalysis={false}
+        open
+        onOpenChange={vi.fn()}
+        quickFilters={[]}
+        allRows={[]}
+        selectedRows={[]}
+        activeFamilyId={null}
+        activeQuickFilterKey={null}
+        onSelectFamily={vi.fn()}
+        onSelectQuickFilter={vi.fn()}
+        onClearFilters={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Decision OS has not been run for this scope.");
+    expect(html).toContain("Run Creative Analysis");
+    expect(html).toContain(
+      "Reporting range changes do not recompute Creative Decision OS.",
+    );
+  });
 });

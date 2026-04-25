@@ -9,6 +9,10 @@ import type {
   CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import type {
+  CreativeDecisionOsSnapshot,
+  CreativeDecisionOsSnapshotStatus,
+} from "@/lib/creative-decision-os-snapshots";
 import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 
@@ -26,6 +30,11 @@ export function clampCreativeDecisionOsDrawerWidth(width: number, viewportWidth:
 type CreativeDecisionOsDrawerProps = {
   decisionOs: CreativeDecisionOsV1Response | null;
   isLoading: boolean;
+  snapshot?: CreativeDecisionOsSnapshot | null;
+  snapshotStatus?: CreativeDecisionOsSnapshotStatus;
+  snapshotError?: string | null;
+  onRunAnalysis?: () => void;
+  isRunningAnalysis?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   quickFilters: CreativeQuickFilter[];
@@ -41,6 +50,11 @@ type CreativeDecisionOsDrawerProps = {
 export function CreativeDecisionOsDrawer({
   decisionOs,
   isLoading,
+  snapshot = null,
+  snapshotStatus = "not_run",
+  snapshotError = null,
+  onRunAnalysis,
+  isRunningAnalysis = false,
   open,
   onOpenChange,
   quickFilters,
@@ -111,6 +125,12 @@ export function CreativeDecisionOsDrawer({
   }, [open, width]);
 
   if (!open) return null;
+  const snapshotDate = snapshot?.generatedAt ? new Date(snapshot.generatedAt) : null;
+  const snapshotTimestamp =
+    snapshotDate && !Number.isNaN(snapshotDate.getTime())
+      ? snapshotDate.toISOString().slice(0, 16).replace("T", " ")
+      : null;
+  const hasReadySnapshot = Boolean(decisionOs && snapshotStatus === "ready");
 
   return (
     <div className="fixed inset-0 z-[88]" data-testid="creative-decision-os-drawer">
@@ -142,7 +162,8 @@ export function CreativeDecisionOsDrawer({
               </p>
               <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Decision Support</h2>
               <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                {decisionOs?.summary.message ?? "Loading the deterministic support surface for the current creative window."}
+                {decisionOs?.summary.message ??
+                  "Decision OS has not been run for this scope. Run analysis to generate a saved snapshot."}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 The page worklist stays primary. This drawer is support for live-window decision context only.
@@ -152,9 +173,22 @@ export function CreativeDecisionOsDrawer({
                   Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
                 </p>
               ) : null}
+              {snapshot ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Last analyzed {snapshotTimestamp ?? snapshot.generatedAt} UTC · analysis scope {snapshot.scope.analysisScopeLabel} · benchmark {snapshot.scope.benchmarkScopeLabel}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onRunAnalysis}
+                disabled={!onRunAnalysis || isRunningAnalysis}
+                className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isRunningAnalysis ? "Running analysis" : "Run Creative Analysis"}
+              </button>
               {decisionOs?.summary.operatingMode ? (
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700">
                   Operating Mode <span className="font-semibold text-slate-950">{decisionOs.summary.operatingMode}</span>
@@ -192,6 +226,30 @@ export function CreativeDecisionOsDrawer({
         </header>
 
         <div className={cn("flex-1 overflow-y-auto px-5 py-5 md:px-6")}>
+          {!hasReadySnapshot ? (
+            <section
+              className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              data-testid="creative-decision-os-not-run-state"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Analysis snapshot
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-slate-950">
+                {isRunningAnalysis
+                  ? "Decision OS analysis is running"
+                  : "Decision OS has not been run for this scope."}
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Reporting range changes do not recompute Creative Decision OS.
+                Run analysis when you want to create or refresh the saved operator snapshot.
+              </p>
+              {snapshotError ? (
+                <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  {snapshotError}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
           <CreativeDecisionSupportSurface
             decisionOs={decisionOs}
             allRows={allRows}
