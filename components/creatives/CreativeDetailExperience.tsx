@@ -700,154 +700,209 @@ export function CreativeDetailExperience({
           </section>
 
           <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_20%,#ffffff_100%)] p-4 md:p-5">
-            <div className="space-y-3">
-
-              {/* Verdict */}
+            <div className="space-y-4">
               <section
-                className={cn("rounded-2xl border p-4 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}
-                data-testid="creative-detail-verdict"
+                className={cn("rounded-2xl border p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]", previewTruthGate.panelClass)}
+                data-testid="creative-detail-preview-truth"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="rounded-full border border-slate-200 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                      {lifecycleLabel(report.lifecycleState ?? decision.lifecycleState)}
-                    </span>
-                    {decisionOsCreative.familyLabel ? (
-                      <span className="rounded-full border border-slate-200 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                        {decisionOsCreative.familyLabel}
-                      </span>
-                    ) : null}
-                    {previewTruth?.liveDecisionWindow !== "ready" ? (
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                        Preview {(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
-                      </span>
-                    ) : null}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Preview Truth Gate
+                    </p>
+                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">{previewTruthGate.headline}</h3>
+                  </div>
+                  <span
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                      previewTruthGate.badgeClass,
+                    )}
+                  >
+                    {previewTruthGate.badgeLabel}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-700">{previewTruthGate.summary}</p>
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                  <CompactMetricCell
+                    label="Live decision window"
+                    value={(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell
+                    label="Selected window"
+                    value={(previewTruth?.selectedWindow ?? "missing").replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell
+                    label="Deployment compatibility"
+                    value={decisionOsCreative.deployment.compatibility.status}
+                  />
+                  <CompactMetricCell label="AI commentary" value={canGenerateAiInterpretation ? "support only" : "disabled"} />
+                </div>
+                {previewTruth?.reason ? (
+                  <p className="mt-2 text-[11px] text-slate-600">{previewTruth.reason}</p>
+                ) : null}
+              </section>
+
+              <section
+                className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}
+                data-testid="creative-detail-deterministic-decision"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Decision + key metrics</p>
+                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">
+                      {operatorItem?.primaryAction ?? decisionHeadline(decision.action)}
+                    </h3>
                   </div>
                   <DecisionBadge action={decision.action} label={operatorItem?.primaryAction} />
                 </div>
-                <h3 className="mt-2 text-[15px] font-semibold leading-5 text-slate-950">
-                  {operatorItem?.primaryAction ?? decisionHeadline(decision.action)}
-                </h3>
-                <p className="mt-1.5 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  Score {decision.score}/100 · Confidence {Math.round(decision.confidence * 100)}%
-                </p>
-              </section>
+                <p className="mt-2 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
 
-              {/* Next Action */}
-              {operatorItem?.instruction ? (
-                <section
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                  data-testid="creative-detail-next-action"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Next action</p>
-                  <p className="mt-1.5 text-sm font-semibold leading-5 text-slate-900">
-                    {operatorItem.instruction.primaryMove}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">{operatorItem.instruction.reasonSummary}</p>
-                  <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    {operatorItem.instruction.urgency ? (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                        Urgency: {operatorItem.instruction.urgency}
-                      </span>
-                    ) : null}
-                    {operatorItem.instruction.evidenceStrength ? (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                        Evidence: {operatorItem.instruction.evidenceStrength}
-                      </span>
-                    ) : null}
-                    {operatorItem.instruction.amountGuidance?.label ? (
-                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                        {operatorItem.instruction.amountGuidance.label}
-                      </span>
-                    ) : null}
-                  </div>
-                  {operatorItem.instruction.nextObservation?.[0] ? (
-                    <p className="mt-2 text-[11px] text-slate-500">
-                      Watch: {operatorItem.instruction.nextObservation[0]}
+                {operatorItem?.instruction ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-700">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Operator instruction
                     </p>
-                  ) : null}
-                </section>
-              ) : null}
+                    <p className="mt-1 font-semibold text-slate-950">
+                      {operatorItem.instruction.primaryMove}
+                    </p>
+                    <p className="mt-1">
+                      Why now: {operatorItem.instruction.reasonSummary}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Target: {operatorItem.instruction.targetContext.label}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                      <span>Evidence {operatorItem.instruction.evidenceStrength}</span>
+                      <span>Urgency {operatorItem.instruction.urgency}</span>
+                      <span>{operatorItem.instruction.amountGuidance.label}</span>
+                      <span>{operatorItem.instruction.pushReadiness.replaceAll("_", " ")}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Urgency basis: {operatorItem.instruction.urgencyReason}
+                    </p>
+                    {operatorItem.instruction.nextObservation[0] ? (
+                      <p className="mt-2 text-[11px] text-slate-600">
+                        Watch next: {operatorItem.instruction.nextObservation[0]}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
-              {/* Performance */}
-              <section
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                data-testid="creative-detail-performance"
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Performance</p>
-                <div className="mt-2.5 grid grid-cols-2 gap-2">
-                  <MetricCell
-                    label="ROAS"
-                    value={`${row.roas.toFixed(2)}x`}
-                    benchmarkStatus={decisionOsCreative.benchmark.metrics.roas.status}
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5 md:grid-cols-3">
+                  <CompactMetricCell label="Decision score" value={`${decision.score}/100`} />
+                  <CompactMetricCell label="Confidence" value={`${Math.round(decision.confidence * 100)}%`} />
+                  <CompactMetricCell label="Lifecycle" value={lifecycleLabel(report.lifecycleState ?? decision.lifecycleState)} />
+                  <CompactMetricCell
+                    label="Primary decision"
+                    value={decisionOsCreative.primaryAction.replaceAll("_", " ")}
                   />
-                  <MetricCell label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
-                  <MetricCell
-                    label="CPA"
-                    value={formatMoney(row.cpa, currency, defaultCurrency)}
-                    benchmarkStatus={decisionOsCreative.benchmark.metrics.cpa.status}
+                  {decisionOsCreative.operatorPolicy ? (
+                    <>
+                      <CompactMetricCell
+                        label="Operator segment"
+                        value={creativeOperatorSegmentLabel(decisionOsCreative)}
+                      />
+                      <CompactMetricCell
+                        label="Push readiness"
+                        value={decisionOsCreative.operatorPolicy.pushReadiness.replaceAll("_", " ")}
+                      />
+                    </>
+                  ) : null}
+                  <CompactMetricCell label="Family" value={decisionOsCreative.familyLabel} />
+                  <CompactMetricCell
+                    label="Target lane"
+                    value={decisionOsCreative.deployment.targetLane ?? "None"}
                   />
-                  <MetricCell
-                    label="CTR"
-                    value={`${row.ctrAll.toFixed(2)}%`}
-                    benchmarkStatus={decisionOsCreative.benchmark.metrics.ctr.status}
+                  <CompactMetricCell
+                    label="Queue status"
+                    value={(decisionOsCreative.deployment.queueVerdict ?? "board_only").replaceAll("_", " ")}
                   />
-                  <MetricCell label="Purchases" value={formatInteger(row.purchases)} />
-                  <MetricCell label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
+                  <CompactMetricCell
+                    label="Compatibility"
+                    value={decisionOsCreative.deployment.compatibility.status}
+                  />
+                  <CompactMetricCell
+                    label="Family provenance"
+                    value={`${decisionOsCreative.familyProvenance.confidence} / ${decisionOsCreative.familyProvenance.overGroupingRisk}`}
+                  />
+                  <CompactMetricCell
+                    label="Preview truth"
+                    value={(decisionOsCreative.previewStatus?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
+                  />
+                </div>
+
+                {report.timeframeContext ? (
+                  <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Decision model</p>
+                    <div className="mt-2 space-y-2">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Core verdict</p>
+                        <p className="mt-1 text-xs text-slate-700">{report.timeframeContext.coreVerdict}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Selected range note</p>
+                        <p className="mt-1 text-xs text-slate-700">{report.timeframeContext.selectedRangeOverlay}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Historical support</p>
+                        <p className="mt-1 text-xs text-slate-500">{report.timeframeContext.historicalSupport}</p>
+                      </div>
+                    </div>
+                    {report.timeframeContext.note ? (
+                      <p className="mt-1 text-xs text-amber-700">{report.timeframeContext.note}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="mt-2 border-t border-slate-200/70 pt-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
+                    <CompactMetricCell label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
+                    <CompactMetricCell label="ROAS" value={`${row.roas.toFixed(2)}x`} />
+                    <CompactMetricCell label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
+                    <CompactMetricCell label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
+                    <CompactMetricCell label="Purchases" value={formatInteger(row.purchases)} />
+                    <CompactMetricCell label="Impressions" value={formatInteger(row.impressions)} />
+                    <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
+                  </div>
                 </div>
               </section>
 
-              {/* Commercial Fit */}
               <section
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                data-testid="creative-detail-commercial-fit"
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+                data-testid="creative-detail-command-center"
               >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Commercial fit</p>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  vs {decisionOsCreative.benchmark.selectedCohortLabel} · {decisionOsCreative.benchmark.sampleSize} peers
-                </p>
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  <BenchmarkCell
-                    label="ROAS"
-                    value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x`}
-                    status={decisionOsCreative.benchmark.metrics.roas.status}
-                  />
-                  <BenchmarkCell
-                    label="CPA"
-                    value={decisionOsCreative.benchmark.metrics.cpa.current != null ? formatMoney(decisionOsCreative.benchmark.metrics.cpa.current, currency, defaultCurrency) : "n/a"}
-                    status={decisionOsCreative.benchmark.metrics.cpa.status}
-                  />
-                  <BenchmarkCell
-                    label="CTR"
-                    value={`${decisionOsCreative.benchmark.metrics.ctr.current?.toFixed(2) ?? "n/a"}%`}
-                    status={decisionOsCreative.benchmark.metrics.ctr.status}
-                  />
-                </div>
-                {(decisionOsCreative.economics.absoluteSpendFloor || decisionOsCreative.economics.roasFloor != null || decisionOsCreative.economics.cpaCeiling != null) ? (
-                  <div className="mt-2.5 border-t border-slate-100 pt-2.5">
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Minimums</p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
-                      {decisionOsCreative.economics.absoluteSpendFloor ? (
-                        <span>Spend floor ${decisionOsCreative.economics.absoluteSpendFloor}</span>
-                      ) : null}
-                      {decisionOsCreative.economics.roasFloor != null ? (
-                        <span>ROAS floor {decisionOsCreative.economics.roasFloor.toFixed(2)}x</span>
-                      ) : null}
-                      {decisionOsCreative.economics.cpaCeiling != null ? (
-                        <span>CPA ceiling {formatMoney(decisionOsCreative.economics.cpaCeiling, currency, defaultCurrency)}</span>
-                      ) : null}
-                    </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Command Center
+                    </p>
+                    <h4 className="mt-0.5 text-sm font-semibold text-slate-900">
+                      Workflow state for this creative
+                    </h4>
                   </div>
-                ) : null}
-                {businessValidationNote ? (
-                  <p className="mt-2 text-[11px] text-amber-700">{businessValidationNote}</p>
-                ) : null}
-                {decisionOsCreative.benchmark.missingContext.length > 0 ? (
-                  <p className="mt-1.5 text-[11px] text-amber-700">
-                    Missing: {decisionOsCreative.benchmark.missingContext.join(" · ")}
-                  </p>
-                ) : null}
+                  <a
+                    href={`/command-center${commandCenterAction ? `?action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
+                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Open in Command Center
+                  </a>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+                    Status {commandCenterAction ? commandCenterAction.status.replaceAll("_", " ") : "pending"}
+                  </span>
+                  {commandCenterAction?.assigneeName ? (
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
+                      Assignee {commandCenterAction.assigneeName}
+                    </span>
+                  ) : null}
+                  {commandCenterAction?.snoozeUntil ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                      Snoozed
+                    </span>
+                  ) : null}
+                </div>
               </section>
 
               <CreativeCommercialContextCard
@@ -856,7 +911,6 @@ export function CreativeDetailExperience({
                 endDate={standardRange.customEnd}
               />
 
-              {/* AI Commentary */}
               <section
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
                 data-testid="creative-detail-ai-commentary"
@@ -947,185 +1001,242 @@ export function CreativeDetailExperience({
                 )}
               </section>
 
-              {/* Technical Details — collapsed */}
-              <details className="group rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none">
-                  <span className="text-sm font-medium text-slate-700">Technical details</span>
-                  <span className="text-[11px] text-slate-400">Fatigue · Deployment · Family</span>
-                </summary>
-                <div className="space-y-3 px-4 pb-4">
-                  {report.timeframeContext ? (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Decision model</p>
-                      <div className="mt-2 space-y-2">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Core verdict</p>
-                          <p className="mt-0.5 text-xs text-slate-700">{report.timeframeContext.coreVerdict}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Range note</p>
-                          <p className="mt-0.5 text-xs text-slate-700">{report.timeframeContext.selectedRangeOverlay}</p>
-                        </div>
-                      </div>
-                      {report.timeframeContext.note ? (
-                        <p className="mt-1 text-xs text-amber-700">{report.timeframeContext.note}</p>
-                      ) : null}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+                <h4 className="text-sm font-semibold text-slate-900">Deterministic evidence</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Deployment, benchmark, and fatigue evidence from the deterministic engine.
+                </p>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-deployment-matrix"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Deployment matrix
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Meta family" value={decisionOsCreative.deployment.metaFamilyLabel} />
+                    <CompactMetricCell label="Lane" value={decisionOsCreative.deployment.targetLane ?? "None"} />
+                    <CompactMetricCell
+                      label="Eligible lanes"
+                      value={
+                        (decisionOsCreative.deployment.eligibleLanes?.length ?? 0) > 0
+                          ? decisionOsCreative.deployment.eligibleLanes?.join(", ") ?? "None"
+                          : "None"
+                      }
+                    />
+                    <CompactMetricCell
+                      label="Ad set role"
+                      value={decisionOsCreative.deployment.targetAdSetRole ?? "None"}
+                    />
+                    <CompactMetricCell label="GEO context" value={decisionOsCreative.deployment.geoContext} />
+                    <CompactMetricCell
+                      label="Compatibility"
+                      value={decisionOsCreative.deployment.compatibility.status}
+                    />
+                    <CompactMetricCell
+                      label="Objective family"
+                      value={decisionOsCreative.deployment.compatibility.objectiveFamily ?? "Unknown"}
+                    />
+                    <CompactMetricCell
+                      label="Optimization"
+                      value={decisionOsCreative.deployment.compatibility.optimizationGoal ?? "Unknown"}
+                    />
+                    <CompactMetricCell
+                      label="Bid regime"
+                      value={decisionOsCreative.deployment.compatibility.bidRegime ?? "Unknown"}
+                    />
+                  </div>
+                  {decisionOsCreative.deployment.compatibility.reasons.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.deployment.compatibility.reasons.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
                     </div>
                   ) : null}
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2" data-testid="creative-detail-fatigue-evidence">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Fatigue engine</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Status" value={decisionOsCreative.fatigue.status} />
-                      <CompactMetricCell label="Confidence" value={`${Math.round(decisionOsCreative.fatigue.confidence * 100)}%`} />
-                      <CompactMetricCell
-                        label="ROAS decay"
-                        value={decisionOsCreative.fatigue.roasDecay === null ? "Unknown" : `${Math.round(decisionOsCreative.fatigue.roasDecay * 100)}%`}
-                      />
-                      <CompactMetricCell
-                        label="CTR decay"
-                        value={decisionOsCreative.fatigue.ctrDecay === null ? "Unknown" : `${Math.round(decisionOsCreative.fatigue.ctrDecay * 100)}%`}
-                      />
+                  {decisionOsCreative.deployment.constraints.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.deployment.constraints.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
                     </div>
-                    {decisionOsCreative.fatigue.evidence.length > 0 ? (
-                      <div className="mt-2 space-y-1">
-                        {decisionOsCreative.fatigue.evidence.slice(0, 3).map((item) => (
-                          <p key={item} className="text-[11px] text-slate-600">{item}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2" data-testid="creative-detail-deployment-matrix">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Deployment matrix</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Lane" value={decisionOsCreative.deployment.targetLane ?? "None"} />
-                      <CompactMetricCell label="Compatibility" value={decisionOsCreative.deployment.compatibility.status} />
-                      <CompactMetricCell label="GEO context" value={decisionOsCreative.deployment.geoContext} />
-                      <CompactMetricCell label="Ad set role" value={decisionOsCreative.deployment.targetAdSetRole ?? "None"} />
-                    </div>
-                    {decisionOsCreative.deployment.queueSummary ? (
-                      <p className="mt-2 text-[11px] text-slate-600">{decisionOsCreative.deployment.queueSummary}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2" data-testid="creative-detail-preview-truth">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Preview truth</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Live window" value={(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")} />
-                      <CompactMetricCell label="Selected window" value={(previewTruth?.selectedWindow ?? "missing").replaceAll("_", " ")} />
-                    </div>
-                    {previewTruth?.reason ? (
-                      <p className="mt-2 text-[11px] text-slate-600">{previewTruth.reason}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Family provenance</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Confidence" value={decisionOsCreative.familyProvenance.confidence} />
-                      <CompactMetricCell label="Over-grouping risk" value={decisionOsCreative.familyProvenance.overGroupingRisk} />
-                    </div>
-                    {decisionOsCreative.familyProvenance.evidence.length > 0 ? (
-                      <div className="mt-2 space-y-1">
-                        {decisionOsCreative.familyProvenance.evidence.slice(0, 2).map((item) => (
-                          <p key={item} className="text-[11px] text-slate-600">{item}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2" data-testid="creative-detail-benchmark-evidence">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Benchmark evidence</p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {decisionOsCreative.benchmark.selectedCohortLabel} · {decisionOsCreative.benchmark.sampleSize} peers
-                    </p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Scope" value={decisionOsCreative.benchmarkScopeLabel} />
-                      <CompactMetricCell label="Reliability" value={creativeBenchmarkReliabilityLabel(decisionOsCreative.benchmarkReliability)} />
-                      <CompactMetricCell
-                        label="ROAS"
-                        value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x / ${decisionOsCreative.benchmark.metrics.roas.status}`}
-                      />
-                      <CompactMetricCell
-                        label="CPA"
-                        value={`${decisionOsCreative.benchmark.metrics.cpa.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.cpa.status}`}
-                      />
-                      <CompactMetricCell
-                        label="CTR"
-                        value={`${decisionOsCreative.benchmark.metrics.ctr.current?.toFixed(2) ?? "n/a"}% / ${decisionOsCreative.benchmark.metrics.ctr.status}`}
-                      />
-                      <CompactMetricCell
-                        label={decisionOsCreative.benchmark.metrics.attention.label}
-                        value={`${decisionOsCreative.benchmark.metrics.attention.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.attention.status}`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Economics floor</p>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <CompactMetricCell label="Status" value={decisionOsCreative.economics.status} />
-                      <CompactMetricCell label="Spend floor" value={`$${decisionOsCreative.economics.absoluteSpendFloor}`} />
-                      <CompactMetricCell label="Purchase floor" value={String(decisionOsCreative.economics.absolutePurchaseFloor)} />
-                      <CompactMetricCell
-                        label="ROAS floor"
-                        value={decisionOsCreative.economics.roasFloor === null ? "Unknown" : `${decisionOsCreative.economics.roasFloor.toFixed(2)}x`}
-                      />
-                      <CompactMetricCell
-                        label="CPA ceiling"
-                        value={decisionOsCreative.economics.cpaCeiling === null ? "None" : formatMoney(decisionOsCreative.economics.cpaCeiling, currency, defaultCurrency)}
-                      />
-                    </div>
-                    {decisionOsCreative.economics.reasons.length > 0 ? (
-                      <div className="mt-2 space-y-1">
-                        {decisionOsCreative.economics.reasons.slice(0, 3).map((item) => (
-                          <p key={item} className="text-[11px] text-slate-600">{item}</p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2" data-testid="creative-detail-command-center">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Command Center</p>
-                      <a
-                        href={`/command-center${commandCenterAction ? `?action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
-                        className="text-[11px] text-slate-500 underline-offset-2 hover:underline"
-                      >
-                        Open →
-                      </a>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">
-                        {commandCenterAction ? commandCenterAction.status.replaceAll("_", " ") : "pending"}
-                      </span>
-                      {commandCenterAction?.assigneeName ? (
-                        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
-                          {commandCenterAction.assigneeName}
-                        </span>
-                      ) : null}
-                      {commandCenterAction?.snoozeUntil ? (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-                          Snoozed
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-slate-600">
+                    {decisionOsCreative.deployment.queueSummary}
+                  </p>
                 </div>
-              </details>
 
-              {/* Notes */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Economics floor
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Status" value={decisionOsCreative.economics.status} />
+                    <CompactMetricCell
+                      label="Spend floor"
+                      value={`$${decisionOsCreative.economics.absoluteSpendFloor}`}
+                    />
+                    <CompactMetricCell
+                      label="Purchase floor"
+                      value={String(decisionOsCreative.economics.absolutePurchaseFloor)}
+                    />
+                    <CompactMetricCell
+                      label="ROAS floor"
+                      value={
+                        decisionOsCreative.economics.roasFloor === null
+                          ? "Unknown"
+                          : `${decisionOsCreative.economics.roasFloor.toFixed(2)}x`
+                      }
+                    />
+                    <CompactMetricCell
+                      label="CPA ceiling"
+                      value={
+                        decisionOsCreative.economics.cpaCeiling === null
+                          ? "None"
+                          : formatMoney(
+                              decisionOsCreative.economics.cpaCeiling,
+                              currency,
+                              defaultCurrency,
+                            )
+                      }
+                    />
+                  </div>
+                  {decisionOsCreative.economics.reasons.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.economics.reasons.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-benchmark-evidence"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Benchmark context
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Cohort: {decisionOsCreative.benchmark.selectedCohortLabel} ({decisionOsCreative.benchmark.sampleSize} peers)
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell
+                      label="Scope"
+                      value={decisionOsCreative.benchmarkScopeLabel}
+                    />
+                    <CompactMetricCell
+                      label="Reliability"
+                      value={creativeBenchmarkReliabilityLabel(decisionOsCreative.benchmarkReliability)}
+                    />
+                    <CompactMetricCell
+                      label="ROAS"
+                      value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x / ${decisionOsCreative.benchmark.metrics.roas.status}`}
+                    />
+                    <CompactMetricCell
+                      label="CPA"
+                      value={`${decisionOsCreative.benchmark.metrics.cpa.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.cpa.status}`}
+                    />
+                    <CompactMetricCell
+                      label="CTR"
+                      value={`${decisionOsCreative.benchmark.metrics.ctr.current?.toFixed(2) ?? "n/a"}% / ${decisionOsCreative.benchmark.metrics.ctr.status}`}
+                    />
+                    <CompactMetricCell
+                      label={decisionOsCreative.benchmark.metrics.attention.label}
+                      value={`${decisionOsCreative.benchmark.metrics.attention.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.attention.status}`}
+                    />
+                  </div>
+                  {decisionOsCreative.benchmark.missingContext.length > 0 ? (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      Missing context: {decisionOsCreative.benchmark.missingContext.join(" · ")}
+                    </p>
+                  ) : null}
+                  {businessValidationNote ? (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      {businessValidationNote} Relative strength stays visible, but queue/apply remains blocked.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-fatigue-evidence"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Fatigue engine
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Status" value={decisionOsCreative.fatigue.status} />
+                    <CompactMetricCell
+                      label="Confidence"
+                      value={`${Math.round(decisionOsCreative.fatigue.confidence * 100)}%`}
+                    />
+                    <CompactMetricCell
+                      label="ROAS decay"
+                      value={
+                        decisionOsCreative.fatigue.roasDecay === null
+                          ? "Unknown"
+                          : `${Math.round(decisionOsCreative.fatigue.roasDecay * 100)}%`
+                      }
+                    />
+                    <CompactMetricCell
+                      label="CTR decay"
+                      value={
+                        decisionOsCreative.fatigue.ctrDecay === null
+                          ? "Unknown"
+                          : `${Math.round(decisionOsCreative.fatigue.ctrDecay * 100)}%`
+                      }
+                    />
+                  </div>
+                  {decisionOsCreative.fatigue.evidence.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.fatigue.evidence.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Family provenance
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Confidence" value={decisionOsCreative.familyProvenance.confidence} />
+                    <CompactMetricCell
+                      label="Over-grouping risk"
+                      value={decisionOsCreative.familyProvenance.overGroupingRisk}
+                    />
+                  </div>
+                  {decisionOsCreative.familyProvenance.evidence.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.familyProvenance.evidence.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
                 <h4 className="text-sm font-semibold text-slate-900">Notes</h4>
                 <textarea
                   value={notes}
                   onChange={(event) => onNotesChange(event.target.value)}
                   placeholder="Write hypotheses and test notes..."
-                  className="mt-2 min-h-[100px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
                 />
               </section>
-
             </div>
           </aside>
         </main>
@@ -1190,42 +1301,6 @@ function CompactMetricCell({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-slate-200 bg-white/85 px-2 py-1.5">
       <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className="mt-0.5 text-[13px] font-semibold leading-4 text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function MetricCell({ label, value, benchmarkStatus }: { label: string; value: string; benchmarkStatus?: string }) {
-  const isAbove = benchmarkStatus === "above_benchmark" || benchmarkStatus === "meets_benchmark";
-  const isBelow = benchmarkStatus === "below_benchmark" || benchmarkStatus === "at_risk";
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-      <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <div className="mt-0.5 flex items-baseline gap-1">
-        <p className="text-[15px] font-semibold leading-5 text-slate-900">{value}</p>
-        {isAbove ? <span className="text-[10px] font-medium text-emerald-600">↑</span> : null}
-        {isBelow ? <span className="text-[10px] font-medium text-rose-600">↓</span> : null}
-      </div>
-    </div>
-  );
-}
-
-function BenchmarkCell({ label, value, status }: { label: string; value: string; status: string }) {
-  const isAbove = status === "above_benchmark" || status === "meets_benchmark";
-  const isBelow = status === "below_benchmark" || status === "at_risk";
-  return (
-    <div
-      className={cn(
-        "rounded-xl border px-3 py-2",
-        isAbove ? "border-emerald-200 bg-emerald-50/70" : isBelow ? "border-rose-200 bg-rose-50/70" : "border-slate-200 bg-slate-50/70",
-      )}
-    >
-      <p className="text-[9px] uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p className={cn("mt-0.5 text-[13px] font-semibold leading-4", isAbove ? "text-emerald-700" : isBelow ? "text-rose-700" : "text-slate-700")}>
-        {value}
-      </p>
-      <p className={cn("text-[9px]", isAbove ? "text-emerald-500" : isBelow ? "text-rose-500" : "text-slate-400")}>
-        {status.replaceAll("_", " ")}
-      </p>
     </div>
   );
 }
