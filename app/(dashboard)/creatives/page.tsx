@@ -943,7 +943,7 @@ export default function CreativesPage() {
               actionsPrefix={
                 <div
                   className="rounded-2xl border border-slate-200 bg-white shadow-sm"
-                  style={{ padding: "16px 18px" }}
+                  style={{ padding: "16px 18px", fontFamily: "Inter, system-ui, -apple-system, sans-serif" }}
                 >
                   {/* Row 1: benchmark (left) · status + actions (right) */}
                   <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -954,47 +954,71 @@ export default function CreativesPage() {
                     />
                     <div className="flex flex-wrap items-center gap-3.5">
                       {creativeDecisionOs ? (
-                        <span
+                        <div
                           className="text-[12px] text-slate-400"
                           style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "0.005em" }}
                         >
                           {decisionSnapshotGeneratedAt ? (
-                            <>Last run <span className="text-slate-500">{decisionSnapshotGeneratedAt}</span></>
+                            <>
+                              Last run <span className="text-slate-500">{decisionSnapshotGeneratedAt}</span>
+                            </>
                           ) : null}
                           {creativeDecisionOs.decisionAsOf ? (
-                            <> · Decision as of <span className="text-slate-500">{creativeDecisionOs.decisionAsOf}</span></>
+                            <>
+                              <span className="mx-2 text-slate-200">·</span>
+                              Decision as of <span className="text-slate-500">{creativeDecisionOs.decisionAsOf}</span>
+                            </>
                           ) : null}
-                        </span>
+                        </div>
                       ) : null}
-                      <Button
+                      {/* Run / Re-run analysis */}
+                      <button
                         type="button"
-                        variant={creativeDecisionOs ? "outline" : "default"}
-                        className="rounded-full"
                         disabled={!canLoadCreatives || creativeDecisionOsRunMutation.isPending}
                         onClick={handleRunCreativeAnalysis}
+                        className={`inline-flex h-11 items-center gap-2 rounded-full border px-[18px] text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                          creativeDecisionOs
+                            ? "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+                            : "border-slate-900 bg-slate-900 text-white shadow-sm hover:bg-slate-800"
+                        }`}
                       >
                         <Sparkles
-                          className={`mr-2 h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
+                          className={`h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
                         />
                         {creativeDecisionOsRunMutation.isPending
                           ? "Running analysis"
                           : creativeDecisionOs
                             ? "Re-run analysis"
                             : "Run Creative Analysis"}
-                      </Button>
-                      <Button
+                      </button>
+                      {/* Decision OS */}
+                      <button
                         type="button"
-                        variant={creativeDecisionOs ? "default" : "outline"}
-                        className="rounded-full"
                         onClick={() => setDecisionOsDrawerOpen(true)}
+                        className={`inline-flex h-11 items-center gap-2 rounded-full border px-[18px] text-[13px] font-semibold transition-colors ${
+                          creativeDecisionOs
+                            ? "border-slate-900 bg-slate-900 text-white shadow-sm hover:bg-slate-800"
+                            : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
                       >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          className={creativeDecisionOs ? "text-white" : "text-slate-500"}
+                          aria-hidden="true"
+                        >
+                          <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.4" />
+                          <path d="M5 7l1.5 1.5L9.5 5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                         Decision OS
                         {creativeDecisionOs ? (
-                          <span className="ml-2 rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-medium">
+                          <span className="ml-0.5 rounded-full bg-white/[0.18] px-[7px] py-px text-[11px] font-medium text-white">
                             Open
                           </span>
                         ) : null}
-                      </Button>
+                      </button>
                     </div>
                   </div>
 
@@ -1005,25 +1029,35 @@ export default function CreativesPage() {
                         const active = activeQuickFilterKey === filter.key;
                         const toneMap: Record<string, { button: string; count: string }> = {
                           act_now: {
-                            button: active ? "border-emerald-700 bg-emerald-600 text-white shadow-sm" : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            button: active
+                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:shadow-sm",
                             count: active ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800",
                           },
+                          watch: {
+                            button: active
+                              ? "border-blue-700 bg-blue-600 text-white shadow-sm"
+                              : "border-blue-200 bg-blue-50 text-blue-700 hover:shadow-sm",
+                            count: active ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700",
+                          },
                           needs_truth: {
-                            button: active ? "border-amber-700 bg-amber-600 text-white shadow-sm" : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+                            button: active
+                              ? "border-amber-700 bg-amber-600 text-white shadow-sm"
+                              : "border-amber-200 bg-amber-50 text-amber-800 hover:shadow-sm",
                             count: active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
                           },
-                          watch: {
-                            button: active ? "border-sky-700 bg-sky-600 text-white shadow-sm" : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
-                            count: active ? "bg-white/20 text-white" : "bg-sky-100 text-sky-800",
-                          },
                           blocked: {
-                            button: active ? "border-orange-700 bg-orange-600 text-white shadow-sm" : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100",
-                            count: active ? "bg-white/20 text-white" : "bg-orange-100 text-orange-800",
+                            button: active
+                              ? "border-amber-700 bg-amber-600 text-white shadow-sm"
+                              : "border-amber-200 bg-amber-50 text-amber-800 hover:shadow-sm",
+                            count: active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
                           },
                         };
                         const toneClasses = toneMap[filter.tone] ?? {
-                          button: active ? "border-slate-700 bg-slate-700 text-white shadow-sm" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100",
-                          count: active ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700",
+                          button: active
+                            ? "border-blue-700 bg-blue-600 text-white shadow-sm"
+                            : "border-blue-200 bg-blue-50 text-blue-700 hover:shadow-sm",
+                          count: active ? "bg-white/20 text-white" : "bg-blue-100 text-blue-700",
                         };
                         return (
                           <button
@@ -1033,10 +1067,14 @@ export default function CreativesPage() {
                             aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} creatives`}
                             data-count={filter.count}
                             data-testid={`creative-performance-filter-${filter.key}`}
-                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${toneClasses.button}`}
+                            style={{ height: 30, padding: "0 4px 0 12px", transition: "box-shadow 120ms ease" }}
+                            className={`inline-flex items-center gap-2 rounded-full border text-[12px] font-semibold ${toneClasses.button}`}
                           >
                             <span>{creativeQuickFilterShortLabel(filter.key)}</span>
-                            <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${toneClasses.count}`}>
+                            <span
+                              style={{ minWidth: 22, height: 22, padding: "0 7px", fontVariantNumeric: "tabular-nums" }}
+                              className={`inline-flex items-center justify-center rounded-full text-[11px] font-semibold ${toneClasses.count}`}
+                            >
                               {filter.count.toLocaleString()}
                             </span>
                           </button>
@@ -1046,7 +1084,8 @@ export default function CreativesPage() {
                         <button
                           type="button"
                           onClick={clearCreativeFocusFilters}
-                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                          style={{ height: 30 }}
+                          className="rounded-full border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
                         >
                           Clear
                         </button>
