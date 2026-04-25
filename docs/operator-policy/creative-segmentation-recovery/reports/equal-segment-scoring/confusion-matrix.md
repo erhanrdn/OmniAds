@@ -2,7 +2,7 @@
 
 Date: 2026-04-25
 
-This matrix summarizes the represented equal-segment confusion clusters after the Claude fix-plan implementation, Watch floor-policy fix, Round 5 closure, and Protect boundary investigation. Sanitized aliases only.
+This matrix summarizes the represented equal-segment confusion clusters after the Claude fix-plan implementation, Watch floor-policy fix, Round 5 closure, Protect boundary investigation, and Round 6 Watch-edge verification. Sanitized aliases only.
 
 ## Newly Fixed Confusions
 
@@ -13,7 +13,7 @@ This matrix summarizes the represented equal-segment confusion clusters after th
 | Not Enough Data | Test More | 2 | Not Enough Data | 2 | fixed by thin-spend Test More evidence floor |
 | Refresh | Watch | 1 | Refresh | 1 | quarter-trend validating collapse preserved |
 | Scale Review | Watch | 1 | Scale Review | 1 | fixed by high-relative non-test review-only gate |
-| Refresh | Watch | 1 | Refresh | 1 | fixed by Round 5 below-baseline validating collapse gate |
+| Refresh | Watch | 1 | Refresh | 1 | fixed by Round 5 below-baseline validating collapse gate; Round 6 verified the same target shape |
 | Watch | Protect | 1 | Watch | 1 | fixed by Protect/no-touch below-benchmark high-CPA guard |
 
 ## Previously Fixed Confusions Preserved

@@ -10,6 +10,8 @@ Round 5 fixed the clear remaining Watch miss identified in Claude's latest indep
 
 The follow-up Protect boundary investigation found one narrow no-touch false positive in Claude's Round 4 reviewed set. A high-volume stable winner below active benchmark with elevated CPA no longer stays in passive `Protect`; it routes to `Watch` instead. True protected/no-touch winners remain Protect.
 
+Round 6 rechecked the requested `company-08 / creative-10` Watch-as-Refresh edge. The current PR #65 branch already routes that validating below-benchmark collapse shape to `Refresh`; no additional policy change was required.
+
 ## Fresh Baseline
 
 Current `main` at branch start was the PR #63 state:
@@ -67,6 +69,22 @@ Remaining strict-target blocker:
 
 - `Protect` moved from `88/100` to about `90/100` in the reviewed set after the no-touch boundary guard.
 - pdf-company-01 remains about `88/100`; investigation found that this is not a remaining Protect/no-touch defect. The remaining disagreement is a minor business-level fatigued/Test More/Refresh boundary, not a severe Scale/Cut error.
+
+## Round 6 Watch Edge Verification
+
+The requested Round 6 target was the same reviewed shape fixed by Round 5:
+
+- `company-08 / company-08-creative-10`
+- validating / keep-in-test
+- ROAS about `0.37x` active benchmark
+- recent ROAS `0`
+- spend around `$378`
+- `2` purchases
+
+The branch already returns `Refresh` through
+`isValidatingBelowBaselineCollapseRefreshCandidate`. No score changes are
+claimed in this no-op verification pass; the Watch and macro reads remain the
+post-Round-5 estimates pending Claude re-review.
 
 ## Fresh Live Cohort Summary
 

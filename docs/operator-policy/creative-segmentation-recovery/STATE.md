@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, the Round 5 Watch-as-Refresh closure, and the Protect/no-touch boundary investigation while honoring the supervisor target: every represented user-facing segment should reach `90+`.
+Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, the Round 5 Watch-as-Refresh closure, the Protect/no-touch boundary investigation, and the Round 6 Watch-as-Refresh edge verification while honoring the supervisor target: every represented user-facing segment should reach `90+`.
 
-Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. The Protect/no-touch investigation fixed the remaining reviewed Protect false positive without changing true no-touch safety. Creative Recovery still needs Claude equal-segment re-review before PR #65 is merged.
+Round 6 verified that the requested `company-08 / creative-10` Watch-as-Refresh edge is already fixed on the current PR #65 branch. The Protect/no-touch investigation fixed the remaining reviewed Protect false positive without changing true no-touch safety. Creative Recovery still needs Claude equal-segment re-review before PR #65 is merged.
 
 ## Program Status
 
@@ -28,6 +28,7 @@ Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. The P
 - trend-collapse evidence hardening: merged through PR #63
 - Claude fix-plan implementation, Watch floor-policy fix, and Round 5 closure: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
 - Protect/no-touch boundary investigation: implemented on PR #65 branch
+- Round 6 Watch-as-Refresh edge verification: implemented on PR #65 branch; no additional policy change required
 
 ## Current PR
 
@@ -91,6 +92,7 @@ Implemented:
 8. PR #65 P1 hardening: high-relative non-test review candidates are excluded from true `Scale` intent / `scaleAction`, so favorable business validation cannot promote that review-only path into `scale_ready` or queue eligibility.
 9. PR #65 P2 hardening: the new below-benchmark collapse Refresh gate now requires known creative age `>= 7` days, so unknown-age creatives stay conservative.
 10. Protect/no-touch boundary fix: high-volume stable winners below active benchmark with elevated CPA now route to `Watch` instead of passive `Protect`, while explicit protected watchlist rows remain Protect.
+11. Round 6 verification: the requested `company-08 / creative-10` validating below-benchmark collapse shape is already covered by `isValidatingBelowBaselineCollapseRefreshCandidate`.
 
 Preserved / not changed:
 
@@ -160,6 +162,30 @@ Surface alignment:
 - the fixed row now has `Refresh` label, `Refresh` instruction headline, and Refresh-specific reason / next observation
 - queue/apply remain false
 
+## Round 6 Watch Edge Verification
+
+Status: verified; no new policy change required.
+
+Requested target:
+
+- sanitized row: `company-08 / company-08-creative-10`
+- before outcome in Claude review: `Watch`
+- expected: `Refresh`, unless existing severe Cut gates apply
+- evidence shape: validating / keep-in-test, ROAS about `0.37x` active benchmark, recent ROAS `0`, spend around `$378`, `2` purchases, no campaign-context blocker
+
+Current branch behavior:
+
+- `isValidatingBelowBaselineCollapseRefreshCandidate` already admits this shape
+- policy segment: `needs_new_variant`
+- user-facing outcome: `Refresh`
+- queue/apply remain false
+
+Score read:
+
+- Watch remains about `90/100` after the Round 5 fix
+- macro remains about `90/100` after Round 5 plus Protect boundary
+- no segment score changed in this no-op verification pass
+
 ## Protect Boundary Investigation
 
 Status: implemented in current branch.
@@ -210,15 +236,20 @@ Score read:
 - `npm run build`: passed
 - `/creatives` localhost smoke: passed through expected auth redirect/load
 - `/platforms/meta` localhost smoke: passed through expected auth redirect/load
-- `git diff --check`: passed
+- prior PR #65 `git diff --check`: passed before the current unstaged external-review edit
 - hidden/bidi/control scan: passed
 - raw ID scan on touched docs: passed
+- touched-file `git diff --check`: passed
+- full working-tree `git diff --check`: blocked by unstaged external-review trailing whitespace in `docs/external-reviews/creative-segmentation-recovery/equal-segment-review.md`; that file was already modified outside this pass and is not staged
+- lint skipped: no `lint` script exists
 - live-firm audit rerun attempt: blocked by production DB query timeout over the SSH tunnel (`DB query timed out after 8000ms`); no committed live-firm artifact changed
 - Round 5 targeted policy/surface tests: passed
 - Round 5 live-firm audit rerun: passed
 - PR #65 P1 regression test for review-only non-test Scale Review: passed
 - PR #65 P2 regression test for unknown-age below-benchmark collapse rows: passed
 - Protect boundary policy tests: passed
+- Round 6 Watch edge verification: passed; target fixture already resolves to Refresh
+- equal-segment scoring audit: not rerun by script in this pass; no executable equal-segment scoring helper exists in the repo, and this pass made no policy change beyond verifying the existing Round 5 gate
 
 ## Reports
 
@@ -226,6 +257,7 @@ Score read:
 - Watch floor policy fix: `docs/operator-policy/creative-segmentation-recovery/reports/watch-floor-policy-fix/final.md`
 - Round 5 target closure: `docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md`
 - Protect boundary investigation: `docs/operator-policy/creative-segmentation-recovery/reports/protect-boundary-investigation/final.md`
+- Round 6 Watch edge verification: `docs/operator-policy/creative-segmentation-recovery/reports/round-6-watch-refresh-edge-fix/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`

@@ -4,7 +4,7 @@ Date: 2026-04-25
 
 Scoring method: equal-weight macro by represented user-facing segment. Scale and Cut misses remain severe product risks, but the macro score does not give Scale or Cut extra numeric weight.
 
-The before state is the PR #63 deterministic replay over Claude's represented mismatch set. The branch then received the Claude fix-plan implementation, the high-relative Watch floor-policy fix, the Round 5 validating below-baseline collapse fix, and the Protect/no-touch boundary fix.
+The before state is the PR #63 deterministic replay over Claude's represented mismatch set. The branch then received the Claude fix-plan implementation, the high-relative Watch floor-policy fix, the Round 5 validating below-baseline collapse fix, the Protect/no-touch boundary fix, and a Round 6 verification that the requested Watch-as-Refresh edge was already covered.
 
 | Segment | Represented | Before | After | Result |
 |---|---:|---:|---:|---|
@@ -51,7 +51,7 @@ pdf-company-01 remains about `88/100`, but its remaining gap is not a Protect/no
 - `company-01 / company-01-creative-04` shape now leaves passive Protect when mild above-baseline trend collapse is meaningful enough for `Refresh`.
 - thin-spend weak-ratio two-purchase shapes now remain `Not Enough Data` instead of `Test More`.
 - `company-05 / company-05-creative-04` shape now leaves passive Watch for review-only `Scale Review` when the non-test row has strong baseline-backed relative evidence and no context blocker.
-- `company-08 / company-08-creative-10` shape now leaves passive Watch for review-only `Refresh` when validating performance is materially below benchmark and recent ROAS has collapsed to zero.
+- `company-08 / company-08-creative-10` shape now leaves passive Watch for review-only `Refresh` when validating performance is materially below benchmark and recent ROAS has collapsed to zero. Round 6 reverified this existing gate and made no additional policy change.
 - `company-05 / company-05-creative-01` shape now leaves passive Protect for `Watch` when a high-volume stable no-touch row is below active benchmark with elevated CPA.
 
 ## Not Represented
