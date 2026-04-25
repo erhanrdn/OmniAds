@@ -13,6 +13,7 @@ This matrix summarizes the represented equal-segment confusion clusters after th
 | Not Enough Data | Test More | 2 | Not Enough Data | 2 | fixed by thin-spend Test More evidence floor |
 | Refresh | Watch | 1 | Refresh | 1 | quarter-trend validating collapse preserved |
 | Scale Review | Watch | 1 | Scale Review | 1 | fixed by high-relative non-test review-only gate |
+| Refresh | Watch | 1 | Refresh | 1 | fixed by Round 5 below-baseline validating collapse gate |
 
 ## Previously Fixed Confusions Preserved
 
@@ -27,7 +28,8 @@ This matrix summarizes the represented equal-segment confusion clusters after th
 
 | Expected | Actual | Status |
 |---|---|---|
-| Refresh or Cut | Watch | reduced; remaining rows are below safe evidence floors or ambiguous |
+| Refresh or Cut | Watch | reduced; the clear Round 5 Watch miss is fixed, remaining Watch rows are below safe evidence floors or ambiguous |
+| Watch | Protect | unresolved borderline under Claude Round 4 independent scoring; no safe no-touch policy change made in Round 5 |
 | Scale | not represented | no valid expected examples in represented set |
 | Campaign Check | not represented | no valid expected examples in represented set |
 
@@ -40,6 +42,7 @@ The fixed confusions are exactly the high-confidence classes from Claude's fix p
 - thin-spend weak-ratio positives should not become `Test More`
 - validating trend-collapse admission remains mature-evidence guarded
 - mature high-relative non-test rows should not remain passive `Watch` when they have strong baseline-backed evidence and no context blocker
+- materially below-benchmark validating rows with zero recent ROAS should not remain passive `Watch` when spend/purchase/impression evidence is meaningful
 
 ## Business Impact
 
@@ -47,4 +50,4 @@ The fixed confusions are exactly the high-confidence classes from Claude's fix p
 - `Refresh` catches more meaningful collapse without promoting very new creatives.
 - `Test More` is cleaner and less likely to mask thin evidence.
 - `Protect` is less likely to hide mild above-baseline collapse.
-- `Watch` now reaches the owner `90+` target in deterministic replay.
+- `Watch` has the clear Round 5 miss fixed; strict final acceptance still depends on whether the remaining Protect/no-touch borderline is accepted or separately fixed.

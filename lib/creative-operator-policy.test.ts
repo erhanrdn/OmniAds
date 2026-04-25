@@ -1673,6 +1673,148 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.segment).toBe("needs_new_variant");
   });
 
+  it("routes below-baseline validating rows with zero recent ROAS to Refresh instead of Watch", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.75,
+        medianCpa: 122.75,
+        medianSpend: 414.33,
+      },
+      supportingMetrics: {
+        spend: 377.85,
+        purchases: 2,
+        impressions: 11_524,
+        roas: 0.64,
+        cpa: 188.93,
+        creativeAgeDays: 8,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.segment).not.toBe("hold_monitor");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+  });
+
+  it("does not refresh below-baseline validating collapse rows when creative age is missing", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.75,
+        medianCpa: 122.75,
+        medianSpend: 414.33,
+      },
+      supportingMetrics: {
+        spend: 377.85,
+        purchases: 2,
+        impressions: 11_524,
+        roas: 0.64,
+        cpa: 188.93,
+        creativeAgeDays: undefined,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).not.toBe("needs_new_variant");
+    expect(policy.segment).toBe("hold_monitor");
+  });
+
+  it("keeps stronger below-baseline validating failures in Cut when existing Cut gates apply", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.75,
+        medianCpa: 122.75,
+        medianSpend: 414.33,
+      },
+      supportingMetrics: {
+        spend: 900,
+        purchases: 2,
+        impressions: 18_000,
+        roas: 0.5,
+        cpa: 450,
+        creativeAgeDays: 24,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("spend_waste");
+    expect(policy.segment).not.toBe("needs_new_variant");
+  });
+
+  it("does not refresh below-baseline validating collapse rows with too little evidence", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.75,
+        medianCpa: 122.75,
+        medianSpend: 414.33,
+      },
+      supportingMetrics: {
+        spend: 220,
+        purchases: 1,
+        impressions: 11_524,
+        roas: 0.64,
+        cpa: 220,
+        creativeAgeDays: 8,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).not.toBe("needs_new_variant");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps campaign context as the blocker for below-baseline validating collapse rows", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      deployment: {
+        targetLane: "Validation",
+        queueVerdict: "board_only" as const,
+        constraints: ["Campaign context limits this creative interpretation."],
+        compatibility: {
+          status: "blocked" as const,
+          reasons: ["Campaign context limits this creative interpretation."],
+        },
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 1.75,
+        medianCpa: 122.75,
+        medianSpend: 414.33,
+      },
+      supportingMetrics: {
+        spend: 377.85,
+        purchases: 2,
+        impressions: 11_524,
+        roas: 0.64,
+        cpa: 188.93,
+        creativeAgeDays: 8,
+        recentRoas: 0,
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
   it("keeps very new validating creatives with 7d dips out of Refresh", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -2071,7 +2213,56 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("operator_review_required");
     expect(policy.queueEligible).toBe(false);
     expect(policy.canApply).toBe(false);
-    expect(policy.missingEvidence).toContain("commercial_truth");
+    expect(policy.missingEvidence).toContain("business_validation");
+    expect(policy.missingEvidence).not.toContain("commercial_truth");
+  });
+
+  it("keeps high-relative non-test review candidates out of the true Scale path", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "validating",
+      primaryAction: "keep_in_test",
+      commercialTruthConfigured: true,
+      commercialMissingInputs: [],
+      trust: trust({
+        truthState: "live_confident",
+        operatorDisposition: "standard",
+      }),
+      economics: {
+        status: "eligible",
+        reasons: [],
+      },
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        campaignName: "Sanitized non-test campaign",
+        adSetName: "Sanitized ad set",
+        campaignIsTestLike: false,
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2.8,
+        medianCpa: 2_837.63,
+        medianSpend: 1_000,
+      },
+      supportingMetrics: {
+        spend: 8_749.08,
+        purchases: 8,
+        impressions: 61_038,
+        roas: 7.91,
+        cpa: 1_458.18,
+        creativeAgeDays: 36,
+        recentRoas: 7.91,
+      },
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.segment).not.toBe("scale_ready");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
   });
 
   it("keeps genuinely ambiguous high-relative non-test rows in Watch", () => {

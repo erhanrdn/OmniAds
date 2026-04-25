@@ -762,6 +762,29 @@ function isValidatingTrendCollapseRefreshCandidate(input: CreativeOperatorPolicy
   return metrics.recentRoas / metrics.roas <= 0.25;
 }
 
+function isValidatingBelowBaselineCollapseRefreshCandidate(
+  input: CreativeOperatorPolicyInput,
+) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (input.lifecycleState !== "validating") return false;
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < 300) return false;
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 2) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 3_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays < 7) {
+    return false;
+  }
+  if (!hasNumber(metrics.roas) || metrics.roas <= 0) return false;
+  if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
+  if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
+  if (metrics.roas > medianRoas * 0.4) return false;
+  return metrics.recentRoas === 0 || metrics.recentRoas / metrics.roas <= 0.3;
+}
+
 function shouldRefreshMatureLoser(input: CreativeOperatorPolicyInput) {
   return (
     input.primaryAction === "refresh_replace" ||
@@ -833,8 +856,7 @@ function resolveSegment(params: {
   const scaleIntent =
     isScaleIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate ||
-    nonTestHighRelativeReviewCandidate;
+    activeTestScaleReviewCandidate;
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) ||
     reviewOnlyScaleCandidate ||
@@ -916,6 +938,9 @@ function resolveSegment(params: {
   }
   if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
   if (isValidatingTrendCollapseRefreshCandidate(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
+  }
+  if (isValidatingBelowBaselineCollapseRefreshCandidate(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
   }
   if (isUnderSampled(input)) {
@@ -1061,8 +1086,7 @@ export function assessCreativeOperatorPolicy(
   const scaleIntent =
     isScaleIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate ||
-    nonTestHighRelativeReviewCandidate;
+    activeTestScaleReviewCandidate;
   const previewState = input.previewStatus?.liveDecisionWindow ?? "missing";
   const weakCampaignContext = hasWeakCampaignContext(input);
   const lowEvidence = isUnderSampled(input);
@@ -1070,8 +1094,7 @@ export function assessCreativeOperatorPolicy(
   const scaleAction =
     SCALE_ACTIONS.has(input.primaryAction) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate ||
-    nonTestHighRelativeReviewCandidate;
+    activeTestScaleReviewCandidate;
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) ||
     reviewOnlyScaleCandidate ||
@@ -1092,6 +1115,8 @@ export function assessCreativeOperatorPolicy(
     isHighSpendBelowBaselineCutCandidate(input);
   const validatingTrendCollapseRefreshCandidate =
     isValidatingTrendCollapseRefreshCandidate(input);
+  const validatingBelowBaselineCollapseRefreshCandidate =
+    isValidatingBelowBaselineCollapseRefreshCandidate(input);
   const negativeActionIntent =
     killOrRefreshAction ||
     matureZeroPurchaseCutCandidate ||
@@ -1103,11 +1128,13 @@ export function assessCreativeOperatorPolicy(
     blockedCpaRatioLoser ||
     lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
-    validatingTrendCollapseRefreshCandidate;
+    validatingTrendCollapseRefreshCandidate ||
+    validatingBelowBaselineCollapseRefreshCandidate;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
   const requiresCampaignContext =
     scaleIntent ||
+    nonTestHighRelativeReviewCandidate ||
     matureZeroPurchaseCutCandidate ||
     matureBelowBaselinePurchaseLoser ||
     matureTrendCollapseLoser ||
@@ -1117,8 +1144,11 @@ export function assessCreativeOperatorPolicy(
     blockedCpaRatioLoser ||
     lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
-    validatingTrendCollapseRefreshCandidate;
-  const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
+    validatingTrendCollapseRefreshCandidate ||
+    validatingBelowBaselineCollapseRefreshCandidate;
+  const businessValidationMissing =
+    (scaleIntent || nonTestHighRelativeReviewCandidate) &&
+    businessValidationStatus === "missing";
   const businessValidationUnfavorable =
     scaleIntent && businessValidationStatus === "unfavorable";
 
@@ -1129,8 +1159,8 @@ export function assessCreativeOperatorPolicy(
     "row_trust",
     "preview_truth",
     requiresCommercialTruth ? "commercial_truth" : null,
-    scaleIntent ? "relative_baseline" : null,
-    scaleIntent ? "business_validation" : null,
+    scaleIntent || nonTestHighRelativeReviewCandidate ? "relative_baseline" : null,
+    scaleIntent || nonTestHighRelativeReviewCandidate ? "business_validation" : null,
     scaleIntent || negativeActionIntent ? "evidence_floor" : null,
     requiresCampaignContext ? "campaign_or_adset_context" : null,
     negativeActionIntent ? "sufficient_negative_evidence" : null,
@@ -1143,6 +1173,7 @@ export function assessCreativeOperatorPolicy(
     previewState === "missing" ? "preview_truth" : null,
     requiresCommercialTruth && !commercialTruthConfigured ? "commercial_truth" : null,
     needsRelativeBaseline ? "relative_baseline" : null,
+    businessValidationMissing && !requiresCommercialTruth ? "business_validation" : null,
     businessValidationUnfavorable ? "business_validation" : null,
     (scaleIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     matureZeroPurchaseCutCandidate && !hasKillEvidence(input) ? "evidence_floor" : null,
@@ -1153,7 +1184,8 @@ export function assessCreativeOperatorPolicy(
       blockedCpaRatioLoser ||
       lowPurchaseCatastrophicCpaLoser ||
       highSpendBelowBaselineCutCandidate ||
-      validatingTrendCollapseRefreshCandidate) &&
+      validatingTrendCollapseRefreshCandidate ||
+      validatingBelowBaselineCollapseRefreshCandidate) &&
     !hasKillEvidence(input)
       ? "evidence_floor"
       : null,

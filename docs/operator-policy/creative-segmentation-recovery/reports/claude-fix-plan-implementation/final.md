@@ -176,4 +176,4 @@ The updated audit helper now waits for local snapshot refresh tasks before resto
 
 ## Recommendation
 
-After checks pass, PR #65 can leave draft and Claude equal-segment re-review should run next. Final acceptance still depends on that independent review.
+Superseded by Round 5 target closure. Claude's Round 4 independent review found one clear remaining Watch miss, and Round 5 fixed that specific validating below-baseline collapse case. Final acceptance still depends on either resolving or explicitly accepting the remaining Protect / pdf-company-01 borderline documented in `docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md`.

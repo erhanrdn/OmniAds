@@ -211,6 +211,21 @@ function isMatureBelowBaselinePurchaseCutReview(creative: CreativeDecisionOsCrea
   );
 }
 
+function isValidatingBelowBaselineRefreshReview(creative: CreativeDecisionOsCreative) {
+  const medianRoas = creative.relativeBaseline?.medianRoas ?? null;
+  return (
+    creative.operatorPolicy?.segment === "needs_new_variant" &&
+    creative.lifecycleState === "validating" &&
+    creative.primaryAction === "keep_in_test" &&
+    creative.spend >= 300 &&
+    creative.purchases >= 2 &&
+    creative.impressions >= 3_000 &&
+    medianRoas != null &&
+    medianRoas > 0 &&
+    creative.roas <= medianRoas * 0.4
+  );
+}
+
 function hasTestMoreFatigueCaveat(creative: CreativeDecisionOsCreative) {
   return (
     creative.operatorPolicy?.segment === "promising_under_sampled" &&
@@ -533,6 +548,10 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
     const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
     return `Spend and purchase volume are already meaningful, but ROAS is materially below the ${scopeLabel} benchmark. Treat this as a Cut candidate for operator review.`;
   }
+  if (isValidatingBelowBaselineRefreshReview(creative)) {
+    const scopeLabel = resolvedCreativeBenchmarkScopeLabel(creative);
+    return `Recent performance collapsed while 30-day ROAS is materially below the ${scopeLabel} benchmark. Treat this as a Refresh candidate for operator review, not passive Watch.`;
+  }
   if (state === "needs_truth" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
   }
@@ -656,6 +675,9 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
       : null,
     isMatureBelowBaselinePurchaseCutReview(creative)
       ? "Confirm no campaign blocker explains the below-benchmark read before stopping or replacing this test creative."
+      : null,
+    isValidatingBelowBaselineRefreshReview(creative)
+      ? "Confirm no campaign blocker explains the below-benchmark collapse before replacing this test creative."
       : null,
     isMatureZeroPurchaseWeakWatch(creative)
       ? "Confirm purchase evidence before extending this test."
