@@ -32,6 +32,44 @@ export const CREATIVE_QUICK_FILTER_ORDER = [
 
 export type CreativeQuickFilterKey = (typeof CREATIVE_QUICK_FILTER_ORDER)[number];
 
+export type CreativeOperatorPrimaryDecision =
+  | "scale"
+  | "test_more"
+  | "protect"
+  | "refresh"
+  | "cut"
+  | "diagnose";
+
+export type CreativeOperatorSubTone =
+  | "default"
+  | "review_only"
+  | "queue_ready"
+  | "revive"
+  | "manual_review";
+
+export type CreativeOperatorReasonTag =
+  | "strong_relative_winner"
+  | "business_validation_missing"
+  | "commercial_truth_missing"
+  | "weak_benchmark"
+  | "fatigue_pressure"
+  | "trend_collapse"
+  | "catastrophic_cpa"
+  | "below_baseline_waste"
+  | "mature_zero_purchase"
+  | "comeback_candidate"
+  | "paused_winner"
+  | "campaign_context_blocker"
+  | "low_evidence"
+  | "preview_missing"
+  | "creative_learning_incomplete";
+
+export interface CreativeOperatorDecisionResolution {
+  primary: CreativeOperatorPrimaryDecision;
+  subTone: CreativeOperatorSubTone;
+  reasons: CreativeOperatorReasonTag[];
+}
+
 export interface CreativeQuickFilter {
   key: CreativeQuickFilterKey;
   label: string;
@@ -236,6 +274,431 @@ function isPausedHistoricalRetest(creative: CreativeDecisionOsCreative) {
     historicalWinnerContext &&
     creative.deliveryContext?.pausedDelivery === true
   );
+}
+
+const DIAGNOSTIC_REASON_TAGS = new Set<CreativeOperatorReasonTag>([
+  "campaign_context_blocker",
+  "low_evidence",
+  "preview_missing",
+  "creative_learning_incomplete",
+]);
+
+function uniqueReasonTags(values: CreativeOperatorReasonTag[]) {
+  return Array.from(new Set(values));
+}
+
+function safeTextItems(values: Array<string | null | undefined> | null | undefined) {
+  return values?.filter((value): value is string => Boolean(value?.trim())) ?? [];
+}
+
+function creativeDecisionSignalText(creative: CreativeDecisionOsCreative) {
+  return [
+    creative.summary,
+    creative.operatorPolicy?.explanation,
+    ...safeTextItems(creative.operatorPolicy?.reasons),
+    ...safeTextItems(creative.operatorPolicy?.blockers),
+    ...safeTextItems(creative.operatorPolicy?.missingEvidence),
+    ...safeTextItems(creative.operatorPolicy?.requiredEvidence),
+    ...safeTextItems(creative.deployment?.constraints),
+    ...safeTextItems(creative.deployment?.compatibility?.reasons),
+    ...safeTextItems(creative.fatigue?.evidence),
+    ...safeTextItems(creative.fatigue?.missingContext),
+    ...safeTextItems(creative.relativeBaseline?.missingContext),
+    ...safeTextItems(creative.benchmark?.missingContext),
+    creative.previewStatus?.reason,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function hasCampaignContextBlocker(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  return (
+    creative.operatorPolicy?.segment === "investigate" ||
+    creative.deployment?.compatibility?.status === "blocked" ||
+    creative.deployment?.compatibility?.status === "limited" ||
+    text.includes("campaign_or_adset_context") ||
+    text.includes("campaign or ad set") ||
+    text.includes("campaign context") ||
+    text.includes("ad set context")
+  );
+}
+
+function hasPreviewMissingSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  return (
+    creative.previewStatus?.liveDecisionWindow === "missing" ||
+    text.includes("preview_truth") ||
+    text.includes("preview missing") ||
+    text.includes("preview truth is missing")
+  );
+}
+
+function hasWeakBenchmarkSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  const reliability =
+    creative.benchmarkReliability ??
+    creative.relativeBaseline?.reliability ??
+    "unavailable";
+  return (
+    reliability === "weak" ||
+    reliability === "unavailable" ||
+    text.includes("relative_baseline") ||
+    text.includes("benchmark_context") ||
+    text.includes("benchmark is still too thin") ||
+    text.includes("relative benchmark is weak")
+  );
+}
+
+function hasLowEvidenceSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  return (
+    creative.operatorPolicy?.segment === "false_winner_low_evidence" ||
+    creative.operatorPolicy?.segment === "creative_learning_incomplete" ||
+    creative.trust?.evidence?.materiality === "thin_signal" ||
+    creative.trust?.evidence?.materiality === "immaterial" ||
+    text.includes("evidence_floor") ||
+    text.includes("low_evidence") ||
+    text.includes("thin signal") ||
+    text.includes("under-sampled") ||
+    text.includes("sample is still light") ||
+    creative.spend < 120 ||
+    creative.purchases < 2 ||
+    creative.impressions < 5_000 ||
+    creative.creativeAgeDays <= 10
+  );
+}
+
+function hasStrongRelativeWinnerSignal(creative: CreativeDecisionOsCreative) {
+  const medianRoas = creative.relativeBaseline?.medianRoas ?? null;
+  const reliability =
+    creative.benchmarkReliability ??
+    creative.relativeBaseline?.reliability ??
+    "unavailable";
+  return (
+    creative.operatorPolicy?.segment === "scale_ready" ||
+    creative.operatorPolicy?.segment === "scale_review" ||
+    ((reliability === "strong" || reliability === "medium") &&
+      medianRoas != null &&
+      medianRoas > 0 &&
+      Number.isFinite(creative.roas) &&
+      creative.roas >= medianRoas * 1.4)
+  );
+}
+
+function hasFatiguePressureSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  return (
+    creative.fatigue?.status === "fatigued" ||
+    creative.fatigue?.status === "watch" ||
+    (creative.fatigue?.frequencyPressure ?? 0) >= 3 ||
+    text.includes("fatigue") ||
+    text.includes("frequency pressure")
+  );
+}
+
+function hasTrendCollapseSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  const recentRoas =
+    (creative as { recentRoas?: number | null }).recentRoas ??
+    (creative.report as { supportingMetrics?: { recentRoas?: number | null } } | undefined)
+      ?.supportingMetrics?.recentRoas ??
+    null;
+  return (
+    text.includes("trend_collapse") ||
+    text.includes("trend collapse") ||
+    text.includes("roas decay") ||
+    text.includes("collapsed") ||
+    (typeof recentRoas === "number" &&
+      Number.isFinite(recentRoas) &&
+      Number.isFinite(creative.roas) &&
+      creative.roas > 0 &&
+      recentRoas / creative.roas <= 0.4)
+  );
+}
+
+function hasCatastrophicCpaSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  const medianCpa = creative.relativeBaseline?.medianCpa ?? null;
+  return (
+    text.includes("catastrophic_cpa") ||
+    text.includes("cpa") && text.includes("median") ||
+    (medianCpa != null &&
+      medianCpa > 0 &&
+      Number.isFinite(creative.cpa) &&
+      creative.cpa >= medianCpa * 2)
+  );
+}
+
+function hasBelowBaselineWasteSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  const medianRoas = creative.relativeBaseline?.medianRoas ?? null;
+  return (
+    text.includes("below_baseline") ||
+    text.includes("below baseline") ||
+    text.includes("below-benchmark") ||
+    text.includes("spend waste") ||
+    (medianRoas != null &&
+      medianRoas > 0 &&
+      Number.isFinite(creative.roas) &&
+      creative.roas <= medianRoas * 0.8)
+  );
+}
+
+function hasMatureZeroPurchaseSignal(creative: CreativeDecisionOsCreative, signalText?: string) {
+  const text = signalText ?? creativeDecisionSignalText(creative);
+  return (
+    text.includes("zero purchase") ||
+    text.includes("no purchase proof") ||
+    (creative.purchases === 0 &&
+      creative.spend >= 250 &&
+      creative.impressions >= 5_000 &&
+      creative.creativeAgeDays > 10)
+  );
+}
+
+function appendDecisionReasonSignals(
+  creative: CreativeDecisionOsCreative,
+  reasons: CreativeOperatorReasonTag[],
+  options?: { includeStrength?: boolean },
+) {
+  const text = creativeDecisionSignalText(creative);
+  if (options?.includeStrength && hasStrongRelativeWinnerSignal(creative)) {
+    reasons.push("strong_relative_winner");
+  }
+  if (creativeNeedsBusinessValidation(creative) || text.includes("business_validation")) {
+    reasons.push("business_validation_missing");
+  }
+  if (text.includes("commercial_truth") || creative.trust?.truthState === "degraded_missing_truth") {
+    reasons.push("commercial_truth_missing");
+  }
+  if (hasWeakBenchmarkSignal(creative, text)) reasons.push("weak_benchmark");
+  if (hasCampaignContextBlocker(creative, text)) reasons.push("campaign_context_blocker");
+  if (hasPreviewMissingSignal(creative, text)) reasons.push("preview_missing");
+  if (creative.operatorPolicy?.segment === "creative_learning_incomplete") {
+    reasons.push("creative_learning_incomplete");
+  }
+  if (hasLowEvidenceSignal(creative, text)) reasons.push("low_evidence");
+  if (hasFatiguePressureSignal(creative, text)) reasons.push("fatigue_pressure");
+  if (hasTrendCollapseSignal(creative, text)) reasons.push("trend_collapse");
+  if (hasCatastrophicCpaSignal(creative, text)) reasons.push("catastrophic_cpa");
+  if (hasBelowBaselineWasteSignal(creative, text)) reasons.push("below_baseline_waste");
+  if (hasMatureZeroPurchaseSignal(creative, text)) reasons.push("mature_zero_purchase");
+  if (creative.primaryAction === "retest_comeback") reasons.push("comeback_candidate");
+  if (creative.deliveryContext?.pausedDelivery) reasons.push("paused_winner");
+}
+
+function rankDecisionReasons(
+  primary: CreativeOperatorPrimaryDecision,
+  reasons: CreativeOperatorReasonTag[],
+) {
+  const orderByPrimary: Record<CreativeOperatorPrimaryDecision, CreativeOperatorReasonTag[]> = {
+    scale: [
+      "strong_relative_winner",
+      "business_validation_missing",
+      "commercial_truth_missing",
+      "weak_benchmark",
+      "campaign_context_blocker",
+    ],
+    test_more: [
+      "strong_relative_winner",
+      "low_evidence",
+      "creative_learning_incomplete",
+      "weak_benchmark",
+      "business_validation_missing",
+    ],
+    protect: [
+      "strong_relative_winner",
+      "fatigue_pressure",
+      "trend_collapse",
+      "weak_benchmark",
+    ],
+    refresh: [
+      "paused_winner",
+      "comeback_candidate",
+      "trend_collapse",
+      "fatigue_pressure",
+      "below_baseline_waste",
+    ],
+    cut: [
+      "catastrophic_cpa",
+      "mature_zero_purchase",
+      "below_baseline_waste",
+      "trend_collapse",
+      "campaign_context_blocker",
+    ],
+    diagnose: [
+      "campaign_context_blocker",
+      "preview_missing",
+      "creative_learning_incomplete",
+      "low_evidence",
+      "weak_benchmark",
+    ],
+  };
+  const uniqueReasons = uniqueReasonTags(reasons);
+  const preferred = orderByPrimary[primary].filter((reason) =>
+    uniqueReasons.includes(reason),
+  );
+  const remainder = uniqueReasons.filter((reason) => !preferred.includes(reason));
+  return [...preferred, ...remainder].slice(0, 2);
+}
+
+function finalizeCreativeOperatorDecision(
+  creative: CreativeDecisionOsCreative,
+  primary: CreativeOperatorPrimaryDecision,
+  subTone: CreativeOperatorSubTone,
+  reasons: CreativeOperatorReasonTag[],
+): CreativeOperatorDecisionResolution {
+  const expandedReasons = [...reasons];
+
+  if (primary === "diagnose") {
+    const hasDiagnosticReason = expandedReasons.some((reason) =>
+      DIAGNOSTIC_REASON_TAGS.has(reason),
+    );
+    if (!hasDiagnosticReason) {
+      if (hasCampaignContextBlocker(creative)) {
+        expandedReasons.push("campaign_context_blocker");
+      } else if (hasPreviewMissingSignal(creative)) {
+        expandedReasons.push("preview_missing");
+      } else if (creative.operatorPolicy?.segment === "creative_learning_incomplete") {
+        expandedReasons.push("creative_learning_incomplete");
+      } else {
+        expandedReasons.push("low_evidence");
+      }
+    }
+  }
+
+  const rankedReasons = rankDecisionReasons(primary, expandedReasons);
+  return {
+    primary,
+    subTone,
+    reasons: rankedReasons,
+  };
+}
+
+export function resolveCreativeOperatorDecision(
+  creative: CreativeDecisionOsCreative,
+): CreativeOperatorDecisionResolution {
+  const segment = creative.operatorPolicy?.segment ?? null;
+  const reasons: CreativeOperatorReasonTag[] = [];
+  appendDecisionReasonSignals(creative, reasons, { includeStrength: true });
+
+  if (segment === "scale_ready") {
+    return finalizeCreativeOperatorDecision(
+      creative,
+      "scale",
+      creative.operatorPolicy?.queueEligible || creative.operatorPolicy?.pushReadiness === "safe_to_queue"
+        ? "queue_ready"
+        : "default",
+      reasons,
+    );
+  }
+
+  if (segment === "scale_review") {
+    reasons.push("strong_relative_winner", "business_validation_missing");
+    return finalizeCreativeOperatorDecision(creative, "scale", "review_only", reasons);
+  }
+
+  if (segment === "promising_under_sampled") {
+    return finalizeCreativeOperatorDecision(creative, "test_more", "default", reasons);
+  }
+
+  if (segment === "protected_winner" || segment === "no_touch") {
+    return finalizeCreativeOperatorDecision(creative, "protect", "default", reasons);
+  }
+
+  if (segment === "fatigued_winner") {
+    return finalizeCreativeOperatorDecision(creative, "refresh", "default", reasons);
+  }
+
+  if (segment === "needs_new_variant") {
+    const revive = isPausedHistoricalRetest(creative) || creative.primaryAction === "retest_comeback";
+    if (revive) {
+      reasons.push(
+        creative.deliveryContext?.pausedDelivery ? "paused_winner" : "comeback_candidate",
+      );
+    }
+    return finalizeCreativeOperatorDecision(
+      creative,
+      "refresh",
+      revive ? "revive" : "default",
+      reasons,
+    );
+  }
+
+  if (segment === "kill_candidate" || segment === "spend_waste") {
+    return finalizeCreativeOperatorDecision(creative, "cut", "manual_review", reasons);
+  }
+
+  if (segment === "investigate") {
+    reasons.push("campaign_context_blocker");
+    return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
+  }
+
+  if (segment === "contextual_only" || segment === "blocked") {
+    return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
+  }
+
+  if (segment === "false_winner_low_evidence" || segment === "creative_learning_incomplete") {
+    reasons.push(
+      segment === "creative_learning_incomplete"
+        ? "creative_learning_incomplete"
+        : "low_evidence",
+    );
+    return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
+  }
+
+  if (segment === "hold_monitor") {
+    if (hasCampaignContextBlocker(creative)) {
+      reasons.push("campaign_context_blocker");
+      return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
+    }
+    if (hasPreviewMissingSignal(creative) || hasWeakBenchmarkSignal(creative)) {
+      return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
+    }
+    if (
+      hasCatastrophicCpaSignal(creative) ||
+      hasMatureZeroPurchaseSignal(creative) ||
+      (hasBelowBaselineWasteSignal(creative) && creative.spend >= 250)
+    ) {
+      return finalizeCreativeOperatorDecision(creative, "cut", "manual_review", reasons);
+    }
+    if (hasTrendCollapseSignal(creative) || hasFatiguePressureSignal(creative)) {
+      return finalizeCreativeOperatorDecision(creative, "refresh", "default", reasons);
+    }
+    return finalizeCreativeOperatorDecision(creative, "test_more", "default", reasons);
+  }
+
+  if (creative.primaryAction === "promote_to_scaling") {
+    return finalizeCreativeOperatorDecision(
+      creative,
+      "scale",
+      creativeNeedsBusinessValidation(creative) ? "review_only" : "default",
+      reasons,
+    );
+  }
+  if (creative.primaryAction === "hold_no_touch") {
+    return finalizeCreativeOperatorDecision(creative, "protect", "default", reasons);
+  }
+  if (
+    creative.primaryAction === "refresh_replace" ||
+    creative.primaryAction === "retest_comeback"
+  ) {
+    const revive = creative.primaryAction === "retest_comeback";
+    if (revive) reasons.push("comeback_candidate");
+    return finalizeCreativeOperatorDecision(
+      creative,
+      "refresh",
+      revive ? "revive" : "default",
+      reasons,
+    );
+  }
+  if (creative.primaryAction === "block_deploy") {
+    return finalizeCreativeOperatorDecision(creative, "cut", "manual_review", reasons);
+  }
+
+  return finalizeCreativeOperatorDecision(creative, "diagnose", "manual_review", reasons);
 }
 
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
