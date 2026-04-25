@@ -4,54 +4,56 @@ Date: 2026-04-25
 
 Scoring method: equal-weight macro by represented user-facing segment. Scale and Cut misses remain severe product risks, but the macro score does not give Scale or Cut extra numeric weight.
 
-The before state uses Claude's independent Round 2 equal-segment review. The after state uses deterministic replay of the final fixed gates on that reviewed live cohort.
+The before state is the PR #63 deterministic replay over Claude's represented mismatch set. The after state is deterministic replay after the Claude fix-plan implementation in this branch.
 
 | Segment | Represented | Before | After | Result |
 |---|---:|---:|---:|---|
 | Scale | no | not represented | not represented | no valid expected examples |
 | Scale Review | yes | 95 | 95 | unchanged; Scale Review floors were not changed |
-| Test More | yes | 83 | 83 | unchanged |
-| Protect | yes | 83 | 83 | unchanged from Claude Round 2 |
-| Watch | yes | 55 | 75 | validating at-benchmark trend-collapse miss leaves Watch for Refresh |
-| Refresh | yes | 73 | 84 | catastrophic CPA rows leave Refresh for Cut; one validating collapse row enters Refresh |
+| Test More | yes | 83 | 90 | thin-spend weak-ratio positives no longer inflate Test More |
+| Protect | yes | 83 | 90 | mild above-baseline collapse can leave Protect for Refresh |
+| Watch | yes | 75 | 83 | improved, but still below the owner `90+` target |
+| Refresh | yes | 84 | 91 | validating collapse and protected-collapse routing improved |
 | Retest | limited | 100 | 100 | one-sample segment; reported but not used as free credit |
-| Cut | yes | 90 | 92 | catastrophic CPA Refresh misses now route to Cut |
+| Cut | yes | 92 | 94 | one-purchase catastrophic CPA path improves Cut recall |
 | Campaign Check | no | not represented | not represented | no valid expected examples |
-| Not Enough Data | yes | 88 | 88 | unchanged |
+| Not Enough Data | yes | 88 | 92 | thin-spend weak positives now stay NED |
 
 Macro segment score across represented non-trivial segments:
 
-- before: `83/100`
-- after: `87/100`
+- before: `87/100`
+- after: `91/100`
 
 Raw row accuracy:
 
-- before: `83%`
-- after: `87%`
+- before: `87%`
+- after: `91%`
 
 ## Weakest Segments After Fix
 
-1. `Watch`: `75/100`
-2. `Test More`: `83/100`
-3. `Protect`: `83/100`
+1. `Watch`: `83/100`
+2. `Test More`: `90/100`
+3. `Protect`: `90/100`
 
-`Refresh` improves to `84/100` after the catastrophic CPA rows leave that bucket.
+`Watch` remains the only represented segment below the owner target.
 
 ## Strongest Segments After Fix
 
 1. `Scale Review`: `95/100`
-2. `Cut`: `92/100`
-3. `Not Enough Data`: `88/100`
+2. `Cut`: `94/100`
+3. `Not Enough Data`: `92/100`
 
 ## Fixed Examples
 
-- `company-03 / creative-01` shape: CPA `12.68x` median, ROAS `0.11x` benchmark, fatigued/refresh-replace -> `Cut`
-- `company-07 / creative-01` shape: CPA `2.92x` median, zero recent read, high spend, below benchmark -> `Cut`
-- `company-02 / creative-03` shape: validating/keep-in-test, 30-day ROAS near benchmark, 7-day ROAS zero -> `Refresh`
+- `company-03 / company-03-creative-01` shape remains `Cut`: fatigued/refresh-replace with catastrophic CPA and deeply below-benchmark ROAS.
+- `company-07 / company-07-creative-01` shape remains `Cut`: high-spend fatigued row with CPA blowout and zero recent read.
+- `company-02 / company-02-creative-03` shape remains `Refresh`: validating/keep-in-test with near-benchmark 30-day ROAS and collapsed 7-day ROAS.
+- `company-01 / company-01-creative-04` shape now leaves passive Protect when mild above-baseline trend collapse is meaningful enough for `Refresh`.
+- thin-spend weak-ratio two-purchase shapes now remain `Not Enough Data` instead of `Test More`.
 
 ## Documented Non-Fix
 
-- `company-05 / creative-04` remains `Watch`: high-relative signal is present, but the row is not explicit test-campaign context and does not meet the current true-scale peer-spend floor. Scale Review floors were intentionally left unchanged.
+- `company-05 / company-05-creative-04` remains `Watch`: high-relative signal is present, but the row is not explicit test-campaign context and does not meet the current true-scale peer-spend floor. Fixing this would require a new high-relative non-test Watch floor policy.
 
 ## Not Represented
 

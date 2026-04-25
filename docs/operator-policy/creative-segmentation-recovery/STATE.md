@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Request Claude equal-segment re-review against `main`.
+Implement Claude's Creative equal-segment fix plan while honoring the supervisor target: every represented user-facing segment should reach `90+`.
 
-Creative Recovery is still not accepted as final until that review completes.
+Creative Recovery is still not accepted because `Watch` remains below `90` after this pass.
 
 ## Program Status
 
@@ -26,136 +26,98 @@ Creative Recovery is still not accepted as final until that review completes.
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
+- Claude fix-plan implementation: in progress on `feature/adsecute-creative-claude-fix-plan-implementation`
 
-## Final Equal-Segment PR Flow
+## Fresh Baseline Audit
 
-Status: complete.
+Current `main` at branch start was the PR #63 state:
 
-- PR: `https://github.com/erhanrdn/OmniAds/pull/61`
-- title: `Fix final Creative equal-segment misses`
-- branch: `feature/adsecute-creative-equal-segment-final-fixes`
-- checks: passed
-- merge method: squash
-- merged commit: `bc8cc1f1654f61f09154230e1605653dcc3b34f4`
-- merged to: `main`
+- macro replay: `87/100`
+- raw replay accuracy: `87%`
+- Watch: `75/100`
+- Refresh: `84/100`
+- Protect: `83/100`
+- Test More: `83/100`
+- Not Enough Data: `88/100`
+- Cut recall: about `92%`
 
-## PR #61 P1 Trend-Collapse Evidence Issue
+A fresh live-firm audit was rerun on this branch after the patch using the corrected current Decision OS path:
 
-Status: fixed and merged through PR #63.
+- readable businesses: `8`
+- sampled creatives: `78`
+- Scale: `0`
+- Scale Review: `7`
+- Test More: `7`
+- Protect: `1`
+- Watch: `11`
+- Refresh: `20`
+- Retest: `2`
+- Cut: `11`
+- Campaign Check: `0`
+- Not Enough Data: `14`
+- Not eligible for evaluation: `5`
 
-- PR: `https://github.com/erhanrdn/OmniAds/pull/63`
-- title: `Harden Creative trend-collapse Refresh evidence guard`
-- branch: `feature/adsecute-creative-trend-collapse-evidence-hardening`
-- checks: passed
-- merge method: squash
-- merged commit: `9393bde844c4417f49a6b4aaa48407639da47ff6`
-- merged to: `main`
+The committed sanitized artifact was updated at:
 
-The issue was real. `isValidatingTrendCollapseRefreshCandidate` could run before the under-sampled branch and did not require creative age maturity, so a very new validating creative with a noisy 7-day dip could become `Refresh`.
+- `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
 
-Guard added:
+The local private artifact remains local-only:
 
-- the validating trend-collapse Refresh helper now requires the existing meaningful-read helper
-- this enforces peer-relative spend maturity, at least `2` purchases, at least `5000` impressions, and creative age greater than `10` days
+- `/tmp/adsecute-creative-live-firm-audit-local.json`
 
-Tests added:
+## Claude Fix Plan Implementation
 
-- very new validating creative + 7-day dip => not `Refresh`
-- under-sampled validating creative + 7-day dip => not `Refresh`
-- mature validating trend-collapse fixture remains `Refresh`
-- mature severe failure fixture remains `Cut`
-- missing 7-day/frequency evidence still does not trigger `Refresh`
+Implemented:
 
-The PR #61 score intent remains acceptable:
+1. validating trend-collapse Refresh admission now accepts mature quarter-trend collapse (`7d / 30d <= 0.25`) while preserving the PR #63 low-evidence guard.
+2. catastrophic CPA `fatigued_winner` / `refresh_replace` Cut behavior was verified and preserved.
+3. mature one-purchase catastrophic CPA rows can now route from `Not Enough Data` to review-safe `Cut`.
+4. stable protected winners now use tiered trend-collapse sensitivity:
+   - mild above-baseline winners (`1.0x` to `<1.4x` benchmark) can route to `Refresh` at `<=0.50` trend ratio
+   - stronger winners keep the stricter `<=0.40` trend ratio
+5. thin-spend weak-ratio positives now remain `Not Enough Data` instead of `Test More`; strong-relative thin-spend positives can still become `Test More`.
 
-- macro segment score replay remains `87/100`
-- Watch score replay remains `75/100`
-- Refresh score replay remains `84/100`
-- Cut recall replay remains about `92%`
+Skipped / not changed:
 
-## Claude Equal-Segment Re-Review Result
-
-Claude's independent re-review found the PR #59 score claim was overstated:
-
-- macro segment score: about `83/100`, not `86/100`
-- raw row accuracy: about `83%`, not `90%`
-- Watch score: `55/100`
-- Refresh score: `73/100`
-- Cut recall: below target because Cut-shaped rows were still hiding in Refresh
-- IwaStore: about `80/100`
-- TheSwaf: about `82/100`
-
-Decision: Creative Recovery remains not accepted until the final fixes are reviewed.
-
-## Final Equal-Segment Fixes
-
-Implemented in this pass:
-
-1. catastrophic CPA `fatigued_winner` / `refresh_replace` rows now route to review-safe `Cut`
-   - fixes the Refresh-as-Cut hiding pattern from Claude Round 2
-   - queue/push/apply authority remains review-gated
-2. validating `keep_in_test` rows with at-benchmark 30-day ROAS and near-zero 7-day ROAS now route to `Refresh`
-   - fixes the strongest Watch-as-Refresh miss
-   - missing/unavailable 7-day or frequency evidence does not trigger the rule
-3. high-relative Watch case traced and documented as defensible under current Scale Review floors
-   - `company-05 / creative-04` remains `Watch`
-   - reason: not explicit test-campaign context and spend is below the true-scale peer-spend floor for that account
-   - Scale / Scale Review floors were intentionally unchanged
-
-Preserved:
-
-- no taxonomy changes
-- no Scale / Scale Review floor changes
-- no queue/push/apply loosening
-- no old-rule takeover
-- no Commercial Truth or baseline invention
-- benchmark scope remains explicit
-- selected reporting range remains non-authoritative
+- Scale / Scale Review floors were not changed.
+- The high-relative Watch case remains Watch because it is non-test context and fails the current true-scale peer-spend/intent floor.
+- Queue/push/apply safety was not loosened.
+- Benchmark scope remains explicit-only.
+- Old challenger remains comparison-only.
 
 ## Before / After Scores
 
-Before uses Claude Round 2 independent review. After uses deterministic replay of the fixed gates over the same reviewed live cohort.
-
 | Metric | Before | After |
 |---|---:|---:|
-| Macro segment score | `83/100` | `87/100` |
-| Raw row accuracy | `83%` | `87%` |
-| Watch score | `55/100` | `75/100` |
-| Refresh score | `73/100` | `84/100` |
-| Cut recall | `~77%` | `~92%` |
-| IwaStore | `80/100` | `80/100` |
-| TheSwaf | `82/100` | `82/100` |
+| Macro segment score | `87/100` | `91/100` |
+| Raw row accuracy | `87%` | `91%` |
+| Watch score | `75/100` | `83/100` |
+| Refresh score | `84/100` | `91/100` |
+| Protect score | `83/100` | `90/100` |
+| Test More score | `83/100` | `90/100` |
+| Not Enough Data score | `88/100` | `92/100` |
+| Cut recall | `~92%` | `~94%` |
+| pdf-company-01 | `80/100` | `90/100` |
+| pdf-company-02 | `82/100` | `90/100` |
 
-## Latest Segment Replay
+## Remaining Blocker
 
-Post-fix deterministic replay on the reviewed live artifact:
+`Watch` remains below the supervisor target:
 
-- `Scale`: `0`
-- `Scale Review`: `6`
-- `Test More`: `13`
-- `Protect`: `6`
-- `Watch`: `9`
-- `Refresh`: `16`
-- `Retest`: `1`
-- `Cut`: `14`
-- `Campaign Check`: `0`
-- `Not Enough Data`: `8`
-- `Not eligible for evaluation`: `5`
+- after score: `83/100`
+- target: `90+`
 
-## Remaining Weakest Segments
+The remaining blocker is a high-relative non-test Watch floor-policy question:
 
-After the final targeted fixes:
+- representative sanitized trace: `company-05 / company-05-creative-04`
+- current outcome: `Watch`
+- reason: strong relative signal is present, but the row is not explicit test-campaign context and does not clear the current true-scale peer-spend/intent floor
 
-- `Watch`: `75/100`
-- `Test More`: `83/100`
-- `Protect`: `83/100`
-
-No additional implementation pass should start until Claude reruns the equal-segment review.
+Next narrow fix should decide whether this class should remain Watch or become a review-oriented state without changing Scale safety.
 
 ## Reports
 
-- final equal-segment fixes: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-final-fixes/final.md`
-- trend-collapse evidence hardening: `docs/operator-policy/creative-segmentation-recovery/reports/trend-collapse-evidence-hardening/final.md`
+- Claude fix plan implementation: `docs/operator-policy/creative-segmentation-recovery/reports/claude-fix-plan-implementation/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -163,6 +125,6 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Request Claude equal-segment re-review against `main`.
+Open the PR for this branch after validation.
 
-Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
+Do not request Claude equal-segment review yet if the owner requires every represented segment to be `90+`. The next implementation pass, if authorized, should be a narrow Watch floor-policy pass for high-relative non-test Watch cases.

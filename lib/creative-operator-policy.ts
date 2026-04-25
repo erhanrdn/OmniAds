@@ -446,6 +446,24 @@ function hasMeaningfulPositiveSupport(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function hasUnderSampledTestMoreEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (!hasMeaningfulPositiveSupport(input)) return false;
+  if (hasRelativeScaleReviewEvidence(input)) return true;
+  if (!hasRelativeBaselineContext(input)) return true;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(60, medianSpend * 0.5)) {
+    return false;
+  }
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  return metrics.roas >= medianRoas * 0.8;
+}
+
 function isMatureZeroPurchaseWeakCase(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   return (
@@ -548,7 +566,12 @@ function isProtectedTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyI
   if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
   if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
   if (metrics.recentRoas >= medianRoas) return false;
-  return metrics.recentRoas / metrics.roas <= 0.4;
+  const benchmarkRatio = metrics.roas / medianRoas;
+  const trendRatio = metrics.recentRoas / metrics.roas;
+  if (input.lifecycleState === "stable_winner" && benchmarkRatio >= 1 && benchmarkRatio < 1.4) {
+    return trendRatio <= 0.5;
+  }
+  return trendRatio <= 0.4;
 }
 
 function isFatiguedCpaRatioCutCandidate(input: CreativeOperatorPolicyInput) {
@@ -616,6 +639,43 @@ function isBlockedCpaRatioLoser(input: CreativeOperatorPolicyInput) {
   return metrics.cpa >= medianCpa * 2;
 }
 
+function isLowPurchaseCatastrophicCpaLoser(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (
+    input.lifecycleState !== "blocked" &&
+    input.lifecycleState !== "validating"
+  ) {
+    return false;
+  }
+  if (
+    input.primaryAction !== "block_deploy" &&
+    input.primaryAction !== "keep_in_test"
+  ) {
+    return false;
+  }
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 1 || metrics.purchases >= 4) {
+    return false;
+  }
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(300, medianSpend * 2)) {
+    return false;
+  }
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.4) return false;
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  return metrics.cpa >= medianCpa * 3;
+}
+
 function isHighSpendBelowBaselineCutCandidate(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -661,7 +721,7 @@ function isValidatingTrendCollapseRefreshCandidate(input: CreativeOperatorPolicy
   if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
   if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
   if (metrics.roas < medianRoas * 0.95) return false;
-  return metrics.recentRoas / metrics.roas <= 0.2;
+  return metrics.recentRoas / metrics.roas <= 0.25;
 }
 
 function shouldRefreshMatureLoser(input: CreativeOperatorPolicyInput) {
@@ -786,6 +846,9 @@ function resolveSegment(params: {
   if (isBlockedCpaRatioLoser(input)) {
     return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
   }
+  if (isLowPurchaseCatastrophicCpaLoser(input)) {
+    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
+  }
   if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
     return "protected_winner";
   }
@@ -815,6 +878,9 @@ function resolveSegment(params: {
       !hasMeaningfulPositiveSupport(input) ||
       input.lifecycleState === "incubating"
     ) {
+      return "creative_learning_incomplete";
+    }
+    if (!hasUnderSampledTestMoreEvidence(input)) {
       return "creative_learning_incomplete";
     }
     return "promising_under_sampled";
@@ -970,6 +1036,8 @@ export function assessCreativeOperatorPolicy(
     isProtectedTrendCollapseRefreshCandidate(input);
   const fatiguedCpaRatioCutCandidate = isFatiguedCpaRatioCutCandidate(input);
   const blockedCpaRatioLoser = isBlockedCpaRatioLoser(input);
+  const lowPurchaseCatastrophicCpaLoser =
+    isLowPurchaseCatastrophicCpaLoser(input);
   const highSpendBelowBaselineCutCandidate =
     isHighSpendBelowBaselineCutCandidate(input);
   const validatingTrendCollapseRefreshCandidate =
@@ -983,6 +1051,7 @@ export function assessCreativeOperatorPolicy(
     protectedTrendCollapseRefreshCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
+    lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
     validatingTrendCollapseRefreshCandidate;
   const requiresCommercialTruth = scaleAction;
@@ -996,6 +1065,7 @@ export function assessCreativeOperatorPolicy(
     protectedTrendCollapseRefreshCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
+    lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
     validatingTrendCollapseRefreshCandidate;
   const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
@@ -1031,6 +1101,7 @@ export function assessCreativeOperatorPolicy(
       protectedTrendCollapseRefreshCandidate ||
       fatiguedCpaRatioCutCandidate ||
       blockedCpaRatioLoser ||
+      lowPurchaseCatastrophicCpaLoser ||
       highSpendBelowBaselineCutCandidate ||
       validatingTrendCollapseRefreshCandidate) &&
     !hasKillEvidence(input)
