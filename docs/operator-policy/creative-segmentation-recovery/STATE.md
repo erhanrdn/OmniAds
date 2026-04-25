@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Request Claude equal-segment re-review against `main`.
+Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, and the Round 5 Watch-as-Refresh closure while honoring the supervisor target: every represented user-facing segment should reach `90+`.
 
-Creative Recovery is still not accepted as final until that review completes.
+Round 5 fixed the clear remaining Watch miss from Claude's Round 4 review. Creative Recovery is still not accepted as final because the strict independent target still has a documented `Protect` / pdf-company-01 borderline that was not safely fixed in this pass.
 
 ## Program Status
 
@@ -26,136 +26,172 @@ Creative Recovery is still not accepted as final until that review completes.
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
+- Claude fix-plan implementation, Watch floor-policy fix, and Round 5 closure: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
 
-## Final Equal-Segment PR Flow
+## Current PR
 
-Status: complete.
+- PR: `https://github.com/erhanrdn/OmniAds/pull/65`
+- title: `Implement Claude Creative segment recalibration plan`
+- status: open; do not merge
+- merge status: not merged
+- latest checks: Round 5 local validation passed after the P1 review-only Scale Review hardening; GitHub CI passed (`test`, `typecheck`, `build`)
+- reason: owner target is stricter than Claude's PASS WITH MONITORING verdict; do not merge before strict target closure or owner acceptance
 
-- PR: `https://github.com/erhanrdn/OmniAds/pull/61`
-- title: `Fix final Creative equal-segment misses`
-- branch: `feature/adsecute-creative-equal-segment-final-fixes`
-- checks: passed
-- merge method: squash
-- merged commit: `bc8cc1f1654f61f09154230e1605653dcc3b34f4`
-- merged to: `main`
+## Fresh Baseline Audit
 
-## PR #61 P1 Trend-Collapse Evidence Issue
+Current `main` at branch start was the PR #63 state:
 
-Status: fixed and merged through PR #63.
+- macro replay: `87/100`
+- raw replay accuracy: `87%`
+- Watch: `75/100`
+- Refresh: `84/100`
+- Protect: `83/100`
+- Test More: `83/100`
+- Not Enough Data: `88/100`
+- Cut recall: about `92%`
 
-- PR: `https://github.com/erhanrdn/OmniAds/pull/63`
-- title: `Harden Creative trend-collapse Refresh evidence guard`
-- branch: `feature/adsecute-creative-trend-collapse-evidence-hardening`
-- checks: passed
-- merge method: squash
-- merged commit: `9393bde844c4417f49a6b4aaa48407639da47ff6`
-- merged to: `main`
+A fresh live-firm audit was rerun on this branch after the Round 5 patch using the corrected current Decision OS path:
 
-The issue was real. `isValidatingTrendCollapseRefreshCandidate` could run before the under-sampled branch and did not require creative age maturity, so a very new validating creative with a noisy 7-day dip could become `Refresh`.
+- readable businesses: `8`
+- sampled creatives: `78`
+- Scale: `0`
+- Scale Review: `6`
+- Test More: `7`
+- Protect: `1`
+- Watch: `10`
+- Refresh: `23`
+- Retest: `0`
+- Cut: `12`
+- Campaign Check: `0`
+- Not Enough Data: `14`
+- Not eligible for evaluation: `5`
 
-Guard added:
+The committed sanitized artifact was updated at:
 
-- the validating trend-collapse Refresh helper now requires the existing meaningful-read helper
-- this enforces peer-relative spend maturity, at least `2` purchases, at least `5000` impressions, and creative age greater than `10` days
+- `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
 
-Tests added:
+The local private artifact remains local-only:
 
-- very new validating creative + 7-day dip => not `Refresh`
-- under-sampled validating creative + 7-day dip => not `Refresh`
-- mature validating trend-collapse fixture remains `Refresh`
-- mature severe failure fixture remains `Cut`
-- missing 7-day/frequency evidence still does not trigger `Refresh`
+- `/tmp/adsecute-creative-live-firm-audit-local.json`
 
-The PR #61 score intent remains acceptable:
+## Claude Fix Plan Implementation
 
-- macro segment score replay remains `87/100`
-- Watch score replay remains `75/100`
-- Refresh score replay remains `84/100`
-- Cut recall replay remains about `92%`
+Implemented:
 
-## Claude Equal-Segment Re-Review Result
+1. validating trend-collapse Refresh admission now accepts mature quarter-trend collapse (`7d / 30d <= 0.25`) while preserving the PR #63 low-evidence guard.
+2. catastrophic CPA `fatigued_winner` / `refresh_replace` Cut behavior was verified and preserved.
+3. mature one-purchase catastrophic CPA rows can now route from `Not Enough Data` to review-safe `Cut`.
+4. stable protected winners now use tiered trend-collapse sensitivity:
+   - mild above-baseline winners (`1.0x` to `<1.4x` benchmark) can route to `Refresh` at `<=0.50` trend ratio
+   - stronger winners keep the stricter `<=0.40` trend ratio
+5. thin-spend weak-ratio positives now remain `Not Enough Data` instead of `Test More`; strong-relative thin-spend positives can still become `Test More`.
+6. high-relative non-test Watch false negatives can now route to review-only `Scale Review` when evidence is mature and no context blocker exists.
+7. validating below-benchmark rows with zero recent ROAS and enough spend/purchase/impression evidence can now route from `Watch` to review-only `Refresh`.
+8. PR #65 P1 hardening: high-relative non-test review candidates are excluded from true `Scale` intent / `scaleAction`, so favorable business validation cannot promote that review-only path into `scale_ready` or queue eligibility.
+9. PR #65 P2 hardening: the new below-benchmark collapse Refresh gate now requires known creative age `>= 7` days, so unknown-age creatives stay conservative.
 
-Claude's independent re-review found the PR #59 score claim was overstated:
+Preserved / not changed:
 
-- macro segment score: about `83/100`, not `86/100`
-- raw row accuracy: about `83%`, not `90%`
-- Watch score: `55/100`
-- Refresh score: `73/100`
-- Cut recall: below target because Cut-shaped rows were still hiding in Refresh
-- IwaStore: about `80/100`
-- TheSwaf: about `82/100`
-
-Decision: Creative Recovery remains not accepted until the final fixes are reviewed.
-
-## Final Equal-Segment Fixes
-
-Implemented in this pass:
-
-1. catastrophic CPA `fatigued_winner` / `refresh_replace` rows now route to review-safe `Cut`
-   - fixes the Refresh-as-Cut hiding pattern from Claude Round 2
-   - queue/push/apply authority remains review-gated
-2. validating `keep_in_test` rows with at-benchmark 30-day ROAS and near-zero 7-day ROAS now route to `Refresh`
-   - fixes the strongest Watch-as-Refresh miss
-   - missing/unavailable 7-day or frequency evidence does not trigger the rule
-3. high-relative Watch case traced and documented as defensible under current Scale Review floors
-   - `company-05 / creative-04` remains `Watch`
-   - reason: not explicit test-campaign context and spend is below the true-scale peer-spend floor for that account
-   - Scale / Scale Review floors were intentionally unchanged
-
-Preserved:
-
-- no taxonomy changes
-- no Scale / Scale Review floor changes
-- no queue/push/apply loosening
-- no old-rule takeover
-- no Commercial Truth or baseline invention
-- benchmark scope remains explicit
-- selected reporting range remains non-authoritative
+- True `Scale` floors were not changed.
+- Broad Scale Review floors were not changed; the new Watch fix is a narrow non-test high-relative floor with stronger evidence requirements.
+- Queue/push/apply safety was not loosened.
+- Benchmark scope remains explicit-only.
+- Old challenger remains comparison-only.
 
 ## Before / After Scores
 
-Before uses Claude Round 2 independent review. After uses deterministic replay of the fixed gates over the same reviewed live cohort.
-
 | Metric | Before | After |
 |---|---:|---:|
-| Macro segment score | `83/100` | `87/100` |
-| Raw row accuracy | `83%` | `87%` |
-| Watch score | `55/100` | `75/100` |
-| Refresh score | `73/100` | `84/100` |
-| Cut recall | `~77%` | `~92%` |
-| IwaStore | `80/100` | `80/100` |
-| TheSwaf | `82/100` | `82/100` |
+| Macro segment score | `87/100` | about `89-90/100` under Claude's Round 4 independent scoring plus Round 5 |
+| Raw row accuracy | `~88%` | about `89-90%` |
+| Watch score | `75/100` | about `90/100` after Round 5 |
+| Refresh score | `88/100` | about `90/100` after Round 5 |
+| Protect score | `88/100` | `88/100` unchanged under the Round 4 reviewed set |
+| Test More score | `83/100` | `90/100` |
+| Not Enough Data score | `88/100` | `92/100` |
+| Cut recall | `~92%` | `~94%` |
+| pdf-company-01 | `88/100` | `88/100` unchanged |
+| pdf-company-02 | `87/100` | about `90/100` after Round 5 |
 
-## Latest Segment Replay
+## Watch Floor Policy Fix
 
-Post-fix deterministic replay on the reviewed live artifact:
+Status: fixed in deterministic replay.
 
-- `Scale`: `0`
-- `Scale Review`: `6`
-- `Test More`: `13`
-- `Protect`: `6`
-- `Watch`: `9`
-- `Refresh`: `16`
-- `Retest`: `1`
-- `Cut`: `14`
-- `Campaign Check`: `0`
-- `Not Enough Data`: `8`
-- `Not eligible for evaluation`: `5`
+- before this fix: `Watch` at `83/100`
+- after this fix: `Watch` at `90/100`
 
-## Remaining Weakest Segments
+Gate fixed:
 
-After the final targeted fixes:
+- representative sanitized trace: `company-05 / company-05-creative-04`
+- before outcome: `Watch`
+- after outcome: `Scale Review`
+- reason: the row has strong baseline-backed relative evidence, mature spend/purchase/impression depth, non-worse CPA, missing business validation, non-test context, and no primary campaign blocker
 
-- `Watch`: `75/100`
-- `Test More`: `83/100`
-- `Protect`: `83/100`
+The fix remains review-only:
 
-No additional implementation pass should start until Claude reruns the equal-segment review.
+- missing Commercial Truth still blocks true `Scale`
+- queue/apply remain false
+- campaign-context blockers still become `Campaign Check`
+- no-touch winners still become `Protect`
+- PR #65 P1 review issue was real and fixed: this path is no longer part of true `scaleIntent` or `scaleAction`; even with favorable business validation and true-scale evidence it remains `Scale Review`, `operator_review_required`, and queue/apply blocked.
+
+## Round 5 Equal-Segment Target Closure
+
+Status: partially fixed; strict final acceptance still blocked.
+
+Fixed gate:
+
+- representative sanitized trace: `company-08 / company-08-creative-10`
+- before outcome: `Watch`
+- after outcome: `Refresh`
+- reason: validating / keep-in-test row had ROAS around `0.37x` active benchmark, 7-day ROAS `0`, spend around `$378`, `2` purchases, meaningful impressions, and no campaign-context blocker
+
+Gate added:
+
+- `isValidatingBelowBaselineCollapseRefreshCandidate`
+- admits only validating / keep-in-test rows at or below `0.40x` active benchmark with zero or collapsed recent ROAS, spend `>= 300`, purchases `>= 2`, impressions `>= 3000`, and known creative age `>= 7`
+- stronger rows that meet existing Cut gates still route to `Cut`
+- campaign-context blockers still route to `Campaign Check`
+
+Surface alignment:
+
+- the fixed row now has `Refresh` label, `Refresh` instruction headline, and Refresh-specific reason / next observation
+- queue/apply remain false
+
+## Remaining Blockers
+
+Strict owner acceptance remains blocked if Claude's Round 4 independent scoring set is treated as authoritative:
+
+- `Protect` remains `88/100`
+- pdf-company-01 remains about `88/100`
+- the remaining disagreement is a no-touch / Protect boundary, not a severe Scale/Cut miss
+- no safe Round 5 patch was applied because changing stable winner no-touch handling without trend-collapse or severe failure evidence would be a broader policy decision
+
+The fresh live top-spend artifact has only one `Protect` row and it is clean, but that does not prove the Round 4 Protect borderline is solved by policy.
+
+## Validation
+
+- targeted Creative policy tests: passed
+- targeted Creative policy/surface/Decision OS/prescription/audit tests: passed
+- full `npm test`: passed
+- `npx tsc --noEmit`: passed
+- `npm run build`: passed
+- GitHub CI for PR #65: passed (`typecheck`, `test`, `build`)
+- `/creatives` localhost smoke: passed through expected auth redirect/load
+- `/platforms/meta` localhost smoke: passed through expected auth redirect/load
+- `git diff --check`: passed
+- hidden/bidi/control scan: passed
+- raw ID scan: passed; only a sanitized no-token artifact key matched
+- Round 5 targeted policy/surface tests: passed
+- Round 5 live-firm audit rerun: passed
+- PR #65 P1 regression test for review-only non-test Scale Review: passed
+- PR #65 P2 regression test for unknown-age below-benchmark collapse rows: passed
 
 ## Reports
 
-- final equal-segment fixes: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-final-fixes/final.md`
-- trend-collapse evidence hardening: `docs/operator-policy/creative-segmentation-recovery/reports/trend-collapse-evidence-hardening/final.md`
+- Claude fix plan implementation: `docs/operator-policy/creative-segmentation-recovery/reports/claude-fix-plan-implementation/final.md`
+- Watch floor policy fix: `docs/operator-policy/creative-segmentation-recovery/reports/watch-floor-policy-fix/final.md`
+- Round 5 target closure: `docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -163,6 +199,4 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Request Claude equal-segment re-review against `main`.
-
-Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
+Do not merge PR #65 yet. Either run one narrow Protect/no-touch boundary investigation or get explicit owner acceptance that the remaining `88/100` Protect / pdf-company-01 borderline is monitoring-only risk.

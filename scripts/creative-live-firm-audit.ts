@@ -609,6 +609,17 @@ function installAuditLocalRefreshGuard() {
   };
 }
 
+async function waitForAuditSnapshotRefreshes(timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const refreshState = (globalThis as typeof globalThis & {
+      __omniadsMetaCreativesRefreshState?: Set<string>;
+    }).__omniadsMetaCreativesRefreshState;
+    if (!refreshState || refreshState.size === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 export function buildRequestUrl(input: {
   businessId: string;
   startDate: string;
@@ -1079,6 +1090,7 @@ export async function runCreativeLiveFirmAudit() {
       sanitized: sanitizedArtifact,
       localPrivate: privateArtifact,
     });
+    await waitForAuditSnapshotRefreshes();
 
     return {
       sanitizedArtifact,

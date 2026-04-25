@@ -1186,6 +1186,74 @@ describe("creative operator surface", () => {
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("cut");
   });
 
+  it("explains below-baseline validating collapse rows as Refresh review work", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives = fixture.creatives.slice(0, 1);
+    fixture.creatives[0] = {
+      ...fixture.creatives[0],
+      primaryAction: "keep_in_test",
+      lifecycleState: "validating",
+      spend: 377.85,
+      roas: 0.64,
+      purchases: 2,
+      impressions: 11_524,
+      creativeAgeDays: 8,
+      benchmarkScope: "account",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkReliability: "strong",
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        scopeId: null,
+        scopeLabel: "Account-wide",
+        source: "account_default",
+        reliability: "strong",
+        sampleSize: 26,
+        creativeCount: 39,
+        eligibleCreativeCount: 26,
+        spendBasis: 27_053.93,
+        purchaseBasis: 220,
+        weightedRoas: 1.65,
+        weightedCpa: 122.97,
+        medianRoas: 1.74,
+        medianCpa: 124.84,
+        medianSpend: 414.33,
+        missingContext: [],
+      },
+      summary: "Deterministic engine keeps this in test against the format benchmark.",
+      operatorPolicy: {
+        contractVersion: "operator-policy.v1",
+        policyVersion: "creative-operator-policy.v1",
+        state: "investigate",
+        segment: "needs_new_variant",
+        actionClass: "test",
+        evidenceSource: "live",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+        canApply: false,
+        reasons: ["Below account benchmark with recent collapse."],
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: ["sufficient_negative_evidence", "relative_baseline"],
+        explanation: "Review this below-baseline collapse as refresh work.",
+      },
+    };
+
+    const refresh = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(refresh.primaryAction).toBe("Refresh");
+    expect(refresh.authorityState).toBe("blocked");
+    expect(refresh.authorityLabel).toBe("Refresh");
+    expect(refresh.reason).toContain("materially below the Account-wide benchmark");
+    expect(refresh.reason).toContain("Refresh candidate");
+    expect(refresh.instruction?.primaryMove).toContain("before refresh");
+    expect(refresh.instruction?.nextObservation.join(" ")).toContain(
+      "below-benchmark collapse",
+    );
+    expect(refresh.instruction?.queueEligible).toBe(false);
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("refresh");
+  });
+
   it("adds a fatigue caveat to Test More without changing the main outcome", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives = fixture.creatives.slice(0, 1);
