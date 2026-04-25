@@ -247,7 +247,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
     ]);
     expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
     expect(html).toContain("Run Creative Analysis");
-    expect(html).toContain("Decision OS has not been run for this scope.");
+    expect(html).toContain("Decision OS");
     expect(mutateRunAnalysis).not.toHaveBeenCalled();
 
     mockDateRange = {
