@@ -32,7 +32,6 @@ import {
   buildCreativeOperatorItem,
   creativeBenchmarkReliabilityLabel,
   creativeBusinessValidationNote,
-  creativeOperatorSegmentLabel,
 } from "@/lib/creative-operator-surface";
 
 interface CreativeDetailExperienceProps {
@@ -362,7 +361,6 @@ export function CreativeDetailExperience({
       nextStep: report.summary,
     } satisfies CreativeDecision;
   }, [report]);
-  const decisionTheme = getDecisionTheme(decision?.action ?? "watch");
   const previewTruth = decisionOsCreative?.previewStatus ?? null;
   const canGenerateAiInterpretation =
     decisionOsCreative?.trust.truthState === "live_confident" &&
@@ -704,7 +702,12 @@ export function CreativeDetailExperience({
 
               {/* Block 1: Verdict */}
               {(() => {
-                const vt = getVerdictTheme(decision.action, report.lifecycleState ?? decision.lifecycleState);
+                const vt = operatorItem
+                  ? getPrimaryDecisionVerdictTheme(
+                      operatorItem.primaryAction,
+                      operatorItem.authorityLabel,
+                    )
+                  : getVerdictTheme(decision.action, report.lifecycleState ?? decision.lifecycleState);
                 return (
                   <div className="flex flex-col gap-2.5" data-testid="creative-detail-verdict">
                     <div className={cn("flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5", vt.band)} style={{ minHeight: 64 }}>
@@ -968,15 +971,15 @@ function lifecycleLabel(state: NonNullable<CreativeDecision["lifecycleState"]> |
   if (state === "emerging_winner") return "Test More";
   if (state === "fatigued_winner") return "Refresh";
   if (state === "test_only") return "Test More";
-  if (state === "blocked") return "Campaign Check";
-  return "Watch";
+  if (state === "blocked") return "Diagnose";
+  return "Diagnose";
 }
 
 function DecisionBadge({ action, label }: { action: CreativeDecision["action"]; label?: string | null }) {
   const labels: Record<CreativeDecision["action"], string> = {
     scale_hard: "Scale",
     scale: "Scale",
-    watch: "Watch",
+    watch: "Diagnose",
     test_more: "Test More",
     pause: "Cut",
     kill: "Cut",
@@ -1105,8 +1108,78 @@ function getVerdictTheme(
     titleClass: "text-[#1e40af]",
     bodyClass: "text-[#3b82f6]",
     pill: "bg-[#0284c7] text-white",
-    label: "Watch",
-    tagline: "Promising — not enough data to act yet",
+    label: "Diagnose",
+    tagline: "Context or evidence needs review",
+  };
+}
+
+function getPrimaryDecisionVerdictTheme(
+  primaryAction: string,
+  authorityLabel?: string | null,
+): VerdictTheme {
+  if (primaryAction === "Scale") {
+    return {
+      band: "bg-[#ecfdf5] border-l-4 border-[#10b981]",
+      titleClass: "text-[#047857]",
+      bodyClass: "text-[#059669]",
+      pill: "bg-[#059669] text-white",
+      label: "Scale",
+      tagline:
+        authorityLabel === "Review only"
+          ? "Review only — business target missing"
+          : "Ready to scale — above benchmark",
+    };
+  }
+  if (primaryAction === "Test More") {
+    return {
+      band: "bg-[#f0f9ff] border-l-4 border-[#0ea5e9]",
+      titleClass: "text-[#0c4a6e]",
+      bodyClass: "text-[#0284c7]",
+      pill: "bg-[#0284c7] text-white",
+      label: "Test More",
+      tagline: "Promising — collect more evidence",
+    };
+  }
+  if (primaryAction === "Protect") {
+    return {
+      band: "bg-[#eff6ff] border-l-4 border-[#3b82f6]",
+      titleClass: "text-[#1e3a8a]",
+      bodyClass: "text-[#1d4ed8]",
+      pill: "bg-[#2563eb] text-white",
+      label: "Protect",
+      tagline: "Stable winner — do not change",
+    };
+  }
+  if (primaryAction === "Refresh") {
+    return {
+      band: "bg-[#fffbeb] border-l-4 border-[#f59e0b]",
+      titleClass: "text-[#92400e]",
+      bodyClass: "text-[#b45309]",
+      pill: "bg-[#d97706] text-white",
+      label: "Refresh",
+      tagline:
+        authorityLabel === "Revive"
+          ? "Comeback candidate — review reactivation"
+          : "Plan a new variant or refresh",
+    };
+  }
+  if (primaryAction === "Cut") {
+    return {
+      band: "bg-[#fff1f2] border-l-4 border-[#f43f5e]",
+      titleClass: "text-[#9f1239]",
+      bodyClass: "text-[#be123c]",
+      pill: "bg-[#e11d48] text-white",
+      label: "Cut",
+      tagline: "Below benchmark — operator review",
+    };
+  }
+  return {
+    band: "bg-[#f8fafc] border-l-4 border-[#64748b]",
+    titleClass: "text-[#334155]",
+    bodyClass: "text-[#475569]",
+    pill: "bg-[#475569] text-white",
+    label: "Diagnose",
+    tagline: "Context or evidence needs review",
   };
 }
 

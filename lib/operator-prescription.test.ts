@@ -229,8 +229,8 @@ describe("operator prescription adapter", () => {
     });
 
     expect(instruction.instructionKind).toBe("watch");
-    expect(instruction.primaryMove).toContain("Keep watching");
-    expect(instruction.invalidActions.join(" ")).toContain("Do not convert this watch read");
+    expect(instruction.primaryMove).toContain("Keep reviewing");
+    expect(instruction.invalidActions.join(" ")).toContain("Do not convert this review-only read");
     expect(instruction.evidenceStrength).toBe("limited");
   });
 
@@ -277,15 +277,15 @@ describe("operator prescription adapter", () => {
       targetScope: "creative",
       targetEntity: "Promising Hook",
       actionLabel: "Test More",
-      reason: "Promising relative signal, but the sample is still light. Keep testing while watching fatigue pressure.",
+      reason: "Promising relative signal, but the sample is still light. Keep testing while monitoring fatigue pressure.",
       confidenceScore: 0.67,
       evidenceSource: "live",
-      nextObservation: ["Watch fatigue pressure while the sample is still maturing."],
+      nextObservation: ["Monitor fatigue pressure while the sample is still maturing."],
     });
 
     expect(instruction.instructionKind).toBe("watch");
     expect(instruction.primaryMove).toBe(
-      "Keep testing Promising Hook, but watch fatigue pressure while the evidence matures.",
+      "Keep testing Promising Hook, but monitor fatigue pressure while the evidence matures.",
     );
     expect(instruction.queueEligible).toBe(false);
     expect(instruction.canApply).toBe(false);

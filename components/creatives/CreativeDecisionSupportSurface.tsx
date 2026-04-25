@@ -186,17 +186,17 @@ export function CreativeDecisionSupportSurface({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Performance Segments
+                    Primary Decisions
                   </p>
                   <p className="mt-1 text-sm text-slate-700">
-                    Filter by the same operator segment names shown on each creative row.
+                    Filter by the same primary operator decisions shown on each creative row.
                   </p>
                   <p className="mt-1 text-xs text-slate-600">
                     Counts follow the current visible reporting set. The row segment itself stays anchored to the Decision OS window.
                   </p>
                 </div>
               </div>
-              <div className="grid gap-2 lg:grid-cols-5" data-testid="creative-quick-filters">
+              <div className="grid gap-2 lg:grid-cols-6" data-testid="creative-quick-filters">
                 {quickFilters.map((filter) => {
                   const active = activeQuickFilterKey === filter.key;
                   return (

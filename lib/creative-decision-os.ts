@@ -2383,8 +2383,8 @@ function buildCreativePolicyEnvelope(input: {
   } else if (input.lifecycleState === "comeback_candidate") {
     candidateAction = "retest_comeback";
     candidateReason =
-      "Shared policy ladder keeps comeback memory on a bounded retest path.";
-    actionCeiling = "Retest only; keep comeback volume bounded until the next winner proof appears.";
+      "Shared policy ladder keeps comeback memory on a bounded refresh path.";
+    actionCeiling = "Refresh comeback only; keep comeback volume bounded until the next winner proof appears.";
   } else if (input.fatigue.status === "fatigued") {
     candidateAction = "refresh_replace";
     candidateReason =
@@ -2530,7 +2530,7 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
     },
     {
       key: "fatigued_blocked" as const,
-      label: "Watch-only / blocked",
+      label: "Refresh / Cut",
       summary: "Creatives that should be refreshed or held out of deployment.",
       match: (creative: CreativeDecisionOsCreative) =>
         creative.operatorPolicy.segment === "fatigued_winner" ||
@@ -2540,7 +2540,7 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
     {
       key: "comeback" as const,
       label: "Board-only / comeback",
-      summary: "Former winners worth a tightly-bounded retest, not default queue work.",
+      summary: "Former winners worth a tightly-bounded comeback refresh, not default queue work.",
       match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "retest_comeback",
     },
   ];
@@ -2652,7 +2652,7 @@ function buildSupplyPlan(
         familyId: family.familyId,
         familyLabel: family.familyLabel,
         creativeIds: family.creativeIds,
-        summary: "Retest the historical winner with bounded volume before committing broader spend.",
+        summary: "Refresh the historical winner with bounded volume before committing broader spend.",
         reasons: [
           "Historical winner memory exists for this family.",
           "Comeback candidates should stay tightly scoped and retry-safe.",
@@ -3778,8 +3778,8 @@ export function buildCreativeDecisionOs(
       benchmarkScope: resolvedBenchmarkScopeMetadata,
       message:
         input.operatingMode?.recommendedMode === "Recovery"
-          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer Watch and Cut outcomes."
-          : "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
+          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer Test More, Diagnose, and Cut outcomes."
+          : "Decision OS highlights Scale, Test More, Protect, Refresh, Cut, and Diagnose primary decisions with review-only and reason-tag context.",
       operatingMode: input.operatingMode?.recommendedMode ?? null,
       sourceHealth,
       readReliability,

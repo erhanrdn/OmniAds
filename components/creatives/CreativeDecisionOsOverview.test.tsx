@@ -78,7 +78,7 @@ function payload() {
         familyScaleCount: 2,
         headline: "1 creative opportunity item is ready once evidence floors stay intact.",
       },
-      message: "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
+      message: "Decision OS highlights Scale, Test More, Protect, Refresh, Cut, and Diagnose primary decisions with review-only and reason-tag context.",
       operatingMode: "Exploit",
       surfaceSummary: {
         actionCoreCount: 4,
@@ -471,13 +471,14 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Scale");
     expect(html).toContain("Test More");
-    expect(html).toContain("Campaign Check");
-    expect(html).toContain("Operator Segment Counts");
-    expect(html).toContain("Same resolved segment mapping as the Creative filters.");
+    expect(html).toContain("Diagnose");
+    expect(html).toContain("Primary Decision Counts");
+    expect(html).toContain("Same resolver primary-decision mapping as the Creative filters.");
     expect(html).toMatch(/data-testid="creative-taxonomy-count-scale"[\s\S]*>Scale<[\s\S]*>1</);
     expect(html).toMatch(/data-testid="creative-taxonomy-count-test_more"[\s\S]*>Test More<[\s\S]*>0</);
     expect(html).toMatch(/data-testid="creative-taxonomy-count-refresh"[\s\S]*>Refresh<[\s\S]*>0</);
-    expect(html).toMatch(/data-testid="creative-taxonomy-count-retest"[\s\S]*>Retest<[\s\S]*>0</);
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-cut"[\s\S]*>Cut<[\s\S]*>0</);
+    expect(html).toMatch(/data-testid="creative-taxonomy-count-diagnose"[\s\S]*>Diagnose<[\s\S]*>0</);
     expect(html).toContain("Aggregate Health Counts");
     expect(html).toContain("Action core aggregate");
     expect(html).toContain("Cross-segment aggregates, not primary segment labels.");

@@ -8,8 +8,11 @@ import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurf
 import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
 import {
   buildCreativePreviewTruthSummary,
+  creativeOperatorReasonTagLabel,
   creativeOperatorSegmentLabel,
+  creativeOperatorSubToneLabel,
   creativeQuickFilterShortLabel,
+  resolveCreativeOperatorDecision,
   type CreativePreviewTruthSummary,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
@@ -1423,9 +1426,17 @@ function PreviewStrip({
   const visibleRows = rows.slice(0, visiblePreviewCardCount);
   const hasMoreRows = rows.length > visiblePreviewCardCount;
   const operatorSegmentByCreativeId = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<
+      string,
+      { primary: string; subTone: string | null; reasons: string[] }
+    >();
     for (const creative of decisionOs?.creatives ?? []) {
-      map.set(creative.creativeId, creativeOperatorSegmentLabel(creative));
+      const decision = resolveCreativeOperatorDecision(creative);
+      map.set(creative.creativeId, {
+        primary: creativeOperatorSegmentLabel(creative),
+        subTone: creativeOperatorSubToneLabel(decision.subTone),
+        reasons: decision.reasons.map(creativeOperatorReasonTagLabel),
+      });
     }
     return map;
   }, [decisionOs]);
@@ -1502,7 +1513,7 @@ function PreviewStrip({
             creative_secondary_label: row.creativeSecondaryLabel,
             taxonomy_source: row.taxonomySource ?? null,
           });
-          const operatorSegmentLabel = operatorSegmentByCreativeId.get(row.id) ?? null;
+          const operatorDecision = operatorSegmentByCreativeId.get(row.id) ?? null;
           return (
             <button
               key={row.id}
@@ -1537,12 +1548,12 @@ function PreviewStrip({
                       {creativeTypeLabel}
                     </span>
                   ) : null}
-                  {operatorSegmentLabel ? (
+                  {operatorDecision ? (
                     <span
                       className="pointer-events-none absolute right-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-slate-900 shadow-sm backdrop-blur-sm"
                       data-testid="creative-preview-card-operator-segment"
                     >
-                      {operatorSegmentLabel}
+                      {operatorDecision.primary}
                     </span>
                   ) : null}
                 </div>
@@ -1550,10 +1561,25 @@ function PreviewStrip({
 
               <div className="px-3 pb-3 pt-2.5">
                 <p className="line-clamp-2 text-[12px] font-semibold leading-4">{row.name}</p>
-                {operatorSegmentLabel ? (
-                  <p className="mt-1 text-[11px] font-semibold text-slate-700">
-                    {operatorSegmentLabel}
-                  </p>
+                {operatorDecision ? (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-800">
+                      {operatorDecision.primary}
+                    </span>
+                    {operatorDecision.subTone ? (
+                      <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                        {operatorDecision.subTone}
+                      </span>
+                    ) : null}
+                    {operatorDecision.reasons.slice(0, 2).map((reason) => (
+                      <span
+                        key={`${row.id}:${reason}`}
+                        className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                      >
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
                 ) : null}
                 <div className="mt-2 space-y-0.5">
                   {metrics.map((metric) => {

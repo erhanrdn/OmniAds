@@ -4,12 +4,12 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Add the Creative taxonomy simplification resolver as a parallel, non-UI layer.
+Swap the Creative UI to the accepted primary-decision model.
 
 Creative Recovery remains under product-truth review. Claude's taxonomy
-simplification direction is accepted, but the current 10-label UI remains
-active until the new resolver is reviewed and a separate UI swap pass is
-approved.
+simplification direction is accepted. The parallel resolver is implemented,
+and this pass moves the Creative UI from the old 10 top-level labels to the
+six primary operator decisions.
 
 ## Program Status
 
@@ -30,11 +30,12 @@ approved.
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
 - Creative Decision OS manual snapshots: merged through PR #66
-- Creative primary-decision resolver: implemented in current pass
+- Creative primary-decision resolver: merged through PR #69
+- Creative primary-decision UI swap: implemented in current pass
 
 ## Creative Primary-Decision Resolver
 
-Status: implemented in this pass; UI swap not performed.
+Status: implemented and merged through PR #69.
 
 Direction accepted:
 
@@ -55,12 +56,11 @@ Implementation summary:
 
 Safety and product boundaries:
 
-- current 10-label Creative UI remains active
 - no Creative policy thresholds changed
 - no Scale / Scale Review gates changed
 - no queue/push/apply safety changed
 - old-rule challenger output remains comparison-only
-- no snapshot schema or UI filter change was made
+- no snapshot schema change was made
 
 Tests added:
 
@@ -72,10 +72,72 @@ Report:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/taxonomy-simplification-resolver/final.md`
 
+## Creative Primary-Decision UI Swap
+
+Status: implemented in current branch; PR flow pending.
+
+Active primary-decision taxonomy:
+
+- `Scale`
+- `Test More`
+- `Protect`
+- `Refresh`
+- `Cut`
+- `Diagnose`
+
+Implementation summary:
+
+- top Creative filters now use the six primary decisions
+- filter and overview counts come from `resolveCreativeOperatorDecision(...).primary`
+- Creative preview cards show primary decision, optional sub-tone, and reason tags
+- Creative Decision Support and overview surfaces use primary-decision language
+- Creative detail verdict uses primary decision first
+- old 10-label aggregate counts no longer drive top-line taxonomy cards
+
+Scale Review representation:
+
+- old `Scale Review` rows now appear under `Scale`
+- sub-tone shows `Review only`
+- reason tags preserve `Business target missing` / `Commercial truth missing`
+- queue/push/apply eligibility remains governed by the underlying policy and stays blocked where review-only
+
+Old labels demoted:
+
+- `Watch` is not a primary filter; resolver maps those rows to `Test More`, `Refresh`, `Cut`, or `Diagnose`
+- `Retest` is represented as `Refresh` with `Revive`, `Comeback candidate`, or `Paused winner`
+- `Campaign Check` is represented as `Diagnose` with `Campaign context`
+- `Not Enough Data` is represented as `Diagnose` or `Test More` with low-evidence reason tags
+
+Preserved:
+
+- no Creative policy retune
+- no Scale / Scale Review floor change
+- no benchmark-scope behavior change
+- no queue/push/apply safety change
+- manual Decision OS snapshot behavior remains active
+- selected reporting range remains non-authoritative
+
+Tests/checks so far:
+
+- targeted Creative operator surface/filter tests passed
+- targeted Creative overview/drawer/detail/operator-prescription/API tests passed
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- `npm run build` passed
+- `git diff --check` passed
+- hidden/bidi/control scan passed
+- raw ID scan on touched docs passed
+- runtime smoke passed with expected auth redirects for `/creatives` and `/platforms/meta`
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/primary-decision-ui-swap/final.md`
+
 Next recommended action:
 
-- review/accept the parallel resolver
-- then start a separate UI swap pass to move Creative filters/cards/drawer labels to six primary decisions plus reason tags
+- finish full validation and runtime smoke
+- open PR `Swap Creative UI to primary operator decisions`
+- after PR checks pass, run Claude product review on the simplified UI
 
 ## Creative Decision OS Manual Snapshot Pass
 
@@ -278,6 +340,6 @@ No additional implementation pass should start until Claude reruns the equal-seg
 
 ## Next Recommended Action
 
-Request Claude equal-segment re-review against `main`.
+Finish the primary-decision UI swap validation and PR flow.
 
-Creative Recovery should only be accepted if that review confirms the macro quality and no new severe live operator defect appears.
+After the PR passes review, request Claude product review against the simplified six-primary Creative UI. Creative Recovery should only be accepted if that review confirms the new presentation is clear and no new severe live operator defect appears.

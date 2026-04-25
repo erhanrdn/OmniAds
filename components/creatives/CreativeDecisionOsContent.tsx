@@ -723,8 +723,8 @@ function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Re
 
   return (
     <SectionCard
-      title="Worth Retesting"
-      subtitle="Stopped or low-priority creatives where conditions have changed enough to justify a retest"
+      title="Comeback Refresh"
+      subtitle="Stopped or low-priority creatives where conditions changed enough to justify a controlled refresh"
     >
       <div className="flex flex-col gap-2">
         {comebacks.slice(0, 4).map((c) => (
@@ -737,7 +737,7 @@ function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Re
                 {c.name}
               </p>
               <Pill tone="amber">
-                {c.lifecycleState === "comeback_candidate" ? "Comeback" : "Retest"}
+                {c.lifecycleState === "comeback_candidate" ? "Comeback" : "Paused winner"}
               </Pill>
             </div>
             <p className="text-[11px] text-slate-500">
@@ -745,7 +745,7 @@ function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Re
             </p>
             {c.summary && (
               <div className="border-l-[3px] border-emerald-400 pl-2.5 text-[12px] leading-relaxed text-slate-600">
-                <span className="font-semibold text-slate-900">Why retest: </span>
+                <span className="font-semibold text-slate-900">Why refresh: </span>
                 {c.summary}
               </div>
             )}
