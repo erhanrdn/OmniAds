@@ -26,14 +26,15 @@ Deterministic replay now reaches `90+` for every represented segment. Creative R
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
-- Claude fix-plan implementation and Watch floor-policy fix: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
+- Claude fix-plan implementation and Watch floor-policy fix: PR #65 open / ready for review on `feature/adsecute-creative-claude-fix-plan-implementation`
 
 ## Current PR
 
 - PR: `https://github.com/erhanrdn/OmniAds/pull/65`
 - title: `Implement Claude Creative segment recalibration plan`
-- status: open; ready for review after validation
+- status: open; ready for review
 - merge status: not merged
+- latest checks: passed (`typecheck`, `test`, `build`)
 - reason: awaiting independent Claude equal-segment re-review; do not merge before review/owner acceptance
 
 ## Fresh Baseline Audit
@@ -136,6 +137,20 @@ No represented segment is below `90` in deterministic replay.
 
 Remaining requirement: independent Claude equal-segment re-review.
 
+## Validation
+
+- targeted Creative policy tests: passed
+- targeted Creative policy/surface/Decision OS/prescription/audit tests: passed
+- full `npm test`: passed
+- `npx tsc --noEmit`: passed
+- `npm run build`: passed
+- GitHub CI for PR #65: passed (`typecheck`, `test`, `build`)
+- `/creatives` localhost smoke: passed through expected auth redirect/load
+- `/platforms/meta` localhost smoke: passed through expected auth redirect/load
+- `git diff --check`: passed
+- hidden/bidi/control scan: passed
+- raw ID scan: passed; only a sanitized no-token artifact key matched
+
 ## Reports
 
 - Claude fix plan implementation: `docs/operator-policy/creative-segmentation-recovery/reports/claude-fix-plan-implementation/final.md`
@@ -147,4 +162,4 @@ Remaining requirement: independent Claude equal-segment re-review.
 
 ## Next Recommended Action
 
-After checks pass, mark PR #65 ready for review and request Claude equal-segment re-review against PR #65 or the eventual merged result.
+Request Claude equal-segment re-review against PR #65. Do not merge until the independent review and owner acceptance are complete.
