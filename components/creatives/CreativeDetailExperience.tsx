@@ -699,211 +699,139 @@ export function CreativeDetailExperience({
             </div>
           </section>
 
-          <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_20%,#ffffff_100%)] p-4 md:p-5">
-            <div className="space-y-4">
-              <section
-                className={cn("rounded-2xl border p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]", previewTruthGate.panelClass)}
-                data-testid="creative-detail-preview-truth"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      Preview Truth Gate
-                    </p>
-                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">{previewTruthGate.headline}</h3>
-                  </div>
-                  <span
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                      previewTruthGate.badgeClass,
-                    )}
-                  >
-                    {previewTruthGate.badgeLabel}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-slate-700">{previewTruthGate.summary}</p>
-                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                  <CompactMetricCell
-                    label="Live decision window"
-                    value={(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
-                  />
-                  <CompactMetricCell
-                    label="Selected window"
-                    value={(previewTruth?.selectedWindow ?? "missing").replaceAll("_", " ")}
-                  />
-                  <CompactMetricCell
-                    label="Deployment compatibility"
-                    value={decisionOsCreative.deployment.compatibility.status}
-                  />
-                  <CompactMetricCell label="AI commentary" value={canGenerateAiInterpretation ? "support only" : "disabled"} />
-                </div>
-                {previewTruth?.reason ? (
-                  <p className="mt-2 text-[11px] text-slate-600">{previewTruth.reason}</p>
-                ) : null}
-              </section>
+          <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[#f8fafc] p-4 md:p-4">
+            <div className="flex flex-col gap-3">
 
-              <section
-                className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}
-                data-testid="creative-detail-deterministic-decision"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Decision + key metrics</p>
-                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">
-                      {operatorItem?.primaryAction ?? decisionHeadline(decision.action)}
-                    </h3>
-                  </div>
-                  <DecisionBadge action={decision.action} label={operatorItem?.primaryAction} />
-                </div>
-                <p className="mt-2 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
-
-                {operatorItem?.instruction ? (
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-700">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Operator instruction
-                    </p>
-                    <p className="mt-1 font-semibold text-slate-950">
-                      {operatorItem.instruction.primaryMove}
-                    </p>
-                    <p className="mt-1">
-                      Why now: {operatorItem.instruction.reasonSummary}
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-600">
-                      Target: {operatorItem.instruction.targetContext.label}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                      <span>Evidence {operatorItem.instruction.evidenceStrength}</span>
-                      <span>Urgency {operatorItem.instruction.urgency}</span>
-                      <span>{operatorItem.instruction.amountGuidance.label}</span>
-                      <span>{operatorItem.instruction.pushReadiness.replaceAll("_", " ")}</span>
+              {/* Block 1: Verdict */}
+              {(() => {
+                const vt = getVerdictTheme(decision.action, report.lifecycleState ?? decision.lifecycleState);
+                return (
+                  <div className="flex flex-col gap-2.5" data-testid="creative-detail-verdict">
+                    <div className={cn("flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5", vt.band)} style={{ minHeight: 64 }}>
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className={cn("text-[22px] font-semibold leading-none tracking-tight", vt.titleClass)}>
+                          {vt.label}
+                        </div>
+                        <div className={cn("text-[12px] leading-snug", vt.bodyClass)}>{vt.tagline}</div>
+                      </div>
+                      <div className={cn("shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em]", vt.pill)}>
+                        {vt.label}
+                      </div>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-600">
-                      Urgency basis: {operatorItem.instruction.urgencyReason}
-                    </p>
-                    {operatorItem.instruction.nextObservation[0] ? (
-                      <p className="mt-2 text-[11px] text-slate-600">
-                        Watch next: {operatorItem.instruction.nextObservation[0]}
+                    <p className="px-1 text-[13px] leading-relaxed text-slate-600">{decisionOsCreative.summary}</p>
+                    {previewTruth?.liveDecisionWindow !== "ready" ? (
+                      <p className="px-1 text-[11px] text-amber-700">
+                        Preview {(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")} — analysis is metrics-only.
                       </p>
                     ) : null}
                   </div>
-                ) : null}
+                );
+              })()}
 
-                <div className="mt-2.5 grid grid-cols-2 gap-1.5 md:grid-cols-3">
-                  <CompactMetricCell label="Decision score" value={`${decision.score}/100`} />
-                  <CompactMetricCell label="Confidence" value={`${Math.round(decision.confidence * 100)}%`} />
-                  <CompactMetricCell label="Lifecycle" value={lifecycleLabel(report.lifecycleState ?? decision.lifecycleState)} />
-                  <CompactMetricCell
-                    label="Primary decision"
-                    value={decisionOsCreative.primaryAction.replaceAll("_", " ")}
-                  />
-                  {decisionOsCreative.operatorPolicy ? (
-                    <>
-                      <CompactMetricCell
-                        label="Operator segment"
-                        value={creativeOperatorSegmentLabel(decisionOsCreative)}
-                      />
-                      <CompactMetricCell
-                        label="Push readiness"
-                        value={decisionOsCreative.operatorPolicy.pushReadiness.replaceAll("_", " ")}
-                      />
-                    </>
-                  ) : null}
-                  <CompactMetricCell label="Family" value={decisionOsCreative.familyLabel} />
-                  <CompactMetricCell
-                    label="Target lane"
-                    value={decisionOsCreative.deployment.targetLane ?? "None"}
-                  />
-                  <CompactMetricCell
-                    label="Queue status"
-                    value={(decisionOsCreative.deployment.queueVerdict ?? "board_only").replaceAll("_", " ")}
-                  />
-                  <CompactMetricCell
-                    label="Compatibility"
-                    value={decisionOsCreative.deployment.compatibility.status}
-                  />
-                  <CompactMetricCell
-                    label="Family provenance"
-                    value={`${decisionOsCreative.familyProvenance.confidence} / ${decisionOsCreative.familyProvenance.overGroupingRisk}`}
-                  />
-                  <CompactMetricCell
-                    label="Preview truth"
-                    value={(decisionOsCreative.previewStatus?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
-                  />
-                </div>
-
-                {report.timeframeContext ? (
-                  <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Decision model</p>
-                    <div className="mt-2 space-y-2">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Core verdict</p>
-                        <p className="mt-1 text-xs text-slate-700">{report.timeframeContext.coreVerdict}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Selected range note</p>
-                        <p className="mt-1 text-xs text-slate-700">{report.timeframeContext.selectedRangeOverlay}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Historical support</p>
-                        <p className="mt-1 text-xs text-slate-500">{report.timeframeContext.historicalSupport}</p>
-                      </div>
-                    </div>
-                    {report.timeframeContext.note ? (
-                      <p className="mt-1 text-xs text-amber-700">{report.timeframeContext.note}</p>
+              {/* Block 2: Next Action */}
+              {operatorItem?.instruction ? (
+                <div
+                  className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                  data-testid="creative-detail-next-action"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">What to do</p>
+                    <span className="text-[11px] text-slate-400">Why now</span>
+                  </div>
+                  <p className="text-[14px] font-semibold leading-snug tracking-tight text-slate-900">
+                    {operatorItem.instruction.primaryMove}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {operatorItem.instruction.evidenceStrength ? (
+                      <EvidenceChip value={operatorItem.instruction.evidenceStrength} />
+                    ) : null}
+                    {operatorItem.instruction.urgency ? (
+                      <UrgencyChip value={operatorItem.instruction.urgency} />
+                    ) : null}
+                    {operatorItem.instruction.amountGuidance?.label ? (
+                      <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-600">
+                        {operatorItem.instruction.amountGuidance.label}
+                      </span>
                     ) : null}
                   </div>
-                ) : null}
-
-                <div className="mt-2 border-t border-slate-200/70 pt-2">
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
-                    <CompactMetricCell label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
-                    <CompactMetricCell label="ROAS" value={`${row.roas.toFixed(2)}x`} />
-                    <CompactMetricCell label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
-                    <CompactMetricCell label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
-                    <CompactMetricCell label="Purchases" value={formatInteger(row.purchases)} />
-                    <CompactMetricCell label="Impressions" value={formatInteger(row.impressions)} />
-                    <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
-                  </div>
-                </div>
-              </section>
-
-              <section
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
-                data-testid="creative-detail-command-center"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      Command Center
+                  {operatorItem.instruction.nextObservation?.[0] ? (
+                    <p className="text-[12px] leading-relaxed text-slate-500">
+                      {operatorItem.instruction.nextObservation[0]}
                     </p>
-                    <h4 className="mt-0.5 text-sm font-semibold text-slate-900">
-                      Workflow state for this creative
-                    </h4>
-                  </div>
-                  <a
-                    href={`/command-center${commandCenterAction ? `?action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
-                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* Block 3: Performance */}
+              <div
+                className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-col gap-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                data-testid="creative-detail-performance"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Performance</p>
+                <div
+                  className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200"
+                  style={{ gap: 1, background: "#e2e8f0" }}
+                >
+                  <PrimaryMetricTile label="Spend" value={formatMoney(row.spend, currency, defaultCurrency)} />
+                  <PrimaryMetricTile
+                    label="ROAS"
+                    value={`${row.roas.toFixed(2)}x`}
+                    delta={(() => {
+                      const br = decisionOsCreative.benchmark.metrics.roas.current;
+                      return br && br > 0 ? Math.round(((row.roas - br) / br) * 100) : null;
+                    })()}
+                  />
+                  <PrimaryMetricTile label="Purchases" value={formatInteger(row.purchases)} />
+                  <PrimaryMetricTile label="CTR" value={`${row.ctrAll.toFixed(2)}%`} />
+                </div>
+                <div className="h-px bg-slate-100" />
+                <div className="grid grid-cols-2 gap-x-3.5 gap-y-1.5 text-[12px] tabular-nums">
+                  <SecondaryMetricRow label="Purchase value" value={formatMoney(row.purchaseValue, currency, defaultCurrency)} />
+                  <SecondaryMetricRow label="CPA" value={formatMoney(row.cpa, currency, defaultCurrency)} />
+                  <SecondaryMetricRow label="Impressions" value={formatInteger(row.impressions)} />
+                  <SecondaryMetricRow label="Link clicks" value={formatInteger(row.linkClicks)} />
+                </div>
+              </div>
+
+              {/* Block 4: Commercial Fit */}
+              {(() => {
+                const breakEven = decisionOsCreative.economics.roasFloor;
+                const benchRoas = decisionOsCreative.benchmark.metrics.roas.current;
+                const current = row.roas;
+                const aboveBreakEven = breakEven != null && current > breakEven;
+                const currentColor = breakEven == null ? undefined
+                  : current > breakEven ? "#047857"
+                  : current >= breakEven * 0.8 ? "#b45309"
+                  : "#be123c";
+                const currentMark = breakEven == null ? undefined
+                  : current > breakEven ? "✓"
+                  : current >= breakEven * 0.8 ? "~"
+                  : "⚠";
+                return (
+                  <div
+                    className="rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                    data-testid="creative-detail-commercial-fit"
                   >
-                    Open in Command Center
-                  </a>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                    Status {commandCenterAction ? commandCenterAction.status.replaceAll("_", " ") : "pending"}
-                  </span>
-                  {commandCenterAction?.assigneeName ? (
-                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
-                      Assignee {commandCenterAction.assigneeName}
-                    </span>
-                  ) : null}
-                  {commandCenterAction?.snoozeUntil ? (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-                      Snoozed
-                    </span>
-                  ) : null}
-                </div>
-              </section>
+                    <div className="grid items-center px-4 py-3" style={{ gridTemplateColumns: "1fr auto 1fr auto 1fr", gap: 12 }}>
+                      <FitStat label="Break-even" value={breakEven != null ? `${breakEven.toFixed(1)}x` : "n/a"} />
+                      <div className="h-6 w-px bg-slate-100" />
+                      <FitStat label="Current ROAS" value={`${current.toFixed(2)}x`} valueColor={currentColor} mark={currentMark} />
+                      <div className="h-6 w-px bg-slate-100" />
+                      <FitStat label="Benchmark" value={benchRoas != null ? `${benchRoas.toFixed(2)}x` : "n/a"} />
+                    </div>
+                    {decisionOsCreative.economics.cpaCeiling != null || businessValidationNote ? (
+                      <div className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+                        {decisionOsCreative.economics.cpaCeiling != null ? (
+                          <span>CPA ceiling {formatMoney(decisionOsCreative.economics.cpaCeiling, currency, defaultCurrency)}</span>
+                        ) : null}
+                        {businessValidationNote ? (
+                          <span className="ml-2 text-amber-700">{businessValidationNote}</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
 
               <CreativeCommercialContextCard
                 businessId={businessId}
@@ -911,8 +839,9 @@ export function CreativeDetailExperience({
                 endDate={standardRange.customEnd}
               />
 
+              {/* Block 5: AI Commentary */}
               <section
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                 data-testid="creative-detail-ai-commentary"
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
@@ -920,38 +849,27 @@ export function CreativeDetailExperience({
                     <Sparkles className="h-4 w-4 text-sky-600" />
                     <h4 className="text-sm font-semibold text-slate-900">{creativeTranslations.aiInterpretation}</h4>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {aiInterpretationRequested && commentaryQuery.data ? (
-                      <span
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                          commentaryQuery.data.source === "fallback"
-                            ? "border-amber-300 bg-amber-50 text-amber-700"
-                            : "border-sky-300 bg-sky-50 text-sky-700"
-                        )}
-                      >
-                        {commentaryQuery.data.source === "fallback" ? getTranslations(language).common.fallback : getTranslations(language).common.ai}
-                      </span>
-                    ) : null}
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                      Support only
+                  {aiInterpretationRequested && commentaryQuery.data ? (
+                    <span className={cn(
+                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      commentaryQuery.data.source === "fallback" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-sky-300 bg-sky-50 text-sky-700"
+                    )}>
+                      {commentaryQuery.data.source === "fallback" ? getTranslations(language).common.fallback : getTranslations(language).common.ai}
                     </span>
-                  </div>
+                  ) : null}
                 </div>
-                <p className="mb-3 text-xs text-slate-600">{aiSupportMessage}</p>
+                <p className="mb-3 text-xs text-slate-500">Support only — does not change the decision above.</p>
                 {!canGenerateAiInterpretation ? (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
                     {aiSupportMessage}
                   </div>
                 ) : !aiInterpretationRequested ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setAiInterpretationRequested(true);
-                      commentaryQuery.refetch();
-                    }}
-                    className="inline-flex items-center rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                    onClick={() => { setAiInterpretationRequested(true); commentaryQuery.refetch(); }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-[12px] font-semibold text-sky-700 hover:bg-sky-100"
                   >
+                    <span className="text-[13px]">✦</span>
                     {creativeTranslations.generateInterpretation}
                   </button>
                 ) : commentaryQuery.isLoading || commentaryQuery.isFetching ? (
@@ -959,286 +877,64 @@ export function CreativeDetailExperience({
                 ) : commentaryQuery.isError ? (
                   <div className="space-y-2">
                     <p className="text-sm text-rose-700">{creativeTranslations.unavailable}</p>
-                    <button
-                      type="button"
-                      onClick={() => commentaryQuery.refetch()}
-                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
+                    <button type="button" onClick={() => commentaryQuery.refetch()} className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
                       {getTranslations(language).common.retry}
                     </button>
                   </div>
                 ) : commentaryQuery.data?.commentary ? (
                   <div className="space-y-3">
                     {commentaryQuery.data.warning ? (
-                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
-                        {commentaryQuery.data.warning}
-                      </p>
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">{commentaryQuery.data.warning}</p>
                     ) : null}
                     <p className="text-sm font-semibold text-slate-900">{commentaryQuery.data.commentary.headline}</p>
-                    <p className="text-sm leading-6 text-slate-700">{commentaryQuery.data.commentary.summary}</p>
+                    <p className="text-[13px] leading-relaxed text-slate-600">{commentaryQuery.data.commentary.summary}</p>
                     <ListBlock title={creativeTranslations.opportunities} items={commentaryQuery.data.commentary.opportunities} />
                     <ListBlock title={creativeTranslations.risks} items={commentaryQuery.data.commentary.risks} />
                     <ListBlock title={creativeTranslations.nextActions} items={commentaryQuery.data.commentary.nextActions} ordered />
-                    <button
-                      type="button"
-                      onClick={() => commentaryQuery.refetch()}
-                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
+                    <button type="button" onClick={() => commentaryQuery.refetch()} className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
                       {creativeTranslations.refreshInterpretation}
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm text-rose-700">{creativeTranslations.unavailable}</p>
-                    <button
-                      type="button"
-                      onClick={() => commentaryQuery.refetch()}
-                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
+                    <button type="button" onClick={() => commentaryQuery.refetch()} className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
                       {getTranslations(language).common.retry}
                     </button>
                   </div>
                 )}
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-                <h4 className="text-sm font-semibold text-slate-900">Deterministic evidence</h4>
-                <p className="mt-1 text-xs text-slate-500">
-                  Deployment, benchmark, and fatigue evidence from the deterministic engine.
-                </p>
-
-                <div
-                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
-                  data-testid="creative-detail-deployment-matrix"
+              {/* Block 6: Workflow */}
+              <div className="flex items-center justify-between px-1 pb-1 text-[12px]">
+                <span className="text-slate-500">
+                  Command Center:{" "}
+                  <span className="font-medium text-slate-700">
+                    {commandCenterAction ? commandCenterAction.status.replaceAll("_", " ") : "pending"}
+                  </span>
+                </span>
+                <a
+                  href={`/command-center${commandCenterAction ? `?action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
+                  className="flex items-center gap-1 font-medium text-sky-600 hover:text-sky-700"
                 >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Deployment matrix
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell label="Meta family" value={decisionOsCreative.deployment.metaFamilyLabel} />
-                    <CompactMetricCell label="Lane" value={decisionOsCreative.deployment.targetLane ?? "None"} />
-                    <CompactMetricCell
-                      label="Eligible lanes"
-                      value={
-                        (decisionOsCreative.deployment.eligibleLanes?.length ?? 0) > 0
-                          ? decisionOsCreative.deployment.eligibleLanes?.join(", ") ?? "None"
-                          : "None"
-                      }
-                    />
-                    <CompactMetricCell
-                      label="Ad set role"
-                      value={decisionOsCreative.deployment.targetAdSetRole ?? "None"}
-                    />
-                    <CompactMetricCell label="GEO context" value={decisionOsCreative.deployment.geoContext} />
-                    <CompactMetricCell
-                      label="Compatibility"
-                      value={decisionOsCreative.deployment.compatibility.status}
-                    />
-                    <CompactMetricCell
-                      label="Objective family"
-                      value={decisionOsCreative.deployment.compatibility.objectiveFamily ?? "Unknown"}
-                    />
-                    <CompactMetricCell
-                      label="Optimization"
-                      value={decisionOsCreative.deployment.compatibility.optimizationGoal ?? "Unknown"}
-                    />
-                    <CompactMetricCell
-                      label="Bid regime"
-                      value={decisionOsCreative.deployment.compatibility.bidRegime ?? "Unknown"}
-                    />
-                  </div>
-                  {decisionOsCreative.deployment.compatibility.reasons.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {decisionOsCreative.deployment.compatibility.reasons.slice(0, 3).map((item) => (
-                        <p key={item} className="text-[11px] text-slate-600">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                  {decisionOsCreative.deployment.constraints.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {decisionOsCreative.deployment.constraints.slice(0, 3).map((item) => (
-                        <p key={item} className="text-[11px] text-slate-600">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                  <p className="mt-2 text-[11px] text-slate-600">
-                    {decisionOsCreative.deployment.queueSummary}
-                  </p>
-                </div>
+                  Open in Command Center <span>→</span>
+                </a>
+              </div>
 
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Economics floor
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell label="Status" value={decisionOsCreative.economics.status} />
-                    <CompactMetricCell
-                      label="Spend floor"
-                      value={`$${decisionOsCreative.economics.absoluteSpendFloor}`}
-                    />
-                    <CompactMetricCell
-                      label="Purchase floor"
-                      value={String(decisionOsCreative.economics.absolutePurchaseFloor)}
-                    />
-                    <CompactMetricCell
-                      label="ROAS floor"
-                      value={
-                        decisionOsCreative.economics.roasFloor === null
-                          ? "Unknown"
-                          : `${decisionOsCreative.economics.roasFloor.toFixed(2)}x`
-                      }
-                    />
-                    <CompactMetricCell
-                      label="CPA ceiling"
-                      value={
-                        decisionOsCreative.economics.cpaCeiling === null
-                          ? "None"
-                          : formatMoney(
-                              decisionOsCreative.economics.cpaCeiling,
-                              currency,
-                              defaultCurrency,
-                            )
-                      }
-                    />
-                  </div>
-                  {decisionOsCreative.economics.reasons.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {decisionOsCreative.economics.reasons.slice(0, 3).map((item) => (
-                        <p key={item} className="text-[11px] text-slate-600">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div
-                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
-                  data-testid="creative-detail-benchmark-evidence"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Benchmark context
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Cohort: {decisionOsCreative.benchmark.selectedCohortLabel} ({decisionOsCreative.benchmark.sampleSize} peers)
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell
-                      label="Scope"
-                      value={decisionOsCreative.benchmarkScopeLabel}
-                    />
-                    <CompactMetricCell
-                      label="Reliability"
-                      value={creativeBenchmarkReliabilityLabel(decisionOsCreative.benchmarkReliability)}
-                    />
-                    <CompactMetricCell
-                      label="ROAS"
-                      value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x / ${decisionOsCreative.benchmark.metrics.roas.status}`}
-                    />
-                    <CompactMetricCell
-                      label="CPA"
-                      value={`${decisionOsCreative.benchmark.metrics.cpa.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.cpa.status}`}
-                    />
-                    <CompactMetricCell
-                      label="CTR"
-                      value={`${decisionOsCreative.benchmark.metrics.ctr.current?.toFixed(2) ?? "n/a"}% / ${decisionOsCreative.benchmark.metrics.ctr.status}`}
-                    />
-                    <CompactMetricCell
-                      label={decisionOsCreative.benchmark.metrics.attention.label}
-                      value={`${decisionOsCreative.benchmark.metrics.attention.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.attention.status}`}
-                    />
-                  </div>
-                  {decisionOsCreative.benchmark.missingContext.length > 0 ? (
-                    <p className="mt-2 text-[11px] text-amber-700">
-                      Missing context: {decisionOsCreative.benchmark.missingContext.join(" · ")}
-                    </p>
-                  ) : null}
-                  {businessValidationNote ? (
-                    <p className="mt-2 text-[11px] text-amber-700">
-                      {businessValidationNote} Relative strength stays visible, but queue/apply remains blocked.
-                    </p>
-                  ) : null}
-                </div>
-
-                <div
-                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
-                  data-testid="creative-detail-fatigue-evidence"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Fatigue engine
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell label="Status" value={decisionOsCreative.fatigue.status} />
-                    <CompactMetricCell
-                      label="Confidence"
-                      value={`${Math.round(decisionOsCreative.fatigue.confidence * 100)}%`}
-                    />
-                    <CompactMetricCell
-                      label="ROAS decay"
-                      value={
-                        decisionOsCreative.fatigue.roasDecay === null
-                          ? "Unknown"
-                          : `${Math.round(decisionOsCreative.fatigue.roasDecay * 100)}%`
-                      }
-                    />
-                    <CompactMetricCell
-                      label="CTR decay"
-                      value={
-                        decisionOsCreative.fatigue.ctrDecay === null
-                          ? "Unknown"
-                          : `${Math.round(decisionOsCreative.fatigue.ctrDecay * 100)}%`
-                      }
-                    />
-                  </div>
-                  {decisionOsCreative.fatigue.evidence.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {decisionOsCreative.fatigue.evidence.slice(0, 3).map((item) => (
-                        <p key={item} className="text-[11px] text-slate-600">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Family provenance
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    <CompactMetricCell label="Confidence" value={decisionOsCreative.familyProvenance.confidence} />
-                    <CompactMetricCell
-                      label="Over-grouping risk"
-                      value={decisionOsCreative.familyProvenance.overGroupingRisk}
-                    />
-                  </div>
-                  {decisionOsCreative.familyProvenance.evidence.length > 0 ? (
-                    <div className="mt-2 space-y-1">
-                      {decisionOsCreative.familyProvenance.evidence.slice(0, 3).map((item) => (
-                        <p key={item} className="text-[11px] text-slate-600">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+              {/* Notes */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <h4 className="text-sm font-semibold text-slate-900">Notes</h4>
                 <textarea
                   value={notes}
                   onChange={(event) => onNotesChange(event.target.value)}
                   placeholder="Write hypotheses and test notes..."
-                  className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                  className="mt-2 min-h-[100px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm outline-none focus:border-slate-400"
                 />
               </section>
+
             </div>
           </aside>
+
         </main>
       </div>
     </div>
@@ -1339,4 +1035,137 @@ function resolveDetailImageUrl(row: MetaCreativeRow): string | null {
     if (typeof candidate === "string" && candidate.trim().length > 0) return candidate.trim();
   }
   return null;
+}
+
+type VerdictTheme = {
+  band: string;
+  titleClass: string;
+  bodyClass: string;
+  pill: string;
+  label: string;
+  tagline: string;
+};
+
+function getVerdictTheme(
+  action: CreativeDecision["action"],
+  lifecycleState: CreativeDecision["lifecycleState"] | undefined,
+): VerdictTheme {
+  if (lifecycleState === "stable_winner") {
+    return {
+      band: "bg-[#eff6ff] border-l-4 border-[#3b82f6]",
+      titleClass: "text-[#1e3a8a]",
+      bodyClass: "text-[#1d4ed8]",
+      pill: "bg-[#2563eb] text-white",
+      label: "Protect",
+      tagline: "Stable winner — do not change",
+    };
+  }
+  if (action === "scale_hard" || action === "scale") {
+    return {
+      band: "bg-[#ecfdf5] border-l-4 border-[#10b981]",
+      titleClass: "text-[#047857]",
+      bodyClass: "text-[#059669]",
+      pill: "bg-[#059669] text-white",
+      label: "Scale",
+      tagline: "Ready to scale — above benchmark",
+    };
+  }
+  if (lifecycleState === "fatigued_winner" || action === "pause") {
+    return {
+      band: "bg-[#fffbeb] border-l-4 border-[#f59e0b]",
+      titleClass: "text-[#92400e]",
+      bodyClass: "text-[#b45309]",
+      pill: "bg-[#d97706] text-white",
+      label: "Refresh",
+      tagline: "Fatigue detected — plan a new variant",
+    };
+  }
+  if (action === "kill") {
+    return {
+      band: "bg-[#fff1f2] border-l-4 border-[#f43f5e]",
+      titleClass: "text-[#9f1239]",
+      bodyClass: "text-[#be123c]",
+      pill: "bg-[#e11d48] text-white",
+      label: "Cut",
+      tagline: "Below break-even — pause recommended",
+    };
+  }
+  if (action === "test_more") {
+    return {
+      band: "bg-[#f0f9ff] border-l-4 border-[#0ea5e9]",
+      titleClass: "text-[#0c4a6e]",
+      bodyClass: "text-[#0284c7]",
+      pill: "bg-[#0284c7] text-white",
+      label: "Test More",
+      tagline: "Not enough data — keep testing",
+    };
+  }
+  return {
+    band: "bg-[#eff6ff] border-l-4 border-[#3b82f6]",
+    titleClass: "text-[#1e40af]",
+    bodyClass: "text-[#3b82f6]",
+    pill: "bg-[#0284c7] text-white",
+    label: "Watch",
+    tagline: "Promising — not enough data to act yet",
+  };
+}
+
+function PrimaryMetricTile({ label, value, delta }: { label: string; value: string; delta?: number | null }) {
+  return (
+    <div className="flex flex-col gap-1 bg-white px-3 py-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</span>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[18px] font-semibold leading-none tracking-tight text-slate-900">{value}</span>
+        {delta != null ? (
+          <span className={cn("text-[11px] font-semibold", delta >= 0 ? "text-emerald-600" : "text-rose-600")}>
+            {delta >= 0 ? "▲" : "▼"}{Math.abs(delta)}%
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SecondaryMetricRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <span className="text-slate-500">{label}</span>
+      <span className="text-right font-medium text-slate-800">{value}</span>
+    </>
+  );
+}
+
+function EvidenceChip({ value }: { value: string }) {
+  const color =
+    value === "Strong" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    : value === "Moderate" ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-slate-200 bg-slate-50 text-slate-600";
+  return (
+    <span className={cn("inline-flex h-[22px] items-center rounded-full border px-2 text-[11px]", color)}>
+      Evidence: {value}
+    </span>
+  );
+}
+
+function UrgencyChip({ value }: { value: string }) {
+  const color =
+    value === "High" ? "border-rose-200 bg-rose-50 text-rose-700"
+    : value === "Medium" ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-slate-200 bg-slate-50 text-slate-600";
+  return (
+    <span className={cn("inline-flex h-[22px] items-center rounded-full border px-2 text-[11px]", color)}>
+      Urgency: {value}
+    </span>
+  );
+}
+
+function FitStat({ label, value, valueColor, mark }: { label: string; value: string; valueColor?: string; mark?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 text-center">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <span className="text-[14px] font-semibold leading-none text-slate-900" style={valueColor ? { color: valueColor } : undefined}>
+        {mark ? `${mark} ` : null}{value}
+      </span>
+    </div>
+  );
 }

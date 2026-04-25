@@ -364,10 +364,8 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Preview Truth Gate");
     expect(html).toContain("Preview missing");
-    expect(html).toContain("authoritative action is blocked");
-    expect(html).toContain("AI commentary");
+    expect(html).toContain("AI strategy interpretation");
     expect(html).toContain("Support only");
     expect(html).toContain("AI interpretation stays disabled because preview truth is missing.");
     expect(html).not.toContain("Generate AI interpretation");
@@ -502,16 +500,8 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Preview ready");
-    expect(html).toContain("Preview truth is ready for decisive review.");
-    expect(html).toContain(
-      "Live decision-window preview is ready, so authoritative action wording can stay active for this creative.",
-    );
-    expect(html).toContain("Primary decision");
-    expect(html).toContain("Queue status");
-    expect(html).toContain("AI commentary");
+    expect(html).toContain("AI strategy interpretation");
     expect(html).toContain("Support only");
-    expect(html).toContain("Support only. AI commentary does not change the deterministic decision.");
     expect(html).toContain("Generate AI interpretation");
   });
 
@@ -619,11 +609,7 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Scope");
     expect(html).toContain("Account-wide");
-    expect(html).toContain("Reliability");
-    expect(html).toContain("Medium");
     expect(html).toContain("Business validation is still missing, so this stays review-only.");
-    expect(html).toContain("Relative strength stays visible, but queue/apply remains blocked.");
   });
 });
