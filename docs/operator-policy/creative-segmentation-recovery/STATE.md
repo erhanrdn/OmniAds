@@ -4,9 +4,9 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Implement Claude's Creative equal-segment fix plan, the follow-up Watch floor-policy fix, the Round 5 Watch-as-Refresh closure, the Protect/no-touch boundary investigation, and the Round 6 Watch-as-Refresh edge verification while honoring the supervisor target: every represented user-facing segment should reach `90+`.
+Reconcile PR #65 scoring truth before any more policy work. The latest Claude review, STATE.md, and local artifacts disagree about whether `company-08 / creative-10` is `Watch` or `Refresh` and whether represented segments are actually `90+`.
 
-Round 6 verified that the requested `company-08 / creative-10` Watch-as-Refresh edge is already fixed on the current PR #65 branch. The Protect/no-touch investigation fixed the remaining reviewed Protect false positive without changing true no-touch safety. Creative Recovery still needs Claude equal-segment re-review before PR #65 is merged.
+Current result: `company-08 / company-08-creative-10` is `Refresh` in the current committed PR #65 live artifact, so Claude's `Watch` observation is stale for that row. However, the acceptance-level score claims in STATE were overconfident because no fresh executable equal-segment scoring artifact was regenerated from current code and current expected media-buyer labels.
 
 ## Program Status
 
@@ -29,6 +29,7 @@ Round 6 verified that the requested `company-08 / creative-10` Watch-as-Refresh 
 - Claude fix-plan implementation, Watch floor-policy fix, and Round 5 closure: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
 - Protect/no-touch boundary investigation: implemented on PR #65 branch
 - Round 6 Watch-as-Refresh edge verification: implemented on PR #65 branch; no additional policy change required
+- PR #65 score reconciliation: complete; no policy change made
 
 ## Current PR
 
@@ -36,8 +37,9 @@ Round 6 verified that the requested `company-08 / creative-10` Watch-as-Refresh 
 - title: `Implement Claude Creative segment recalibration plan`
 - status: open; do not merge
 - merge status: not merged
-- latest checks: Round 5 local validation passed after the P1 review-only Scale Review hardening; GitHub CI passed (`test`, `typecheck`, `build`)
-- reason: owner target is stricter than Claude's PASS WITH MONITORING verdict; do not merge before strict target closure or owner acceptance
+- latest commit: `c5ee6a12bbbc8db795649da05f2120ef251b9063`
+- latest checks: prior PR #65 local validation passed; this reconciliation pass changed reports/artifacts only
+- reason: current exact equal-segment scores are not proven from a fresh current artifact; do not merge before a fresh Claude/supervisor review of the reconciliation artifact or explicit owner acceptance
 
 ## Fresh Baseline Audit
 
@@ -102,20 +104,23 @@ Preserved / not changed:
 - Benchmark scope remains explicit-only.
 - Old challenger remains comparison-only.
 
-## Before / After Scores
+## Score Status
 
-| Metric | Before | After |
-|---|---:|---:|
-| Macro segment score | `87/100` | about `90/100` under Claude's Round 4 independent scoring plus Round 5 and Protect boundary fix |
-| Raw row accuracy | `~88%` | about `90%` |
-| Watch score | `75/100` | about `90/100` after Round 5 |
-| Refresh score | `88/100` | about `90/100` after Round 5 |
-| Protect score | `88/100` | about `90/100` after Protect boundary fix |
-| Test More score | `83/100` | `90/100` |
-| Not Enough Data score | `88/100` | `92/100` |
-| Cut recall | `~92%` | `~94%` |
-| pdf-company-01 | `88/100` | `88/100` unchanged; remaining gap is not a Protect/no-touch defect |
-| pdf-company-02 | `87/100` | about `90/100` after Round 5 |
+Previous after-score claims are superseded by the PR #65 score reconciliation.
+
+What is proven:
+
+- the current committed live artifact has `company-08 / company-08-creative-10` as `Refresh`
+- the current committed live artifact segment distribution is `Scale Review 6`, `Test More 7`, `Protect 1`, `Watch 10`, `Refresh 23`, `Cut 12`, `Not Enough Data 14`, and `Not eligible 5`
+- severe CPA examples `company-03 / company-03-creative-01` and `company-07 / company-07-creative-01` are `Cut`
+
+What is not proven:
+
+- exact current macro score
+- exact current Watch / Refresh / Protect scores
+- exact current IwaStore / TheSwaf equal-segment scores
+
+Reason: the only local equal-segment expected-label artifact predates the latest PR #65 commits and is not safe as the score of record. Joining that stale expected-label artifact to the current live artifact produces an intentionally invalid reconciliation score, not an acceptance score.
 
 ## Watch Floor Policy Fix
 
@@ -186,6 +191,12 @@ Score read:
 - macro remains about `90/100` after Round 5 plus Protect boundary
 - no segment score changed in this no-op verification pass
 
+Reconciliation update:
+
+- the row outcome remains `Refresh`
+- the score estimate should not be treated as the score of record
+- a fresh equal-segment review must score the current artifact directly
+
 ## Protect Boundary Investigation
 
 Status: implemented in current branch.
@@ -221,9 +232,27 @@ Preserved:
 
 Score read:
 
-- Protect: `88/100` -> about `90/100`
-- pdf-company-01: remains about `88/100`, but investigation found the remaining gap is not this Protect/no-touch boundary and is a minor business-level fatigued/Test More/Refresh judgment
-- every represented segment is now at or about `90+`, pending Claude re-review
+- Protect boundary behavior changed as documented
+- exact current Protect score is not proven by a fresh scoring artifact
+- pdf-company-01 remains unresolved as a score claim until the next fresh review
+
+## PR #65 Score Reconciliation
+
+Status: complete; no policy change made.
+
+Artifacts:
+
+- reconciliation report: `docs/operator-policy/creative-segmentation-recovery/reports/pr65-score-reconciliation/final.md`
+- committed reconciliation artifact: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-equal-segment.json`
+- local private copy: `/tmp/adsecute-pr65-current-equal-segment-local.json`
+
+Answers:
+
+- Claude reviewed stale data for `company-08 / creative-10`; current artifact says `Refresh`, not `Watch`
+- STATE.md overclaimed acceptance-level scores; exact current per-segment scores are not regenerated
+- the joined stale expected-label artifact is marked `not_valid_for_acceptance`
+- another policy fix is not justified by the `company-08 / creative-10` dispute alone
+- a future policy fix may still be needed if a fresh review of the current artifact confirms other high-spend validating Watch/Refresh/Cut boundaries remain wrong
 
 ## Validation
 
@@ -250,6 +279,7 @@ Score read:
 - Protect boundary policy tests: passed
 - Round 6 Watch edge verification: passed; target fixture already resolves to Refresh
 - equal-segment scoring audit: not rerun by script in this pass; no executable equal-segment scoring helper exists in the repo, and this pass made no policy change beyond verifying the existing Round 5 gate
+- PR #65 scoring reconciliation artifact generated; marked `not_valid_for_acceptance` because it joins stale expected labels with the current live artifact
 
 ## Reports
 
@@ -258,11 +288,13 @@ Score read:
 - Round 5 target closure: `docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md`
 - Protect boundary investigation: `docs/operator-policy/creative-segmentation-recovery/reports/protect-boundary-investigation/final.md`
 - Round 6 Watch edge verification: `docs/operator-policy/creative-segmentation-recovery/reports/round-6-watch-refresh-edge-fix/final.md`
+- PR #65 score reconciliation: `docs/operator-policy/creative-segmentation-recovery/reports/pr65-score-reconciliation/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
 - sanitized live artifact: `docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json`
+- PR #65 current equal-segment reconciliation artifact: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-equal-segment.json`
 
 ## Next Recommended Action
 
-Do not merge PR #65 yet. Run Claude equal-segment re-review against the updated PR #65 branch. If that review confirms the represented segments are at or above the strict target or documents only monitoring-level business borderlines, PR #65 can leave draft/merge review after supervisor approval.
+Do not merge PR #65 and do not start another policy pass yet. Run a fresh Claude/supervisor review against the current PR #65 reconciliation artifact and current live artifact. If that review confirms current scores are below target, use the newly scored mismatches to select the next narrow fix.
