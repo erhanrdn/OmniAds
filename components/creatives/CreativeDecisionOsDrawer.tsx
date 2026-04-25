@@ -178,7 +178,7 @@ export function CreativeDecisionOsDrawer({
                 disabled={!onRunAnalysis || isRunningAnalysis}
                 className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isRunningAnalysis ? "Running…" : "Run Analysis"}
+                {isRunningAnalysis ? "Running…" : "Run Creative Analysis"}
               </button>
               {decisionOs?.summary.operatingMode ? (
                 <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">

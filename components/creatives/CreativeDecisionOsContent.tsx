@@ -161,7 +161,7 @@ function PatternBar({ label, share, roas, maxShare }: { label: string; share: nu
 }
 
 function WinningPatterns({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const { winningFormats, hookTrends, angleTrends } = decisionOs.historicalAnalysis;
+  const { winningFormats = [], hookTrends = [], angleTrends = [] } = decisionOs.historicalAnalysis ?? {};
 
   const maxFormatShare = Math.max(...winningFormats.map((f) => Math.round(f.shareOfSpend * 100)), 1);
   const maxHookShare = Math.max(...hookTrends.map((h) => Math.round(h.shareOfSpend * 100)), 1);
@@ -249,8 +249,9 @@ function WinningPatterns({ decisionOs }: { decisionOs: CreativeDecisionOsV1Respo
 
 function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response) {
   const risks: Array<{ tone: "rose" | "amber"; title: string; body: string }> = [];
+  const families = decisionOs.families ?? [];
 
-  const fatiguingFamilies = decisionOs.families.filter(
+  const fatiguingFamilies = families.filter(
     (f) => f.lifecycleState === "fatigued_winner",
   );
   if (fatiguingFamilies.length >= 2) {
@@ -267,9 +268,9 @@ function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response) {
     });
   }
 
-  const totalSpend = decisionOs.families.reduce((sum, f) => sum + f.totalSpend, 0);
-  if (totalSpend > 0 && decisionOs.families.length >= 2) {
-    const top2Spend = decisionOs.families
+  const totalSpend = families.reduce((sum, f) => sum + f.totalSpend, 0);
+  if (totalSpend > 0 && families.length >= 2) {
+    const top2Spend = families
       .slice(0, 2)
       .reduce((sum, f) => sum + f.totalSpend, 0);
     const concentration = Math.round((top2Spend / totalSpend) * 100);
@@ -282,7 +283,7 @@ function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response) {
     }
   }
 
-  const highPriority = decisionOs.supplyPlan.filter((s) => s.priority === "high");
+  const highPriority = (decisionOs.supplyPlan ?? []).filter((s) => s.priority === "high");
   if (highPriority.length > 0) {
     risks.push({
       tone: "amber",
@@ -351,7 +352,7 @@ function RiskSignals({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response 
 // ─── section 4: format performance ──────────────────────────────────────────
 
 function FormatPerformance({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const formats = decisionOs.historicalAnalysis.winningFormats;
+  const formats = decisionOs.historicalAnalysis?.winningFormats ?? [];
   if (formats.length === 0) return null;
 
   const maxRoas = Math.max(...formats.map((f) => f.roas), 0.1);
@@ -389,9 +390,11 @@ function FormatPerformance({ decisionOs }: { decisionOs: CreativeDecisionOsV1Res
             </span>
           </div>
         ))}
-        <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
-          {decisionOs.historicalAnalysis.summary}
-        </p>
+        {decisionOs.historicalAnalysis?.summary ? (
+          <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
+            {decisionOs.historicalAnalysis.summary}
+          </p>
+        ) : null}
       </div>
     </SectionCard>
   );
@@ -495,7 +498,7 @@ function CoverageCell({ state }: { state: CellState }) {
 
 function CoverageMap({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
   const coverage = useMemo(
-    () => buildCoverageGrid(decisionOs.patterns),
+    () => buildCoverageGrid(decisionOs.patterns ?? []),
     [decisionOs.patterns],
   );
 
@@ -569,7 +572,7 @@ function LifecyclePipeline({ decisionOs }: { decisionOs: CreativeDecisionOsV1Res
     retired: { label: "Retired", tone: "rose" },
   };
 
-  const activeStates = decisionOs.lifecycleBoard.filter((item) => item.count > 0);
+  const activeStates = (decisionOs.lifecycleBoard ?? []).filter((item) => item.count > 0);
   if (activeStates.length === 0) return null;
 
   return (
@@ -616,7 +619,7 @@ function LifecyclePipeline({ decisionOs }: { decisionOs: CreativeDecisionOsV1Res
 // ─── section 7: protected winners ────────────────────────────────────────────
 
 function ProtectedWinners({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const winners = decisionOs.protectedWinners;
+  const winners = decisionOs.protectedWinners ?? [];
   if (winners.length === 0) return null;
 
   return (
@@ -653,7 +656,7 @@ function ProtectedWinners({ decisionOs }: { decisionOs: CreativeDecisionOsV1Resp
 // ─── section 8: supply plan ───────────────────────────────────────────────────
 
 function SupplyPlan({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const items = decisionOs.supplyPlan;
+  const items = decisionOs.supplyPlan ?? [];
   if (items.length === 0) return null;
 
   const priorityDot: Record<string, string> = {
@@ -710,7 +713,7 @@ function SupplyPlan({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }
 // ─── section 9: comeback candidates ──────────────────────────────────────────
 
 function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const comebacks = decisionOs.creatives.filter(
+  const comebacks = (decisionOs.creatives ?? []).filter(
     (c) =>
       c.lifecycleState === "comeback_candidate" ||
       c.primaryAction === "retest_comeback",

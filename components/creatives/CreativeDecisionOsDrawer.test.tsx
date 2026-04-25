@@ -17,7 +17,7 @@ const { CreativeDecisionOsDrawer } = await import(
 );
 
 describe("CreativeDecisionOsDrawer", () => {
-  it("keeps the drawer framed as support while the page worklist stays primary", () => {
+  it("renders the drawer header with decision metadata and operating mode badge", () => {
     const html = renderToStaticMarkup(
       <CreativeDecisionOsDrawer
         decisionOs={
@@ -33,6 +33,12 @@ describe("CreativeDecisionOsDrawer", () => {
               message:
                 "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
               operatingMode: "Exploit",
+              totalCreatives: 40,
+              scaleReadyCount: 3,
+              protectedWinnerCount: 2,
+              keepTestingCount: 5,
+              fatiguedCount: 1,
+              blockedCount: 0,
             },
           } as any
         }
@@ -50,20 +56,13 @@ describe("CreativeDecisionOsDrawer", () => {
       />,
     );
 
-    expect(html).toContain("Creative Decision Support");
-    expect(html).toContain(
-      "Decision OS highlights Scale, Scale Review, Test More, Protect, Watch, Refresh, Retest, Cut, Campaign Check, and Not Enough Data creatives.",
-    );
-    expect(html).toContain(
-      "The page worklist stays primary. This drawer is support for live-window decision context only.",
-    );
-    expect(html).toContain("Decision as of 2026-04-10");
-    expect(html).toContain("Operating Mode");
+    expect(html).toContain("Creative System Intelligence");
+    expect(html).toContain("Decision OS");
+    expect(html).toContain("2026-04-10");
     expect(html).toContain("Exploit");
     expect(html).toContain("Reset width");
     expect(html).toContain("Close Creative Decision OS");
-    expect(html).toContain("creative-support-surface-stub");
-    expect(html).toContain("creative-overview-stub");
+    expect(html).toContain("Run Creative Analysis");
   });
 
   it("renders a manual not-run state with a run-analysis action", () => {
