@@ -26,7 +26,15 @@ Creative Recovery is still not accepted because `Watch` remains below `90` after
 - equal-segment gate fixes: merged through PR #59
 - final equal-segment fixes: merged through PR #61
 - trend-collapse evidence hardening: merged through PR #63
-- Claude fix-plan implementation: in progress on `feature/adsecute-creative-claude-fix-plan-implementation`
+- Claude fix-plan implementation: draft PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
+
+## Current PR
+
+- PR: `https://github.com/erhanrdn/OmniAds/pull/65`
+- title: `Implement Claude Creative segment recalibration plan`
+- status: draft/open
+- merge status: not merged
+- reason: `Watch` remains below the owner `90+` represented-segment target
 
 ## Fresh Baseline Audit
 
