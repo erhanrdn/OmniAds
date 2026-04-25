@@ -936,81 +936,134 @@ export default function CreativesPage() {
               previewStripState={previewStripState}
               previewStripSummary={previewStripSummary}
               decisionOs={creativeDecisionOs}
-              quickFilters={quickFilters}
+              quickFilters={[]}
               activeQuickFilterKey={activeQuickFilterKey}
               onToggleQuickFilter={handlePerformanceQuickFilter}
               showDecisionSupportSurface={false}
               actionsPrefix={
-                <div className="flex max-w-full flex-col items-end gap-2">
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                <div
+                  className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  style={{ padding: "16px 18px" }}
+                >
+                  {/* Row 1: benchmark (left) · status + actions (right) */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
                     <CreativeBenchmarkScopeControl
                       value={benchmarkScopeMode}
                       campaignContext={campaignBenchmarkContext}
                       onChange={setBenchmarkScopeMode}
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full"
-                      disabled={!canLoadCreatives || creativeDecisionOsRunMutation.isPending}
-                      onClick={handleRunCreativeAnalysis}
-                    >
-                      <Sparkles
-                        className={`mr-2 h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
-                      />
-                      {creativeDecisionOsRunMutation.isPending
-                        ? "Running analysis"
-                        : "Run Creative Analysis"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full"
-                      onClick={() => setDecisionOsDrawerOpen(true)}
-                    >
-                      Decision support
-                    </Button>
-                  </div>
-                  <div
-                    className="max-w-[720px] rounded-2xl border border-slate-200 bg-white px-3 py-2 text-right text-[11px] leading-relaxed text-slate-600 shadow-sm"
-                    data-testid="creative-decision-os-snapshot-status"
-                  >
-                    <p className="font-semibold text-slate-800">{decisionSnapshotStatusLabel}</p>
-                    <p>
-                      Analysis scope: {creativeDecisionSnapshot?.scope.analysisScopeLabel ?? activeBenchmarkScope.scopeLabel ?? "Account-wide"} · Benchmark:{" "}
-                      {creativeDecisionSnapshot?.scope.benchmarkScopeLabel ?? activeBenchmarkScope.scopeLabel ?? "Account-wide"}
-                      {creativeDecisionOs?.decisionAsOf ? ` · Decision as of ${creativeDecisionOs.decisionAsOf}` : null}
-                    </p>
-                    {decisionSnapshotReportingRangeDiffers ? (
-                      <p className="text-amber-700">
-                        Reporting range changed. This Decision OS snapshot remains unchanged until you run analysis again.
-                      </p>
-                    ) : null}
-                    {decisionSnapshotSafeError ? (
-                      <p className="text-rose-700">{decisionSnapshotSafeError}</p>
-                    ) : null}
+                    <div className="flex flex-wrap items-center gap-3.5">
+                      {creativeDecisionOs ? (
+                        <span
+                          className="text-[12px] text-slate-400"
+                          style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "0.005em" }}
+                        >
+                          {decisionSnapshotGeneratedAt ? (
+                            <>Last run <span className="text-slate-500">{decisionSnapshotGeneratedAt}</span></>
+                          ) : null}
+                          {creativeDecisionOs.decisionAsOf ? (
+                            <> · Decision as of <span className="text-slate-500">{creativeDecisionOs.decisionAsOf}</span></>
+                          ) : null}
+                        </span>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant={creativeDecisionOs ? "outline" : "default"}
+                        className="rounded-full"
+                        disabled={!canLoadCreatives || creativeDecisionOsRunMutation.isPending}
+                        onClick={handleRunCreativeAnalysis}
+                      >
+                        <Sparkles
+                          className={`mr-2 h-4 w-4 ${creativeDecisionOsRunMutation.isPending ? "animate-spin" : ""}`}
+                        />
+                        {creativeDecisionOsRunMutation.isPending
+                          ? "Running analysis"
+                          : creativeDecisionOs
+                            ? "Re-run analysis"
+                            : "Run Creative Analysis"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={creativeDecisionOs ? "default" : "outline"}
+                        className="rounded-full"
+                        onClick={() => setDecisionOsDrawerOpen(true)}
+                      >
+                        Decision OS
+                        {creativeDecisionOs ? (
+                          <span className="ml-2 rounded-full bg-white/20 px-1.5 py-0.5 text-[11px] font-medium">
+                            Open
+                          </span>
+                        ) : null}
+                      </Button>
+                    </div>
                   </div>
 
-                  {(activeQuickFilter || activeDecisionOsFamily) ? (
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {activeQuickFilter ? (
-                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-medium text-sky-800">
-                          Quick filter: {creativeQuickFilterShortLabel(activeQuickFilter.key)}
-                        </span>
+                  {/* Row 2: segment pills */}
+                  {quickFilters.length > 0 ? (
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                      {quickFilters.map((filter) => {
+                        const active = activeQuickFilterKey === filter.key;
+                        const toneMap: Record<string, { button: string; count: string }> = {
+                          act_now: {
+                            button: active ? "border-emerald-700 bg-emerald-600 text-white shadow-sm" : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                            count: active ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800",
+                          },
+                          needs_truth: {
+                            button: active ? "border-amber-700 bg-amber-600 text-white shadow-sm" : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+                            count: active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800",
+                          },
+                          watch: {
+                            button: active ? "border-sky-700 bg-sky-600 text-white shadow-sm" : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
+                            count: active ? "bg-white/20 text-white" : "bg-sky-100 text-sky-800",
+                          },
+                          blocked: {
+                            button: active ? "border-orange-700 bg-orange-600 text-white shadow-sm" : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100",
+                            count: active ? "bg-white/20 text-white" : "bg-orange-100 text-orange-800",
+                          },
+                        };
+                        const toneClasses = toneMap[filter.tone] ?? {
+                          button: active ? "border-slate-700 bg-slate-700 text-white shadow-sm" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100",
+                          count: active ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700",
+                        };
+                        return (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            onClick={() => handlePerformanceQuickFilter(filter.key)}
+                            aria-label={`${creativeQuickFilterShortLabel(filter.key)}: ${filter.count.toLocaleString()} creatives`}
+                            data-count={filter.count}
+                            data-testid={`creative-performance-filter-${filter.key}`}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${toneClasses.button}`}
+                          >
+                            <span>{creativeQuickFilterShortLabel(filter.key)}</span>
+                            <span className={`inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${toneClasses.count}`}>
+                              {filter.count.toLocaleString()}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {(activeQuickFilter || activeDecisionOsFamily) ? (
+                        <button
+                          type="button"
+                          onClick={clearCreativeFocusFilters}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Clear
+                        </button>
                       ) : null}
-                      {activeDecisionOsFamily ? (
-                        <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-800">
-                          Family: {activeDecisionOsFamily.familyLabel}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={clearCreativeFocusFilters}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        Clear
-                      </button>
                     </div>
+                  ) : null}
+
+                  {/* Warnings */}
+                  {decisionSnapshotReportingRangeDiffers ? (
+                    <p className="mt-2 text-[11px] text-amber-700" data-testid="creative-decision-os-snapshot-status">
+                      Reporting range changed. Snapshot unchanged until you re-run analysis.
+                    </p>
+                  ) : null}
+                  {decisionSnapshotSafeError ? (
+                    <p className="mt-2 text-[11px] text-rose-700" data-testid="creative-decision-os-snapshot-status">
+                      {decisionSnapshotSafeError}
+                    </p>
                   ) : null}
                 </div>
               }
