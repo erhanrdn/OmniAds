@@ -400,6 +400,44 @@ function isReviewOnlyScaleCandidate(
   );
 }
 
+function isNonTestHighRelativeReviewCandidate(
+  input: CreativeOperatorPolicyInput,
+  businessValidationStatus: CreativeBusinessValidationStatus,
+) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (businessValidationStatus === "unfavorable") return false;
+  if (isActiveTestCampaign(input)) return false;
+  if (input.lifecycleState !== "validating") return false;
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (!hasStrongRelativeBaselineContext(input)) return false;
+  if (!hasRelativeScaleReviewEvidence(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(500, medianSpend * 0.75)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 6) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 20_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas < medianRoas * 2.5) return false;
+  if (
+    hasNumber(metrics.cpa) &&
+    metrics.cpa > 0 &&
+    hasNumber(medianCpa) &&
+    medianCpa > 0 &&
+    metrics.cpa > medianCpa
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function hasKillEvidence(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const spend = metrics.spend ?? null;
@@ -790,14 +828,18 @@ function resolveSegment(params: {
   );
   const activeTestScaleReviewCandidate =
     isActiveTestStrongRelativeReviewCandidate(input);
+  const nonTestHighRelativeReviewCandidate =
+    isNonTestHighRelativeReviewCandidate(input, businessValidationStatus);
   const scaleIntent =
     isScaleIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
 
   if (!input.provenance) return "blocked";
   if (!trust) return "blocked";
@@ -830,6 +872,9 @@ function resolveSegment(params: {
   }
   if (isActiveTestStrongRelativeReviewCandidate(input)) {
     return businessValidationStatus === "unfavorable" ? "hold_monitor" : "scale_review";
+  }
+  if (nonTestHighRelativeReviewCandidate) {
+    return hasWeakCampaignContext(input) ? "investigate" : "scale_review";
   }
   if (isActiveTestStrongRelativeTestMoreCandidate(input)) {
     return "promising_under_sampled";
@@ -1011,10 +1056,13 @@ export function assessCreativeOperatorPolicy(
   );
   const activeTestScaleReviewCandidate =
     isActiveTestStrongRelativeReviewCandidate(input);
+  const nonTestHighRelativeReviewCandidate =
+    isNonTestHighRelativeReviewCandidate(input, businessValidationStatus);
   const scaleIntent =
     isScaleIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
   const previewState = input.previewStatus?.liveDecisionWindow ?? "missing";
   const weakCampaignContext = hasWeakCampaignContext(input);
   const lowEvidence = isUnderSampled(input);
@@ -1022,11 +1070,13 @@ export function assessCreativeOperatorPolicy(
   const scaleAction =
     SCALE_ACTIONS.has(input.primaryAction) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const matureZeroPurchaseCutCandidate = isMatureZeroPurchaseCutCandidate(input);
   const matureBelowBaselinePurchaseLoser = isMatureBelowBaselinePurchaseLoser(input);

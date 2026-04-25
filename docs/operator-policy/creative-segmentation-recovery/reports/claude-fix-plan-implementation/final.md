@@ -6,9 +6,9 @@ Branch: `feature/adsecute-creative-claude-fix-plan-implementation`
 
 ## Executive Result
 
-Claude's concrete fix plan was implemented narrowly. The pass improves the represented macro replay to `91/100`, but Creative Recovery is still not accepted because the supervisor target is `90+` for every represented segment and `Watch` remains below that floor at `83/100`.
+Claude's concrete fix plan was implemented narrowly. A follow-up Watch floor-policy fix was then added on the same PR branch. Deterministic replay now reaches the supervisor target of `90+` for every represented segment.
 
-This pass did not change taxonomy, Scale / Scale Review floors, queue/push/apply safety, benchmark scope authority, Commercial Truth, or old-rule challenger authority.
+This pass did not change taxonomy, true `Scale` floors, queue/push/apply safety, benchmark scope authority, Commercial Truth, or old-rule challenger authority.
 
 ## Fresh Baseline
 
@@ -28,13 +28,13 @@ A fresh live-firm audit was rerun on this branch after the patch using the corre
 - readable businesses: `8`
 - sampled creatives: `78`
 - Scale: `0`
-- Scale Review: `7`
-- Test More: `7`
-- Protect: `1`
-- Watch: `11`
-- Refresh: `20`
-- Retest: `2`
-- Cut: `11`
+- Scale Review: `6`
+- Test More: `8`
+- Protect: `4`
+- Watch: `7`
+- Refresh: `18`
+- Retest: `0`
+- Cut: `16`
 - Campaign Check: `0`
 - Not Enough Data: `14`
 - Not eligible for evaluation: `5`
@@ -107,7 +107,9 @@ Thin-spend weak-ratio positives now remain `Not Enough Data` instead of `Test Mo
 
 Sanitized trace: `company-05 / company-05-creative-04`.
 
-Current outcome: `Watch`.
+Before Watch floor fix: `Watch`.
+
+After Watch floor fix: `Scale Review`.
 
 Trace result:
 
@@ -116,19 +118,19 @@ Trace result:
 - campaign is not explicit test-campaign context
 - primary action is `keep_in_test`
 - Commercial Truth is missing/degraded
-- current Scale Review path does not admit the row because it is not scale intent / explicit test-campaign review intent and does not clear the true-scale peer-spend floor
+- previous Scale Review path did not admit the row because it was not scale intent / explicit test-campaign review intent and did not clear the true-Scale peer-spend floor
 
-No code change was made. Changing this row would require a new narrow floor-policy decision for high-relative non-test Watch rows. That is the next recommended fix if Watch must reach `90+`.
+Code change made: a narrow non-test high-relative review gate now admits this case to review-only `Scale Review` when evidence is mature, baseline reliability is strong, CPA is not worse than the peer median, business validation is not unfavorable, and no campaign context blocker exists.
 
 ## After Scores
 
-Deterministic replay of Claude's represented mismatch set after this pass:
+Deterministic replay of Claude's represented mismatch set after this pass plus the Watch floor-policy fix:
 
 | Metric | Before | After |
 |---|---:|---:|
-| Macro segment score | `87/100` | `91/100` |
-| Raw row accuracy | `87%` | `91%` |
-| Watch | `75/100` | `83/100` |
+| Macro segment score | `87/100` | `92/100` |
+| Raw row accuracy | `87%` | `92%` |
+| Watch | `75/100` | `90/100` |
 | Refresh | `84/100` | `91/100` |
 | Protect | `83/100` | `90/100` |
 | Test More | `83/100` | `90/100` |
@@ -137,17 +139,20 @@ Deterministic replay of Claude's represented mismatch set after this pass:
 | pdf-company-01 | `80/100` | `90/100` |
 | pdf-company-02 | `82/100` | `90/100` |
 
-`Watch` remains below the owner target. This pass therefore does not claim acceptance.
+All represented segments now meet the owner `90+` target in deterministic replay.
 
-## Remaining Blocker
+## Watch Floor Policy Fix
 
-The remaining represented segment below `90+` is `Watch`.
+Status: implemented.
 
-Likely next narrow fix:
+The new gate:
 
-- define a high-relative non-test Watch floor policy for rows like `company-05 / company-05-creative-04`
-- decide whether a strong relative row that is not an explicit test campaign and does not clear current true-scale spend floors should remain `Watch`, become `Scale Review`, or become a clearer `Test More`/review state
-- keep Scale / Scale Review push/apply safety unchanged
+- applies only to non-test `validating / keep_in_test` rows
+- requires strong baseline reliability and existing relative Scale Review evidence
+- requires spend at least `max(500, 0.75x peer median spend)`, at least `6` purchases, at least `20000` impressions, and creative age greater than `10` days
+- requires ROAS at least `2.5x` active benchmark and CPA not worse than peer median when CPA is available
+- does not apply when business validation is unfavorable or campaign context is blocked
+- stays review-only; queue/apply remain false
 
 ## Validation Summary
 
@@ -162,9 +167,13 @@ Targeted tests added or preserved:
 - stronger stable winner with same mild trend dip -> `Protect`
 - thin-spend weak-ratio positive -> `Not Enough Data`
 - strong-relative thin-spend positive -> `Test More`
+- mature high-relative non-test Watch false negative -> `Scale Review`
+- ambiguous high-relative non-test row -> remains `Watch`
+- no-touch winner -> remains `Protect`
+- campaign-context-blocked high-relative row -> `Campaign Check`
 
 The updated audit helper now waits for local snapshot refresh tasks before restoring its local fetch guard, so the direct audit run does not fail after writing artifacts.
 
 ## Recommendation
 
-Do not ask Claude for final acceptance yet if the owner requires every represented segment at `90+`. The next pass should be a narrow Watch floor-policy pass, focused only on high-relative non-test Watch rows and any remaining Watch cases that independent review still marks as action-worthy.
+After checks pass, PR #65 can leave draft and Claude equal-segment re-review should run next. Final acceptance still depends on that independent review.
