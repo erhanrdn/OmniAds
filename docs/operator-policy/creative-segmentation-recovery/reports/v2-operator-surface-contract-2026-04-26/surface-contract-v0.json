@@ -1,0 +1,836 @@
+{
+  "contractVersion": "v0",
+  "generatedAt": "2026-04-26T14:40:33Z",
+  "branch": "review/creative-v2-operator-surface-contract-2026-04-26",
+  "baseCommit": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+  "sourceResolverPr": {
+    "branch": "origin/wip/creative-decision-os-v2-baseline-first-2026-04-26",
+    "reviewedHeadCommit": "3da2e05cb47f97de89ee42d9af6a64598af8b17a",
+    "substantiveResolverFixCommit": "10f5a94fa66f0501150376010d3ab4d0c7c16e3a",
+    "liveAuditArtifact": "docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json",
+    "liveSafetyArtifact": "docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-safety-summary.json"
+  },
+  "sanitized": true,
+  "productCodeChanged": false,
+  "behaviorChanged": false,
+  "uiIntegrated": false,
+  "apiIntegrated": false,
+  "queueApplyIntegrated": false,
+  "currentCreativeInventory": {
+    "route": "app/(dashboard)/creatives/page.tsx",
+    "supportFile": "app/(dashboard)/creatives/page-support.tsx",
+    "apiPaths": [
+      {
+        "path": "/api/meta/creatives",
+        "implementation": "app/api/meta/creatives/route.ts",
+        "purpose": "Current creative metadata and metric rows"
+      },
+      {
+        "path": "/api/meta/creatives/history",
+        "implementation": "app/api/meta/creatives/history/route.ts",
+        "purpose": "Historical creative metrics and ad-level breakdowns"
+      },
+      {
+        "path": "/api/creatives/decision-os",
+        "implementation": "app/api/creatives/decision-os/route.ts",
+        "purpose": "Current Creative Decision OS v1 snapshot and analysis run path"
+      }
+    ],
+    "mainComponents": [
+      "components/creatives/CreativesTopSection.tsx",
+      "components/creatives/CreativesTableSection.tsx",
+      "components/creatives/CreativeDecisionSupportSurface.tsx",
+      "components/operator/OperatorSurfaceSummary.tsx",
+      "components/creatives/CreativeDecisionOsDrawer.tsx",
+      "components/creatives/CreativeDecisionOsContent.tsx",
+      "components/creatives/CreativeDecisionOsOverview.tsx",
+      "components/creatives/CreativeDetailExperience.tsx"
+    ],
+    "featureFlagPatterns": [
+      {
+        "file": "lib/creative-decision-os-config.ts",
+        "flags": [
+          "CREATIVE_DECISION_OS_V1",
+          "CREATIVE_DECISION_OS_CANARY_BUSINESSES"
+        ]
+      }
+    ],
+    "previewPatterns": [
+      "metadata media mode",
+      "debug preview query params",
+      "debug thumbnail query params",
+      "snapshot bypass and warm query params",
+      "NODE_ENV gated debug logging"
+    ],
+    "safeInjectionPoint": {
+      "recommended": "Fetch a separate v2 preview payload after current creative rows, history, benchmark scope, and current v1 snapshot are available; render it in a separate read-only preview component.",
+      "mustNotReplace": [
+        "current creativeDecisionOs v1 object",
+        "current v1 quick filters unless labeled preview-only",
+        "Command Center work item generation",
+        "queue/apply eligibility",
+        "existing run-analysis mutation behavior"
+      ],
+      "candidateFutureEndpoint": "/api/creatives/decision-os-v2/preview",
+      "candidateFutureClientState": "creativeDecisionOsV2Preview",
+      "candidateFutureComponent": "CreativeDecisionOsV2PreviewSurface"
+    }
+  },
+  "outputFieldMappings": {
+    "primaryDecision": {
+      "uiPlacement": "Primary badge and bucket routing",
+      "allowedValues": [
+        "Scale",
+        "Cut",
+        "Refresh",
+        "Protect",
+        "Test More",
+        "Diagnose"
+      ],
+      "forbiddenValues": [
+        "Watch",
+        "Scale Review"
+      ],
+      "behavior": "Display only; does not unlock queue or apply behavior."
+    },
+    "actionability": {
+      "uiPlacement": "Safety badge beside decision",
+      "labels": {
+        "direct": "Ready for buyer confirmation",
+        "review_only": "Review required",
+        "blocked": "Blocked",
+        "diagnose": "Diagnose first"
+      },
+      "behavior": "Controls preview grouping and button copy only. Does not enable queue or apply."
+    },
+    "confidence": {
+      "uiPlacement": "Secondary score or confidence band",
+      "behavior": "Used for sorting and context. Must not independently unlock direct action."
+    },
+    "reasonTags": {
+      "uiPlacement": "Visible chips with overflow collapse",
+      "visibleLimit": 3,
+      "behavior": "Filterable, buyer-readable evidence tags."
+    },
+    "evidenceSummary": {
+      "uiPlacement": "One-line row explanation and full drawer text",
+      "behavior": "Operator-safe copy only. Must not mention internal artifacts, PRs, fixtures, gold labels, ChatGPT, Claude, Codex, or WIP."
+    },
+    "riskLevel": {
+      "uiPlacement": "Risk badge and sort key",
+      "sortOrder": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "queueEligible": {
+      "uiPlacement": "Preview safety indicator",
+      "behavior": "Queue remains disabled in v2 preview regardless of value."
+    },
+    "applyEligible": {
+      "uiPlacement": "Preview safety indicator",
+      "behavior": "Apply remains disabled in v2 preview regardless of value."
+    },
+    "blockerReasons": {
+      "uiPlacement": "Blocker badge and Diagnose grouping",
+      "visibleLimit": 1,
+      "behavior": "First blocker is visible; full list appears in drawer."
+    },
+    "secondarySuggestion": {
+      "uiPlacement": "Drawer-only next-step hint",
+      "behavior": "Informational only; never rendered as an action button."
+    }
+  },
+  "liveAuditAnalysis": {
+    "rowsAudited": 303,
+    "businessesAudited": 8,
+    "accountsAudited": 9,
+    "decisionDistribution": {
+      "Scale": 1,
+      "Cut": 15,
+      "Refresh": 37,
+      "Protect": 17,
+      "Test More": 40,
+      "Diagnose": 193
+    },
+    "actionabilityDistribution": {
+      "direct": 2,
+      "review_only": 108,
+      "diagnose": 193
+    },
+    "decisionByActionability": {
+      "Scale": {
+        "review_only": 1
+      },
+      "Cut": {
+        "review_only": 15
+      },
+      "Refresh": {
+        "review_only": 37
+      },
+      "Protect": {
+        "direct": 1,
+        "review_only": 16
+      },
+      "Test More": {
+        "direct": 1,
+        "review_only": 39
+      },
+      "Diagnose": {
+        "diagnose": 193
+      }
+    },
+    "mainVsV2ChangedRows": 105,
+    "safetyCounters": {
+      "directScale": 0,
+      "inactiveDirectScale": 0,
+      "queueEligibleTrue": 0,
+      "applyEligibleTrue": 0,
+      "watchPrimary": 0,
+      "scaleReviewPrimary": 0,
+      "directActionDespiteSourceCampaignBlockers": 0,
+      "testMoreDirectOnDegradedDataQualityRisk": 0,
+      "protectDespiteRecentSevereDecay": 0
+    }
+  },
+  "uxBuckets": [
+    {
+      "id": "act_now_direct_candidates",
+      "label": "Act Now / Direct candidates",
+      "count": 2,
+      "criteria": "actionability == direct",
+      "mutuallyExclusive": false,
+      "buttonPolicy": "Show Ready for buyer confirmation; do not show Apply or Queue.",
+      "defaultSort": [
+        "riskLevel desc",
+        "spend desc",
+        "confidence desc"
+      ]
+    },
+    {
+      "id": "buyer_review",
+      "label": "Buyer Review",
+      "count": 108,
+      "criteria": "actionability == review_only",
+      "mutuallyExclusive": false,
+      "buttonPolicy": "Show Review required or Open review; do not show Apply.",
+      "defaultSort": [
+        "riskLevel desc",
+        "spend desc",
+        "currentDecisionChanged desc",
+        "confidence desc"
+      ]
+    },
+    {
+      "id": "diagnose_first",
+      "label": "Diagnose First",
+      "count": 193,
+      "criteria": "primaryDecision == Diagnose or actionability == diagnose",
+      "mutuallyExclusive": true,
+      "buttonPolicy": "Show View diagnosis only; no action buttons.",
+      "defaultSort": [
+        "blockerSeverity desc",
+        "spend desc",
+        "recentStop desc",
+        "confidence desc"
+      ]
+    },
+    {
+      "id": "refresh_candidates",
+      "label": "Refresh Candidates",
+      "count": 37,
+      "criteria": "primaryDecision == Refresh",
+      "mutuallyExclusive": true,
+      "buttonPolicy": "Show Review required.",
+      "defaultSort": [
+        "riskLevel desc",
+        "spend desc",
+        "recentDecaySeverity desc"
+      ]
+    },
+    {
+      "id": "cut_candidates",
+      "label": "Cut Candidates",
+      "count": 15,
+      "criteria": "primaryDecision == Cut",
+      "mutuallyExclusive": true,
+      "buttonPolicy": "Show Review required; do not show Cut now.",
+      "defaultSort": [
+        "riskLevel desc",
+        "spend desc",
+        "lossSeverity desc"
+      ]
+    },
+    {
+      "id": "protect_do_not_touch",
+      "label": "Protect / Do Not Touch",
+      "count": 17,
+      "criteria": "primaryDecision == Protect",
+      "mutuallyExclusive": true,
+      "buttonPolicy": "Show No action or Open review.",
+      "defaultSort": [
+        "spend desc",
+        "recentStability desc",
+        "confidence desc"
+      ]
+    },
+    {
+      "id": "test_more_need_more_signal",
+      "label": "Test More / Need More Signal",
+      "count": 40,
+      "criteria": "primaryDecision == Test More",
+      "mutuallyExclusive": true,
+      "buttonPolicy": "Show Review required or Continue test; do not show Apply.",
+      "defaultSort": [
+        "riskLevel desc",
+        "spend desc",
+        "signalThinness desc"
+      ]
+    }
+  ],
+  "safetyBehavior": {
+    "queueApplyButtons": "Disabled for v2 preview",
+    "directScale": "Never apply in preview; direct Scale count must remain 0 unless later approved by policy.",
+    "cutDirect": "Must not be auto-applied in preview.",
+    "diagnose": "No action buttons.",
+    "reviewOnly": "Show Review required, not Apply.",
+    "blocked": "Show blocker reason before any buyer action.",
+    "direct": "Show Ready for buyer confirmation, not Apply now.",
+    "commandCenter": "Do not create Command Center work items from v2 preview."
+  },
+  "aboveTheFold": [
+    "Direct candidates count with Preview only safety label",
+    "Buyer Review count",
+    "Diagnose First count",
+    "Queue/apply disabled status",
+    "Top highest-spend decision changes",
+    "Top high-risk rows"
+  ],
+  "secondaryOrCollapsed": [
+    "Full reason tag list",
+    "Full evidence summary text",
+    "All blocker reasons after the first",
+    "Secondary suggestion",
+    "Source provenance detail",
+    "Long-window metric detail",
+    "Raw benchmark components"
+  ],
+  "filters": [
+    "decision",
+    "actionability",
+    "risk",
+    "changed_from_current_decision",
+    "active_state",
+    "spend_band",
+    "benchmark_relationship",
+    "recent_trend",
+    "blocker_present",
+    "source_campaign_trust",
+    "preview_queue_apply_state"
+  ],
+  "badges": [
+    "Scale",
+    "Cut",
+    "Refresh",
+    "Protect",
+    "Test More",
+    "Diagnose",
+    "Ready for buyer confirmation",
+    "Review required",
+    "Blocked",
+    "Diagnose first",
+    "Critical",
+    "High risk",
+    "Medium risk",
+    "Low risk",
+    "Preview only",
+    "Queue disabled",
+    "Apply disabled",
+    "Above benchmark",
+    "Below benchmark",
+    "Recent decay",
+    "Recent stop",
+    "Insufficient signal",
+    "Source warning",
+    "Campaign blocker",
+    "Current decision changed"
+  ],
+  "buttonLanguage": {
+    "allowed": [
+      "Open review",
+      "Review required",
+      "View diagnosis",
+      "Compare evidence",
+      "Open detail",
+      "Open current setup",
+      "Copy row ID",
+      "Mark reviewed",
+      "Ready for buyer confirmation",
+      "No action"
+    ],
+    "forbidden": [
+      "Apply",
+      "Apply now",
+      "Auto apply",
+      "Queue",
+      "Queue now",
+      "Scale now",
+      "Cut now",
+      "Launch",
+      "Budget increase",
+      "Approve",
+      "Accepted",
+      "Direct scale",
+      "Product-ready"
+    ]
+  },
+  "emptyStatesAndWarnings": [
+    {
+      "state": "v2_preview_unavailable",
+      "copy": "v2 preview unavailable for this account. Current Creative view is unchanged."
+    },
+    {
+      "state": "no_direct_candidates",
+      "copy": "No rows are ready for buyer confirmation. Review candidates and diagnosis remain available."
+    },
+    {
+      "state": "diagnose_dominant",
+      "copy": "Most rows need source, status, or signal diagnosis before buyer action."
+    },
+    {
+      "state": "queue_apply_present",
+      "copy": "Preview only. Queue and apply are disabled for v2."
+    },
+    {
+      "state": "benchmark_unavailable",
+      "copy": "Benchmark unavailable. Review evidence before acting."
+    },
+    {
+      "state": "blocker_present",
+      "copy": "Blocked by context. Diagnose campaign or source state before action."
+    }
+  ],
+  "top20HighestSpendRows": [
+    {
+      "rank": 1,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-46",
+      "spend": 124046.89,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 2,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
+      "spend": 61027.88,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 3,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
+      "spend": 57588.45,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 4,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49",
+      "spend": 33858.47,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 5,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-50",
+      "spend": 33045.48,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Diagnose",
+      "actionability": "diagnose",
+      "riskLevel": "medium",
+      "proposedBucket": "Diagnose First"
+    },
+    {
+      "rank": 6,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51",
+      "spend": 29265.56,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 7,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
+      "spend": 28450.98,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "actionability": "diagnose",
+      "riskLevel": "high",
+      "proposedBucket": "Diagnose First"
+    },
+    {
+      "rank": 8,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-53",
+      "spend": 26077.54,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 9,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54",
+      "spend": 25506.3,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 10,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55",
+      "spend": 23522.86,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 11,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56",
+      "spend": 16255.87,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 12,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "spend": 13373.07,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Protect",
+      "actionability": "review_only",
+      "riskLevel": "low",
+      "proposedBucket": "Protect / Do Not Touch"
+    },
+    {
+      "rank": 13,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-57",
+      "spend": 12644.77,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 14,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "spend": 10118.73,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Scale",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Buyer Review"
+    },
+    {
+      "rank": 15,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03",
+      "spend": 10022.46,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "critical",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 16,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
+      "spend": 8765.22,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Protect",
+      "actionability": "review_only",
+      "riskLevel": "low",
+      "proposedBucket": "Protect / Do Not Touch"
+    },
+    {
+      "rank": 17,
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "spend": 8295.35,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 18,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "spend": 6991.75,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Test More",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Test More / Need More Signal"
+    },
+    {
+      "rank": 19,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-06",
+      "spend": 6686.77,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "critical",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 20,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-07",
+      "spend": 6314.72,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "critical",
+      "proposedBucket": "Cut Candidates"
+    }
+  ],
+  "top20HighestRiskDecisionChanges": [
+    {
+      "rank": 1,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
+      "spend": 57588.45,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 2,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54",
+      "spend": 25506.3,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 3,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "spend": 10118.73,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Scale",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Buyer Review"
+    },
+    {
+      "rank": 4,
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "spend": 8295.35,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 5,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
+      "spend": 5025.29,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 6,
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "spend": 4365.02,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 7,
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "spend": 1701.51,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 8,
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "spend": 833.63,
+      "currentDecision": "Test More",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 9,
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "spend": 286.87,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Cut Candidates"
+    },
+    {
+      "rank": 10,
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "spend": 151.25,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 11,
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "spend": 132.06,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "high",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 12,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
+      "spend": 28450.98,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "actionability": "diagnose",
+      "riskLevel": "high",
+      "proposedBucket": "Diagnose First"
+    },
+    {
+      "rank": 13,
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "spend": 983.91,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "actionability": "diagnose",
+      "riskLevel": "high",
+      "proposedBucket": "Diagnose First"
+    },
+    {
+      "rank": 14,
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "spend": 277.11,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "actionability": "diagnose",
+      "riskLevel": "high",
+      "proposedBucket": "Diagnose First"
+    },
+    {
+      "rank": 15,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
+      "spend": 61027.88,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 16,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49",
+      "spend": 33858.47,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 17,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51",
+      "spend": 29265.56,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 18,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55",
+      "spend": 23522.86,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 19,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56",
+      "spend": 16255.87,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Refresh Candidates"
+    },
+    {
+      "rank": 20,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "spend": 6991.75,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Test More",
+      "actionability": "review_only",
+      "riskLevel": "medium",
+      "proposedBucket": "Test More / Need More Signal"
+    }
+  ],
+  "overwhelmAssessment": {
+    "flatTableRisk": "High, because 193 of 303 rows are Diagnose.",
+    "recommendedDefaultView": "Buyer Review with a compact top summary and separate Diagnose First tab.",
+    "diagnoseHandling": "Group by blocker reason and show only highest-spend or highest-risk rows before collapse.",
+    "reviewHandling": "Show review-only rows by decision, risk, spend, and current-vs-v2 change.",
+    "directHandling": "Show only a small Ready for buyer confirmation rail."
+  },
+  "integrationBoundaries": {
+    "noProductBehaviorChange": true,
+    "noResolverLogicChange": true,
+    "noThresholdChange": true,
+    "noGoldLabelChange": true,
+    "noUiCodeInThisPr": true,
+    "noApiCodeInThisPr": true,
+    "noQueueApplyChange": true,
+    "previewOnly": true
+  }
+}
