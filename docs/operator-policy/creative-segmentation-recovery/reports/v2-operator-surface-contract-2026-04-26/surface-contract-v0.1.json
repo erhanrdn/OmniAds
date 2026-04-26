@@ -1,5 +1,5 @@
 {
-  "contractVersion": "v0",
+  "contractVersion": "v0.1",
   "generatedAt": "2026-04-26T14:40:33Z",
   "branch": "review/creative-v2-operator-surface-contract-2026-04-26",
   "baseCommit": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
@@ -16,6 +16,11 @@
   "uiIntegrated": false,
   "apiIntegrated": false,
   "queueApplyIntegrated": false,
+  "coreCorrection": {
+    "summary": "Direct is actionability confidence, not buyer urgency.",
+    "wrongV0Rule": "actionability == direct as top urgency",
+    "v01Rule": "Urgency is computed from Scale, high-spend Cut, active Refresh/fatigue, high-risk decision changes, active severe loser or recent-collapse rows, and high-spend/high-risk inactive exceptions."
+  },
   "currentCreativeInventory": {
     "route": "app/(dashboard)/creatives/page.tsx",
     "supportFile": "app/(dashboard)/creatives/page-support.tsx",
@@ -47,23 +52,11 @@
       "components/creatives/CreativeDetailExperience.tsx"
     ],
     "featureFlagPatterns": [
-      {
-        "file": "lib/creative-decision-os-config.ts",
-        "flags": [
-          "CREATIVE_DECISION_OS_V1",
-          "CREATIVE_DECISION_OS_CANARY_BUSINESSES"
-        ]
-      }
-    ],
-    "previewPatterns": [
-      "metadata media mode",
-      "debug preview query params",
-      "debug thumbnail query params",
-      "snapshot bypass and warm query params",
-      "NODE_ENV gated debug logging"
+      "CREATIVE_DECISION_OS_V1",
+      "CREATIVE_DECISION_OS_CANARY_BUSINESSES"
     ],
     "safeInjectionPoint": {
-      "recommended": "Fetch a separate v2 preview payload after current creative rows, history, benchmark scope, and current v1 snapshot are available; render it in a separate read-only preview component.",
+      "recommended": "Fetch a separate v2 preview payload after current creative rows, history, benchmark scope, and current v1 snapshot are available.",
       "mustNotReplace": [
         "current creativeDecisionOs v1 object",
         "current v1 quick filters unless labeled preview-only",
@@ -74,73 +67,6 @@
       "candidateFutureEndpoint": "/api/creatives/decision-os-v2/preview",
       "candidateFutureClientState": "creativeDecisionOsV2Preview",
       "candidateFutureComponent": "CreativeDecisionOsV2PreviewSurface"
-    }
-  },
-  "outputFieldMappings": {
-    "primaryDecision": {
-      "uiPlacement": "Primary badge and bucket routing",
-      "allowedValues": [
-        "Scale",
-        "Cut",
-        "Refresh",
-        "Protect",
-        "Test More",
-        "Diagnose"
-      ],
-      "forbiddenValues": [
-        "Watch",
-        "Scale Review"
-      ],
-      "behavior": "Display only; does not unlock queue or apply behavior."
-    },
-    "actionability": {
-      "uiPlacement": "Safety badge beside decision",
-      "labels": {
-        "direct": "Ready for buyer confirmation",
-        "review_only": "Review required",
-        "blocked": "Blocked",
-        "diagnose": "Diagnose first"
-      },
-      "behavior": "Controls preview grouping and button copy only. Does not enable queue or apply."
-    },
-    "confidence": {
-      "uiPlacement": "Secondary score or confidence band",
-      "behavior": "Used for sorting and context. Must not independently unlock direct action."
-    },
-    "reasonTags": {
-      "uiPlacement": "Visible chips with overflow collapse",
-      "visibleLimit": 3,
-      "behavior": "Filterable, buyer-readable evidence tags."
-    },
-    "evidenceSummary": {
-      "uiPlacement": "One-line row explanation and full drawer text",
-      "behavior": "Operator-safe copy only. Must not mention internal artifacts, PRs, fixtures, gold labels, ChatGPT, Claude, Codex, or WIP."
-    },
-    "riskLevel": {
-      "uiPlacement": "Risk badge and sort key",
-      "sortOrder": [
-        "critical",
-        "high",
-        "medium",
-        "low"
-      ]
-    },
-    "queueEligible": {
-      "uiPlacement": "Preview safety indicator",
-      "behavior": "Queue remains disabled in v2 preview regardless of value."
-    },
-    "applyEligible": {
-      "uiPlacement": "Preview safety indicator",
-      "behavior": "Apply remains disabled in v2 preview regardless of value."
-    },
-    "blockerReasons": {
-      "uiPlacement": "Blocker badge and Diagnose grouping",
-      "visibleLimit": 1,
-      "behavior": "First blocker is visible; full list appears in drawer."
-    },
-    "secondarySuggestion": {
-      "uiPlacement": "Drawer-only next-step hint",
-      "behavior": "Informational only; never rendered as an action button."
     }
   },
   "liveAuditAnalysis": {
@@ -182,7 +108,8 @@
         "diagnose": 193
       }
     },
-    "mainVsV2ChangedRows": 105,
+    "proposedTodayPriorityCount": 69,
+    "inactiveReviewCount": 70,
     "safetyCounters": {
       "directScale": 0,
       "inactiveDirectScale": 0,
@@ -195,233 +122,216 @@
       "protectDespiteRecentSevereDecay": 0
     }
   },
-  "uxBuckets": [
+  "urgencyBuckets": [
     {
-      "id": "act_now_direct_candidates",
-      "label": "Act Now / Direct candidates",
+      "id": "today_priority_buyer_command_strip",
+      "label": "Today Priority / Buyer Command Strip",
+      "count": 69,
+      "criteria": [
+        "all primaryDecision == Scale rows",
+        "Cut rows with high spend or high risk",
+        "active Refresh rows with high spend, fatigue, recent decay, recent collapse, or below-benchmark conversion evidence",
+        "high-risk current -> v2 decision changes",
+        "active severe loser or recent-collapse rows",
+        "inactive rows only when spend or risk is high enough to override default collapsed inactive treatment"
+      ],
+      "purpose": "Rows a senior buyer should see within five seconds.",
+      "buttonPolicy": "Route to review or diagnosis; queue/apply disabled."
+    },
+    {
+      "id": "inactive_review",
+      "label": "Inactive Review",
+      "count": 70,
+      "criteria": [
+        "activeStatus != true",
+        "primaryDecision in Refresh, Diagnose, Cut, Protect, Test More"
+      ],
+      "purpose": "Collapsed inactive rows, with high-spend or high-risk exceptions promoted into Today Priority.",
+      "buttonPolicy": "Review or diagnose only; queue/apply disabled."
+    },
+    {
+      "id": "secondary_direct_confidence",
+      "label": "Ready for Buyer Confirmation",
+      "count": 2,
+      "criteria": [
+        "actionability == direct"
+      ],
+      "purpose": "Confidence and safety signal only; not the top urgency model.",
+      "buttonPolicy": "Show Ready for buyer confirmation; no Apply or Queue."
+    }
+  ],
+  "actionabilityBuckets": [
+    {
+      "id": "ready_for_buyer_confirmation",
+      "label": "Ready for Buyer Confirmation",
       "count": 2,
       "criteria": "actionability == direct",
-      "mutuallyExclusive": false,
-      "buttonPolicy": "Show Ready for buyer confirmation; do not show Apply or Queue.",
-      "defaultSort": [
-        "riskLevel desc",
-        "spend desc",
-        "confidence desc"
-      ]
+      "notes": "Direct is not urgency and does not unlock apply."
     },
     {
       "id": "buyer_review",
       "label": "Buyer Review",
       "count": 108,
       "criteria": "actionability == review_only",
-      "mutuallyExclusive": false,
-      "buttonPolicy": "Show Review required or Open review; do not show Apply.",
-      "defaultSort": [
-        "riskLevel desc",
-        "spend desc",
-        "currentDecisionChanged desc",
-        "confidence desc"
-      ]
+      "notes": "Split internally by decision."
     },
     {
       "id": "diagnose_first",
       "label": "Diagnose First",
       "count": 193,
       "criteria": "primaryDecision == Diagnose or actionability == diagnose",
-      "mutuallyExclusive": true,
-      "buttonPolicy": "Show View diagnosis only; no action buttons.",
-      "defaultSort": [
-        "blockerSeverity desc",
-        "spend desc",
-        "recentStop desc",
-        "confidence desc"
-      ]
+      "notes": "Collapsed by default and grouped by blocker or problem class."
     },
     {
-      "id": "refresh_candidates",
-      "label": "Refresh Candidates",
-      "count": 37,
-      "criteria": "primaryDecision == Refresh",
-      "mutuallyExclusive": true,
-      "buttonPolicy": "Show Review required.",
-      "defaultSort": [
-        "riskLevel desc",
-        "spend desc",
-        "recentDecaySeverity desc"
-      ]
-    },
-    {
-      "id": "cut_candidates",
-      "label": "Cut Candidates",
-      "count": 15,
-      "criteria": "primaryDecision == Cut",
-      "mutuallyExclusive": true,
-      "buttonPolicy": "Show Review required; do not show Cut now.",
-      "defaultSort": [
-        "riskLevel desc",
-        "spend desc",
-        "lossSeverity desc"
-      ]
-    },
-    {
-      "id": "protect_do_not_touch",
-      "label": "Protect / Do Not Touch",
-      "count": 17,
-      "criteria": "primaryDecision == Protect",
-      "mutuallyExclusive": true,
-      "buttonPolicy": "Show No action or Open review.",
-      "defaultSort": [
-        "spend desc",
-        "recentStability desc",
-        "confidence desc"
-      ]
-    },
-    {
-      "id": "test_more_need_more_signal",
-      "label": "Test More / Need More Signal",
-      "count": 40,
-      "criteria": "primaryDecision == Test More",
-      "mutuallyExclusive": true,
-      "buttonPolicy": "Show Review required or Continue test; do not show Apply.",
-      "defaultSort": [
-        "riskLevel desc",
-        "spend desc",
-        "signalThinness desc"
-      ]
+      "id": "blocked",
+      "label": "Blocked",
+      "count": 0,
+      "criteria": "actionability == blocked",
+      "notes": "Show blocker reason before any buyer action if present in future payloads."
     }
   ],
-  "safetyBehavior": {
-    "queueApplyButtons": "Disabled for v2 preview",
-    "directScale": "Never apply in preview; direct Scale count must remain 0 unless later approved by policy.",
-    "cutDirect": "Must not be auto-applied in preview.",
-    "diagnose": "No action buttons.",
-    "reviewOnly": "Show Review required, not Apply.",
-    "blocked": "Show blocker reason before any buyer action.",
-    "direct": "Show Ready for buyer confirmation, not Apply now.",
-    "commandCenter": "Do not create Command Center work items from v2 preview."
+  "decisionBuckets": [
+    {
+      "id": "scale_review_required",
+      "label": "Scale Review Required",
+      "count": 1,
+      "criteria": "primaryDecision == Scale",
+      "defaultPriority": 1
+    },
+    {
+      "id": "cut_review_required",
+      "label": "Cut Review Required",
+      "count": 15,
+      "criteria": "primaryDecision == Cut",
+      "defaultPriority": 2
+    },
+    {
+      "id": "refresh_review",
+      "label": "Refresh Review",
+      "count": 37,
+      "criteria": "primaryDecision == Refresh",
+      "defaultPriority": 3
+    },
+    {
+      "id": "protect_hold_review",
+      "label": "Protect Hold Review",
+      "count": 17,
+      "criteria": "primaryDecision == Protect",
+      "defaultPriority": 4
+    },
+    {
+      "id": "test_more_review",
+      "label": "Test More Review",
+      "count": 40,
+      "criteria": "primaryDecision == Test More",
+      "defaultPriority": 5
+    },
+    {
+      "id": "diagnose_first",
+      "label": "Diagnose First",
+      "count": 193,
+      "criteria": "primaryDecision == Diagnose",
+      "defaultPriority": 6
+    }
+  ],
+  "defaultAboveTheFoldModel": [
+    "Today Priority count and top rows",
+    "Scale candidate even when review_only",
+    "Critical/high Cut candidates by spend",
+    "Active Refresh/fatigue candidates by spend and risk",
+    "Highest-risk current -> v2 decision changes",
+    "Diagnose First count, grouped and collapsed",
+    "Ready for Buyer Confirmation count as a secondary safety rail",
+    "Preview safety state: queue disabled, apply disabled"
+  ],
+  "sortingRules": {
+    "todayPriority": [
+      "Scale rows",
+      "critical/high Cut rows by spend",
+      "high-spend active Refresh/fatigue rows",
+      "highest-risk current -> v2 changes",
+      "active recent-collapse rows",
+      "high-spend/high-risk inactive exceptions",
+      "direct-confidence Protect/Test More rows"
+    ],
+    "buyerReview": [
+      "decision urgency: Scale, Cut, Refresh, Protect, Test More",
+      "risk level: critical, high, medium, low",
+      "spend descending",
+      "changed from current before unchanged",
+      "confidence descending"
+    ],
+    "diagnoseFirst": [
+      "high spend or high risk exceptions",
+      "blocker or problem class",
+      "spend descending",
+      "recent conversion stop or source-trust ambiguity",
+      "confidence descending"
+    ],
+    "inactiveReview": [
+      "high spend or high risk exceptions",
+      "decision: Cut, Refresh, Diagnose, Protect, Test More",
+      "spend descending",
+      "confidence descending"
+    ]
   },
-  "aboveTheFold": [
-    "Direct candidates count with Preview only safety label",
-    "Buyer Review count",
-    "Diagnose First count",
-    "Queue/apply disabled status",
-    "Top highest-spend decision changes",
-    "Top high-risk rows"
-  ],
-  "secondaryOrCollapsed": [
-    "Full reason tag list",
-    "Full evidence summary text",
-    "All blocker reasons after the first",
-    "Secondary suggestion",
-    "Source provenance detail",
-    "Long-window metric detail",
-    "Raw benchmark components"
-  ],
-  "filters": [
+  "filterRules": [
+    "urgency bucket",
     "decision",
     "actionability",
     "risk",
-    "changed_from_current_decision",
-    "active_state",
-    "spend_band",
-    "benchmark_relationship",
-    "recent_trend",
-    "blocker_present",
-    "source_campaign_trust",
-    "preview_queue_apply_state"
+    "changed from current decision",
+    "active state",
+    "inactive-only",
+    "spend band",
+    "benchmark relationship",
+    "recent trend",
+    "blocker present",
+    "source/campaign trust",
+    "preview queue/apply state"
   ],
-  "badges": [
-    "Scale",
-    "Cut",
-    "Refresh",
-    "Protect",
-    "Test More",
-    "Diagnose",
-    "Ready for buyer confirmation",
-    "Review required",
-    "Blocked",
-    "Diagnose first",
-    "Critical",
-    "High risk",
-    "Medium risk",
-    "Low risk",
-    "Preview only",
-    "Queue disabled",
-    "Apply disabled",
-    "Above benchmark",
-    "Below benchmark",
-    "Recent decay",
-    "Recent stop",
-    "Insufficient signal",
-    "Source warning",
-    "Campaign blocker",
-    "Current decision changed"
-  ],
-  "buttonLanguage": {
-    "allowed": [
-      "Open review",
-      "Review required",
-      "View diagnosis",
-      "Compare evidence",
-      "Open detail",
-      "Open current setup",
-      "Copy row ID",
-      "Mark reviewed",
-      "Ready for buyer confirmation",
-      "No action"
-    ],
-    "forbidden": [
-      "Apply",
-      "Apply now",
-      "Auto apply",
-      "Queue",
-      "Queue now",
-      "Scale now",
-      "Cut now",
-      "Launch",
-      "Budget increase",
-      "Approve",
-      "Accepted",
-      "Direct scale",
-      "Product-ready"
-    ]
+  "buttonPolicy": {
+    "direct": "Show Ready for buyer confirmation; no Apply or Queue.",
+    "review_only": "Show Review required or Open review; no Apply.",
+    "diagnose": "Show View diagnosis only; no action buttons.",
+    "blocked": "Show blocker reason before any buyer action.",
+    "scale": "Review only in v2 preview.",
+    "cut": "Review only in v2 preview; never auto-cut.",
+    "queueApply": "Disabled for all v2 preview rows."
   },
-  "emptyStatesAndWarnings": [
-    {
-      "state": "v2_preview_unavailable",
-      "copy": "v2 preview unavailable for this account. Current Creative view is unchanged."
-    },
-    {
-      "state": "no_direct_candidates",
-      "copy": "No rows are ready for buyer confirmation. Review candidates and diagnosis remain available."
-    },
-    {
-      "state": "diagnose_dominant",
-      "copy": "Most rows need source, status, or signal diagnosis before buyer action."
-    },
-    {
-      "state": "queue_apply_present",
-      "copy": "Preview only. Queue and apply are disabled for v2."
-    },
-    {
-      "state": "benchmark_unavailable",
-      "copy": "Benchmark unavailable. Review evidence before acting."
-    },
-    {
-      "state": "blocker_present",
-      "copy": "Blocked by context. Diagnose campaign or source state before action."
-    }
+  "forbiddenButtonLanguage": [
+    "Apply",
+    "Apply now",
+    "Auto apply",
+    "Queue",
+    "Queue now",
+    "Scale now",
+    "Cut now",
+    "Launch",
+    "Budget increase",
+    "Approve",
+    "Accepted",
+    "Direct scale",
+    "Product-ready"
   ],
-  "top20HighestSpendRows": [
+  "safetyInvariants": {
+    "queueApplyButtons": "Disabled for v2 preview",
+    "directScale": "Never apply in preview",
+    "cutDirect": "Must not be auto-applied in preview",
+    "diagnose": "No action buttons",
+    "reviewOnly": "Show Review required, not Apply",
+    "blocked": "Show blocker reason before any buyer action",
+    "commandCenter": "Do not create Command Center work items from v2 preview",
+    "v1DecisionOs": "Do not replace the current v1 creativeDecisionOs object"
+  },
+  "top20HighestSpendPlacement": [
     {
       "rank": 1,
       "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-46",
       "spend": 124046.89,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 2,
@@ -429,9 +339,7 @@
       "spend": 61027.88,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 3,
@@ -439,9 +347,7 @@
       "spend": 57588.45,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 4,
@@ -449,9 +355,7 @@
       "spend": 33858.47,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 5,
@@ -459,9 +363,7 @@
       "spend": 33045.48,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Diagnose",
-      "actionability": "diagnose",
-      "riskLevel": "medium",
-      "proposedBucket": "Diagnose First"
+      "placement": "Today Priority + Inactive Review + Diagnose First"
     },
     {
       "rank": 6,
@@ -469,9 +371,7 @@
       "spend": 29265.56,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 7,
@@ -479,9 +379,7 @@
       "spend": 28450.98,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Diagnose",
-      "actionability": "diagnose",
-      "riskLevel": "high",
-      "proposedBucket": "Diagnose First"
+      "placement": "Today Priority + Inactive Review + Diagnose First"
     },
     {
       "rank": 8,
@@ -489,9 +387,7 @@
       "spend": 26077.54,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 9,
@@ -499,9 +395,7 @@
       "spend": 25506.3,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 10,
@@ -509,9 +403,7 @@
       "spend": 23522.86,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 11,
@@ -519,9 +411,7 @@
       "spend": 16255.87,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 12,
@@ -529,9 +419,7 @@
       "spend": 13373.07,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Protect",
-      "actionability": "review_only",
-      "riskLevel": "low",
-      "proposedBucket": "Protect / Do Not Touch"
+      "placement": "Protect Hold Review"
     },
     {
       "rank": 13,
@@ -539,9 +427,7 @@
       "spend": 12644.77,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 14,
@@ -549,9 +435,7 @@
       "spend": 10118.73,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Scale",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Buyer Review"
+      "placement": "Today Priority + Scale Review Required"
     },
     {
       "rank": 15,
@@ -559,9 +443,7 @@
       "spend": 10022.46,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "critical",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Cut Review Required"
     },
     {
       "rank": 16,
@@ -569,9 +451,7 @@
       "spend": 8765.22,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Protect",
-      "actionability": "review_only",
-      "riskLevel": "low",
-      "proposedBucket": "Protect / Do Not Touch"
+      "placement": "Protect Hold Review"
     },
     {
       "rank": 17,
@@ -579,9 +459,7 @@
       "spend": 8295.35,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 18,
@@ -589,9 +467,7 @@
       "spend": 6991.75,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Test More",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Test More / Need More Signal"
+      "placement": "Test More Review"
     },
     {
       "rank": 19,
@@ -599,9 +475,7 @@
       "spend": 6686.77,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "critical",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Cut Review Required"
     },
     {
       "rank": 20,
@@ -609,21 +483,17 @@
       "spend": 6314.72,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "critical",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Cut Review Required"
     }
   ],
-  "top20HighestRiskDecisionChanges": [
+  "top20HighestRiskPlacement": [
     {
       "rank": 1,
       "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
       "spend": 57588.45,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 2,
@@ -631,9 +501,7 @@
       "spend": 25506.3,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 3,
@@ -641,9 +509,7 @@
       "spend": 10118.73,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Scale",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Buyer Review"
+      "placement": "Today Priority + Scale Review Required"
     },
     {
       "rank": 4,
@@ -651,9 +517,7 @@
       "spend": 8295.35,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 5,
@@ -661,9 +525,7 @@
       "spend": 5025.29,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 6,
@@ -671,9 +533,7 @@
       "spend": 4365.02,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 7,
@@ -681,9 +541,7 @@
       "spend": 1701.51,
       "currentDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 8,
@@ -691,9 +549,7 @@
       "spend": 833.63,
       "currentDecision": "Test More",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 9,
@@ -701,9 +557,7 @@
       "spend": 286.87,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Cut Candidates"
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
     },
     {
       "rank": 10,
@@ -711,9 +565,7 @@
       "spend": 151.25,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 11,
@@ -721,9 +573,7 @@
       "spend": 132.06,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "high",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Refresh Review"
     },
     {
       "rank": 12,
@@ -731,9 +581,7 @@
       "spend": 28450.98,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Diagnose",
-      "actionability": "diagnose",
-      "riskLevel": "high",
-      "proposedBucket": "Diagnose First"
+      "placement": "Today Priority + Inactive Review + Diagnose First"
     },
     {
       "rank": 13,
@@ -741,9 +589,7 @@
       "spend": 983.91,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Diagnose",
-      "actionability": "diagnose",
-      "riskLevel": "high",
-      "proposedBucket": "Diagnose First"
+      "placement": "Today Priority + Inactive Review + Diagnose First"
     },
     {
       "rank": 14,
@@ -751,9 +597,7 @@
       "spend": 277.11,
       "currentDecision": "Refresh",
       "v2PrimaryDecision": "Diagnose",
-      "actionability": "diagnose",
-      "riskLevel": "high",
-      "proposedBucket": "Diagnose First"
+      "placement": "Today Priority + Diagnose First"
     },
     {
       "rank": 15,
@@ -761,9 +605,7 @@
       "spend": 61027.88,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 16,
@@ -771,9 +613,7 @@
       "spend": 33858.47,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 17,
@@ -781,9 +621,7 @@
       "spend": 29265.56,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 18,
@@ -791,9 +629,7 @@
       "spend": 23522.86,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 19,
@@ -801,9 +637,7 @@
       "spend": 16255.87,
       "currentDecision": "Protect",
       "v2PrimaryDecision": "Refresh",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Refresh Candidates"
+      "placement": "Today Priority + Inactive Review + Refresh Review"
     },
     {
       "rank": 20,
@@ -811,26 +645,7 @@
       "spend": 6991.75,
       "currentDecision": "Diagnose",
       "v2PrimaryDecision": "Test More",
-      "actionability": "review_only",
-      "riskLevel": "medium",
-      "proposedBucket": "Test More / Need More Signal"
+      "placement": "Test More Review"
     }
-  ],
-  "overwhelmAssessment": {
-    "flatTableRisk": "High, because 193 of 303 rows are Diagnose.",
-    "recommendedDefaultView": "Buyer Review with a compact top summary and separate Diagnose First tab.",
-    "diagnoseHandling": "Group by blocker reason and show only highest-spend or highest-risk rows before collapse.",
-    "reviewHandling": "Show review-only rows by decision, risk, spend, and current-vs-v2 change.",
-    "directHandling": "Show only a small Ready for buyer confirmation rail."
-  },
-  "integrationBoundaries": {
-    "noProductBehaviorChange": true,
-    "noResolverLogicChange": true,
-    "noThresholdChange": true,
-    "noGoldLabelChange": true,
-    "noUiCodeInThisPr": true,
-    "noApiCodeInThisPr": true,
-    "noQueueApplyChange": true,
-    "previewOnly": true
-  }
+  ]
 }
