@@ -19,7 +19,15 @@
   "coreCorrection": {
     "summary": "Direct is actionability confidence, not buyer urgency.",
     "wrongV0Rule": "actionability == direct as top urgency",
-    "v01Rule": "Urgency is computed from Scale, high-spend Cut, active Refresh/fatigue, high-risk decision changes, active severe loser or recent-collapse rows, and high-spend/high-risk inactive exceptions."
+    "v01RuleSummary": "Urgency is computed separately from actionability.",
+    "v01RuleCriteria": [
+      "Scale rows",
+      "high-spend Cut rows",
+      "active Refresh or fatigue rows",
+      "high-risk decision changes",
+      "active severe loser or recent-collapse rows",
+      "high-spend or high-risk inactive exceptions"
+    ]
   },
   "currentCreativeInventory": {
     "route": "app/(dashboard)/creatives/page.tsx",

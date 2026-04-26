@@ -45,6 +45,11 @@ PR #79 remains useful as inventory. This update revises the surface
 contract so the Creative page can become a buyer command surface rather
 than a flat review table.
 
+ChatGPT has accepted the v0.1 content direction, especially the
+correction that direct is actionability confidence and not buyer urgency.
+UI implementation remains blocked pending Claude's explicit review of
+this v0.1 contract.
+
 The v2 live audit has 303 rows:
 
 - 1 Scale
@@ -76,9 +81,12 @@ because they are direct.
 - Resolver-only WIP source: `origin/wip/creative-decision-os-v2-baseline-first-2026-04-26`.
 - PR #78 reviewed head from ChatGPT handoff: `3da2e05cb47f97de89ee42d9af6a64598af8b17a`.
 - PR #78 substantive resolver fix from ChatGPT handoff: `10f5a94fa66f0501150376010d3ab4d0c7c16e3a`.
-- Live audit artifact used for surface analysis: `docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json`.
-- Live safety artifact used for surface analysis: `docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-safety-summary.json`.
-- Gold evaluation artifact used as context only: `docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`.
+- Live audit artifact used for surface analysis:
+  `docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json`.
+- Live safety artifact used for surface analysis:
+  `docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-safety-summary.json`.
+- Gold evaluation artifact used as context only:
+  `docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`.
 
 ## Current Creative Page Inventory
 
@@ -321,18 +329,47 @@ This prevents the page from becoming a flat panel of 108 review rows and
 
 ## Field Mapping Contract
 
-| v2 field | UI placement | v0.1 behavior |
-| --- | --- | --- |
-| `primaryDecision` | Primary decision badge and decision bucket | Display Scale, Cut, Refresh, Protect, Test More, or Diagnose. Never display Watch or Scale Review. |
-| `actionability` | Safety badge and actionability queue | Direct is confidence/safety, not urgency. |
-| `confidence` | Secondary score or band | Use for context and sorting. Do not unlock actions by itself. |
-| `reasonTags` | 2 to 3 visible chips | Use buyer-readable tags; collapse overflow. |
-| `evidenceSummary` | Row "why" and drawer detail | Product-safe language only. |
-| `riskLevel` | Risk badge and sort key | Critical and high risk sort above medium and low. |
-| `queueEligible` | Preview safety indicator | Queue remains disabled in v2 preview. |
-| `applyEligible` | Preview safety indicator | Apply remains disabled in v2 preview. |
-| `blockerReasons` | Blocker badge and Diagnose grouping | First blocker visible; full list in drawer. |
-| `secondarySuggestion` | Drawer-only next step | Informational only; never an action button. |
+- `primaryDecision`
+  - UI placement: primary decision badge and decision bucket.
+  - Behavior: display Scale, Cut, Refresh, Protect, Test More, or
+    Diagnose. Never display Watch or Scale Review.
+
+- `actionability`
+  - UI placement: safety badge and actionability queue.
+  - Behavior: direct is confidence/safety, not urgency.
+
+- `confidence`
+  - UI placement: secondary score or band.
+  - Behavior: use for context and sorting. Do not unlock actions by
+    itself.
+
+- `reasonTags`
+  - UI placement: 2 to 3 visible chips.
+  - Behavior: use buyer-readable tags; collapse overflow.
+
+- `evidenceSummary`
+  - UI placement: row "why" and drawer detail.
+  - Behavior: product-safe language only.
+
+- `riskLevel`
+  - UI placement: risk badge and sort key.
+  - Behavior: critical and high risk sort above medium and low.
+
+- `queueEligible`
+  - UI placement: preview safety indicator.
+  - Behavior: queue remains disabled in v2 preview.
+
+- `applyEligible`
+  - UI placement: preview safety indicator.
+  - Behavior: apply remains disabled in v2 preview.
+
+- `blockerReasons`
+  - UI placement: blocker badge and Diagnose grouping.
+  - Behavior: first blocker visible; full list in drawer.
+
+- `secondarySuggestion`
+  - UI placement: drawer-only next step.
+  - Behavior: informational only; never an action button.
 
 ## Sorting Rules
 
@@ -391,8 +428,12 @@ Required filters:
 
 Allowed button or link language:
 
+- Review
 - Open review
 - Review required
+- Investigate
+- Mark investigated
+- See blocker
 - View diagnosis
 - Compare evidence
 - Open detail
@@ -407,8 +448,11 @@ Forbidden button or link language:
 - Apply
 - Apply now
 - Auto apply
+- Auto-*
 - Queue
 - Queue now
+- Push live
+- Push to review queue
 - Scale now
 - Cut now
 - Launch
@@ -420,6 +464,11 @@ Forbidden button or link language:
 
 Direct rows may show "Ready for buyer confirmation". They must not
 show "Apply" or "Queue".
+
+"Push to review queue" should be avoided in the read-only preview phase
+unless a later implementation proves it is purely local, non-writing,
+and explicitly safe. The safer default copy is "Review", "Open detail",
+"Mark reviewed", "Investigate", "Mark investigated", or "See blocker".
 
 ## Safety Invariants
 
@@ -468,53 +517,207 @@ Businesses/accounts audited: 8 businesses / 9 accounts
 
 ## Top 20 Highest-Spend Placement
 
-| Rank | Sanitized row ID | Spend | Current -> v2 | v0.1 placement |
-| ---: | --- | ---: | --- | --- |
-| 1 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-46` | 124046.89 | Refresh -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 2 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-06&#124;company-05-creative-47` | 61027.88 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 3 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-07&#124;company-05-creative-48` | 57588.45 | Refresh -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 4 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-49` | 33858.47 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 5 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-06&#124;company-05-creative-50` | 33045.48 | Cut -> Diagnose | Today Priority + Inactive Review + Diagnose First |
-| 6 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-51` | 29265.56 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 7 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-52` | 28450.98 | Refresh -> Diagnose | Today Priority + Inactive Review + Diagnose First |
-| 8 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-53` | 26077.54 | Refresh -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 9 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-54` | 25506.30 | Diagnose -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 10 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-06&#124;company-05-creative-55` | 23522.86 | Diagnose -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 11 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-56` | 16255.87 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 12 | `company-05&#124;company-05-account-01&#124;company-05-campaign-01&#124;company-05-adset-01&#124;company-05-creative-01` | 13373.07 | Protect -> Protect | Protect Hold Review |
-| 13 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-07&#124;company-05-creative-57` | 12644.77 | Cut -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 14 | `company-05&#124;company-05-account-01&#124;company-05-campaign-02&#124;company-05-adset-01&#124;company-05-creative-02` | 10118.73 | Protect -> Scale | Today Priority + Scale Review Required |
-| 15 | `company-05&#124;company-05-account-01&#124;company-05-campaign-03&#124;company-05-adset-02&#124;company-05-creative-03` | 10022.46 | Cut -> Cut | Today Priority + Cut Review Required |
-| 16 | `company-05&#124;company-05-account-01&#124;company-05-campaign-03&#124;company-05-adset-02&#124;company-05-creative-04` | 8765.22 | Diagnose -> Protect | Protect Hold Review |
-| 17 | `company-08&#124;company-08-account-01&#124;company-08-campaign-01&#124;company-08-adset-01&#124;company-08-creative-01` | 8295.35 | Cut -> Refresh | Today Priority + Refresh Review |
-| 18 | `company-05&#124;company-05-account-01&#124;company-05-campaign-04&#124;company-05-adset-03&#124;company-05-creative-05` | 6991.75 | Diagnose -> Test More | Test More Review |
-| 19 | `company-05&#124;company-05-account-01&#124;company-05-campaign-03&#124;company-05-adset-02&#124;company-05-creative-06` | 6686.77 | Cut -> Cut | Today Priority + Cut Review Required |
-| 20 | `company-05&#124;company-05-account-01&#124;company-05-campaign-05&#124;company-05-adset-04&#124;company-05-creative-07` | 6314.72 | Cut -> Cut | Today Priority + Cut Review Required |
+1. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-46`
+   - Spend: 124046.89
+   - Current -> v2: Refresh -> Refresh
+   - Placement: Today Priority + Inactive Review + Refresh Review
+
+2. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47`
+   - Spend: 61027.88
+   - Current -> v2: Protect -> Refresh
+   - Placement: Today Priority + Inactive Review + Refresh Review
+
+3. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48`
+   - Spend: 57588.45
+   - Current -> v2: Refresh -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+4. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49`
+   - Spend: 33858.47
+   - Current -> v2: Protect -> Refresh
+   - Placement: Today Priority + Inactive Review + Refresh Review
+
+5. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-50`
+   - Spend: 33045.48
+   - Current -> v2: Cut -> Diagnose
+   - Placement: Today Priority + Inactive Review + Diagnose First
+
+6. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51`
+   - Spend: 29265.56
+   - Current -> v2: Protect -> Refresh
+   - Placement: Today Priority + Inactive Review + Refresh Review
+
+7. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52`
+   - Spend: 28450.98
+   - Current -> v2: Refresh -> Diagnose
+   - Placement: Today Priority + Inactive Review + Diagnose First
+
+8. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-53`
+   - Spend: 26077.54
+   - Current -> v2: Refresh -> Refresh
+   - Placement: Today Priority + Inactive Review + Refresh Review
+
+9. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54`
+   - Spend: 25506.30
+   - Current -> v2: Diagnose -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+10. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55`
+    - Spend: 23522.86
+    - Current -> v2: Diagnose -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+11. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56`
+    - Spend: 16255.87
+    - Current -> v2: Protect -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+12. `company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01`
+    - Spend: 13373.07
+    - Current -> v2: Protect -> Protect
+    - Placement: Protect Hold Review
+
+13. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-57`
+    - Spend: 12644.77
+    - Current -> v2: Cut -> Cut
+    - Placement: Today Priority + Inactive Review + Cut Review Required
+
+14. `company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02`
+    - Spend: 10118.73
+    - Current -> v2: Protect -> Scale
+    - Placement: Today Priority + Scale Review Required
+
+15. `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03`
+    - Spend: 10022.46
+    - Current -> v2: Cut -> Cut
+    - Placement: Today Priority + Cut Review Required
+
+16. `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04`
+    - Spend: 8765.22
+    - Current -> v2: Diagnose -> Protect
+    - Placement: Protect Hold Review
+
+17. `company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01`
+    - Spend: 8295.35
+    - Current -> v2: Cut -> Refresh
+    - Placement: Today Priority + Refresh Review
+
+18. `company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05`
+    - Spend: 6991.75
+    - Current -> v2: Diagnose -> Test More
+    - Placement: Test More Review
+
+19. `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-06`
+    - Spend: 6686.77
+    - Current -> v2: Cut -> Cut
+    - Placement: Today Priority + Cut Review Required
+
+20. `company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-07`
+    - Spend: 6314.72
+    - Current -> v2: Cut -> Cut
+    - Placement: Today Priority + Cut Review Required
 
 ## Top 20 Highest-Risk Decision-Change Placement
 
-| Rank | Sanitized row ID | Spend | Current -> v2 | v0.1 placement |
-| ---: | --- | ---: | --- | --- |
-| 1 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-07&#124;company-05-creative-48` | 57588.45 | Refresh -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 2 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-54` | 25506.30 | Diagnose -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 3 | `company-05&#124;company-05-account-01&#124;company-05-campaign-02&#124;company-05-adset-01&#124;company-05-creative-02` | 10118.73 | Protect -> Scale | Today Priority + Scale Review Required |
-| 4 | `company-08&#124;company-08-account-01&#124;company-08-campaign-01&#124;company-08-adset-01&#124;company-08-creative-01` | 8295.35 | Cut -> Refresh | Today Priority + Refresh Review |
-| 5 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-07&#124;company-05-creative-58` | 5025.29 | Diagnose -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 6 | `company-08&#124;company-08-account-02&#124;company-08-campaign-02&#124;company-08-adset-02&#124;company-08-creative-02` | 4365.02 | Cut -> Refresh | Today Priority + Refresh Review |
-| 7 | `company-06&#124;company-06-account-01&#124;company-06-campaign-01&#124;company-06-adset-01&#124;company-06-creative-01` | 1701.51 | Cut -> Refresh | Today Priority + Refresh Review |
-| 8 | `company-01&#124;company-01-account-01&#124;company-01-campaign-02&#124;company-01-adset-02&#124;company-01-creative-02` | 833.63 | Test More -> Refresh | Today Priority + Refresh Review |
-| 9 | `company-04&#124;company-04-account-01&#124;company-04-campaign-08&#124;company-04-adset-05&#124;company-04-creative-17` | 286.87 | Diagnose -> Cut | Today Priority + Inactive Review + Cut Review Required |
-| 10 | `company-04&#124;company-04-account-01&#124;company-04-campaign-01&#124;company-04-adset-01&#124;company-04-creative-02` | 151.25 | Diagnose -> Refresh | Today Priority + Refresh Review |
-| 11 | `company-03&#124;company-03-account-01&#124;company-03-campaign-01&#124;company-03-adset-01&#124;company-03-creative-05` | 132.06 | Diagnose -> Refresh | Today Priority + Refresh Review |
-| 12 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-52` | 28450.98 | Refresh -> Diagnose | Today Priority + Inactive Review + Diagnose First |
-| 13 | `company-01&#124;company-01-account-01&#124;company-01-campaign-04&#124;company-01-adset-07&#124;company-01-creative-27` | 983.91 | Refresh -> Diagnose | Today Priority + Inactive Review + Diagnose First |
-| 14 | `company-07&#124;company-07-account-01&#124;company-07-campaign-01&#124;company-07-adset-01&#124;company-07-creative-07` | 277.11 | Refresh -> Diagnose | Today Priority + Diagnose First |
-| 15 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-06&#124;company-05-creative-47` | 61027.88 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 16 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-49` | 33858.47 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 17 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-51` | 29265.56 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 18 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-06&#124;company-05-creative-55` | 23522.86 | Diagnose -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 19 | `company-05&#124;company-05-account-01&#124;company-05-campaign-06&#124;company-05-adset-05&#124;company-05-creative-56` | 16255.87 | Protect -> Refresh | Today Priority + Inactive Review + Refresh Review |
-| 20 | `company-05&#124;company-05-account-01&#124;company-05-campaign-04&#124;company-05-adset-03&#124;company-05-creative-05` | 6991.75 | Diagnose -> Test More | Test More Review |
+1. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48`
+   - Spend: 57588.45
+   - Current -> v2: Refresh -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+2. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54`
+   - Spend: 25506.30
+   - Current -> v2: Diagnose -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+3. `company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02`
+   - Spend: 10118.73
+   - Current -> v2: Protect -> Scale
+   - Placement: Today Priority + Scale Review Required
+
+4. `company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01`
+   - Spend: 8295.35
+   - Current -> v2: Cut -> Refresh
+   - Placement: Today Priority + Refresh Review
+
+5. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58`
+   - Spend: 5025.29
+   - Current -> v2: Diagnose -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+6. `company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02`
+   - Spend: 4365.02
+   - Current -> v2: Cut -> Refresh
+   - Placement: Today Priority + Refresh Review
+
+7. `company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01`
+   - Spend: 1701.51
+   - Current -> v2: Cut -> Refresh
+   - Placement: Today Priority + Refresh Review
+
+8. `company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02`
+   - Spend: 833.63
+   - Current -> v2: Test More -> Refresh
+   - Placement: Today Priority + Refresh Review
+
+9. `company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17`
+   - Spend: 286.87
+   - Current -> v2: Diagnose -> Cut
+   - Placement: Today Priority + Inactive Review + Cut Review Required
+
+10. `company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02`
+    - Spend: 151.25
+    - Current -> v2: Diagnose -> Refresh
+    - Placement: Today Priority + Refresh Review
+
+11. `company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05`
+    - Spend: 132.06
+    - Current -> v2: Diagnose -> Refresh
+    - Placement: Today Priority + Refresh Review
+
+12. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52`
+    - Spend: 28450.98
+    - Current -> v2: Refresh -> Diagnose
+    - Placement: Today Priority + Inactive Review + Diagnose First
+
+13. `company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27`
+    - Spend: 983.91
+    - Current -> v2: Refresh -> Diagnose
+    - Placement: Today Priority + Inactive Review + Diagnose First
+
+14. `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07`
+    - Spend: 277.11
+    - Current -> v2: Refresh -> Diagnose
+    - Placement: Today Priority + Diagnose First
+
+15. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47`
+    - Spend: 61027.88
+    - Current -> v2: Protect -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+16. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49`
+    - Spend: 33858.47
+    - Current -> v2: Protect -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+17. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51`
+    - Spend: 29265.56
+    - Current -> v2: Protect -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+18. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55`
+    - Spend: 23522.86
+    - Current -> v2: Diagnose -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+19. `company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56`
+    - Spend: 16255.87
+    - Current -> v2: Protect -> Refresh
+    - Placement: Today Priority + Inactive Review + Refresh Review
+
+20. `company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05`
+    - Spend: 6991.75
+    - Current -> v2: Diagnose -> Test More
+    - Placement: Test More Review
 
 ## How v0.1 Prevents A Review Wall
 
@@ -555,12 +758,27 @@ git rev-parse HEAD
 git branch --show-current
 gh --version
 gh auth status
-LC_ALL=C grep -RIn "[^[:print:][:space:]]" docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26
-LC_ALL=C grep -RIn "[^ -~]" docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26
-git show origin/wip/creative-decision-os-v2-baseline-first-2026-04-26:docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json
-node -e "JSON.parse(require('fs').readFileSync('docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json','utf8')); console.log('json ok')"
+LC_ALL=C grep -RIn "[^[:print:][:space:]]" \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26
+LC_ALL=C grep -RIn "[^ -~]" \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26
+git show origin/wip/creative-decision-os-v2-baseline-first-2026-04-26:\
+docs/operator-policy/creative-segmentation-recovery/reports/\
+v2-live-audit-2026-04-26/live-audit-sanitized.json
+jq . \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json
+node -e "JSON.parse(require('fs').readFileSync(\
+'docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json',\
+'utf8')); console.log('json ok')"
 git diff --check
-find docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26 \( -name '.env' -o -name '*.env' -o -name '*cookie*' -o -name '*token*' -o -name '*secret*' -o -name '*tmp*' \) -print
+awk 'length($0)>160 {print FILENAME ":" FNR ":" length($0)}' \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/FOR_CHATGPT_REVIEW.md \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json
+find \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26 \
+  \( -name '.env' -o -name '*.env' -o -name '*cookie*' \
+  -o -name '*token*' -o -name '*secret*' -o -name '*tmp*' \) \
+  -print
 ```
 
 Additional Node scans were run over the report folder for hidden,
@@ -583,6 +801,9 @@ artifacts and no product code.
 Local validation completed before push:
 
 - JSON parse check for `surface-contract-v0.1.json`: passed
+- JSON pretty-format with `jq`: passed
+- normal line-break check: passed; no active report lines exceed 160
+  characters
 - `git diff --check`: passed
 - hidden/bidi/control scan: passed
 - strict non-ASCII scan: passed
