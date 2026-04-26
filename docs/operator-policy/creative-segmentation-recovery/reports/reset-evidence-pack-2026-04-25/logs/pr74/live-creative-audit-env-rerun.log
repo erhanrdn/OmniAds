@@ -1,0 +1,25 @@
+[2026-04-26T00:10:38Z] start live-creative-audit-env-rerun: CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts
+[startup] db_client_initialized {
+  runtime: 'web',
+  applicationName: 'omniads-web',
+  poolMax: 10,
+  queryTimeoutMs: 8000,
+  connectionTimeoutMs: 10000,
+  idleTimeoutMs: 30000,
+  maxLifetimeSeconds: null,
+  statementTimeoutMs: null,
+  idleInTransactionSessionTimeoutMs: null,
+  retryAttempts: 4,
+  retryBackoffMs: 400,
+  retryMaxBackoffMs: 4000
+}
+Error: connect ECONNREFUSED 127.0.0.1:15432
+    at /Users/harmelek/Adsecute/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  errno: -61,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 15432
+}
+[2026-04-26T00:10:45Z] exit_code=1

@@ -1,0 +1,267 @@
+[2026-04-26T00:06:17Z] start build: npm run build
+
+> adsecute@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.1.6 (webpack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 19.8s
+  Running TypeScript ...
+  Collecting page data using 10 workers ...
+  Generating static pages using 10 workers (0/212) ...
+  Generating static pages using 10 workers (53/212)
+  Generating static pages using 10 workers (106/212)
+  Generating static pages using 10 workers (159/212)
+✓ Generating static pages using 10 workers (212/212) in 215.3ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /about
+├ ƒ /admin
+├ ƒ /admin/activity
+├ ƒ /admin/auth-health
+├ ƒ /admin/businesses
+├ ƒ /admin/businesses/[businessId]
+├ ƒ /admin/discounts
+├ ƒ /admin/discounts/[codeId]
+├ ƒ /admin/discounts/new
+├ ƒ /admin/integrations
+├ ƒ /admin/release-authority
+├ ƒ /admin/revenue-risk
+├ ƒ /admin/subscriptions
+├ ƒ /admin/sync-health
+├ ƒ /admin/users
+├ ƒ /admin/users/[userId]
+├ ƒ /ai-transparency
+├ ƒ /analytics
+├ ƒ /api/admin/activity
+├ ƒ /api/admin/auth-health
+├ ƒ /api/admin/businesses
+├ ƒ /api/admin/businesses/[businessId]
+├ ƒ /api/admin/discounts
+├ ƒ /api/admin/discounts/[codeId]
+├ ƒ /api/admin/discounts/validate
+├ ƒ /api/admin/integrations/health
+├ ƒ /api/admin/integrations/health/shopify
+├ ƒ /api/admin/revenue-risk
+├ ƒ /api/admin/stats
+├ ƒ /api/admin/subscriptions
+├ ƒ /api/admin/sync-health
+├ ƒ /api/admin/users
+├ ƒ /api/admin/users/[userId]
+├ ƒ /api/admin/users/[userId]/reset-password
+├ ƒ /api/admin/users/[userId]/suspend
+├ ƒ /api/admin/users/[userId]/terminate-sessions
+├ ƒ /api/ai/creatives/commentary
+├ ƒ /api/ai/creatives/decisions
+├ ƒ /api/ai/cron
+├ ƒ /api/ai/insights/generate
+├ ƒ /api/ai/insights/latest
+├ ƒ /api/ai/landing-pages/commentary
+├ ƒ /api/ai/test
+├ ƒ /api/analytics/audience
+├ ƒ /api/analytics/cohorts
+├ ƒ /api/analytics/demographics
+├ ƒ /api/analytics/landing-page-performance
+├ ƒ /api/analytics/landing-pages
+├ ƒ /api/analytics/overview
+├ ƒ /api/analytics/products
+├ ƒ /api/auth/demo-login
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/me
+├ ƒ /api/auth/signup
+├ ƒ /api/auth/switch-business
+├ ƒ /api/billing
+├ ƒ /api/build-info
+├ ƒ /api/business-commercial-settings
+├ ƒ /api/business-cost-model
+├ ƒ /api/business-operating-mode
+├ ƒ /api/businesses
+├ ƒ /api/businesses/[businessId]
+├ ƒ /api/command-center
+├ ƒ /api/command-center/actions
+├ ƒ /api/command-center/actions/batch
+├ ƒ /api/command-center/actions/note
+├ ƒ /api/command-center/execution
+├ ƒ /api/command-center/execution/apply
+├ ƒ /api/command-center/execution/rollback
+├ ƒ /api/command-center/feedback
+├ ƒ /api/command-center/handoffs
+├ ƒ /api/command-center/journal
+├ ƒ /api/command-center/views
+├ ƒ /api/creatives/commentary
+├ ƒ /api/creatives/decision-os
+├ ƒ /api/creatives/decisions
+├ ƒ /api/creatives/share
+├ ƒ /api/creatives/share/[token]
+├ ƒ /api/db-test
+├ ƒ /api/geo/opportunities
+├ ƒ /api/geo/overview
+├ ƒ /api/geo/pages
+├ ƒ /api/geo/queries
+├ ƒ /api/geo/topics
+├ ƒ /api/geo/traffic-sources
+├ ƒ /api/google-ads/ads
+├ ƒ /api/google-ads/advisor
+├ ƒ /api/google-ads/advisor-memory
+├ ƒ /api/google-ads/asset-groups
+├ ƒ /api/google-ads/assets
+├ ƒ /api/google-ads/audiences
+├ ƒ /api/google-ads/budget
+├ ƒ /api/google-ads/campaigns
+├ ƒ /api/google-ads/creatives
+├ ƒ /api/google-ads/devices
+├ ƒ /api/google-ads/diagnostics
+├ ƒ /api/google-ads/geo
+├ ƒ /api/google-ads/keywords
+├ ƒ /api/google-ads/opportunities
+├ ƒ /api/google-ads/overview
+├ ƒ /api/google-ads/products
+├ ƒ /api/google-ads/repair-recent-gap
+├ ƒ /api/google-ads/search-intelligence
+├ ƒ /api/google-ads/search-terms
+├ ƒ /api/google-ads/status
+├ ƒ /api/google-ads/trends
+├ ƒ /api/google-analytics/properties
+├ ƒ /api/google-analytics/select-property
+├ ƒ /api/google-search-console/select-site
+├ ƒ /api/google-search-console/sites
+├ ƒ /api/google/accessible-accounts
+├ ƒ /api/google/accounts
+├ ƒ /api/google/ad-groups
+├ ƒ /api/google/ads
+├ ƒ /api/google/assets
+├ ƒ /api/google/campaigns
+├ ƒ /api/google/products
+├ ƒ /api/google/recommendations
+├ ƒ /api/google/search-terms
+├ ƒ /api/integrations
+├ ƒ /api/integrations/status
+├ ƒ /api/invite/[token]
+├ ƒ /api/media/cache/[...key]
+├ ƒ /api/media/meta-preview
+├ ƒ /api/meta/adsets
+├ ƒ /api/meta/breakdowns
+├ ƒ /api/meta/campaigns
+├ ƒ /api/meta/copies
+├ ƒ /api/meta/creatives
+├ ƒ /api/meta/creatives/detail
+├ ƒ /api/meta/creatives/history
+├ ƒ /api/meta/decision-os
+├ ƒ /api/meta/page-status
+├ ƒ /api/meta/recommendations
+├ ƒ /api/meta/status
+├ ƒ /api/meta/summary
+├ ƒ /api/meta/top-creatives
+├ ƒ /api/meta/trends
+├ ƒ /api/meta/warehouse-campaigns
+├ ƒ /api/metrics/trend
+├ ƒ /api/migrate
+├ ƒ /api/oauth/google-analytics/callback
+├ ƒ /api/oauth/google-analytics/start
+├ ƒ /api/oauth/google/callback
+├ ƒ /api/oauth/google/start
+├ ƒ /api/oauth/klaviyo/start
+├ ƒ /api/oauth/meta/callback
+├ ƒ /api/oauth/meta/start
+├ ƒ /api/oauth/search_console/callback
+├ ƒ /api/oauth/search_console/start
+├ ƒ /api/oauth/shopify/callback
+├ ƒ /api/oauth/shopify/context
+├ ƒ /api/oauth/shopify/finalize
+├ ƒ /api/oauth/shopify/pending
+├ ƒ /api/oauth/shopify/start
+├ ƒ /api/oauth/sign-with-facebook/callback
+├ ƒ /api/oauth/sign-with-facebook/start
+├ ƒ /api/oauth/sign-with-google/callback
+├ ƒ /api/oauth/sign-with-google/start
+├ ƒ /api/overview
+├ ƒ /api/overview-sparklines
+├ ƒ /api/overview-summary
+├ ƒ /api/release-authority
+├ ƒ /api/reports
+├ ƒ /api/reports/[reportId]
+├ ƒ /api/reports/[reportId]/export
+├ ƒ /api/reports/[reportId]/render
+├ ƒ /api/reports/[reportId]/share
+├ ƒ /api/reports/breakdown
+├ ƒ /api/reports/render
+├ ƒ /api/reports/time-breakdown
+├ ƒ /api/search-console/analytics
+├ ƒ /api/search-console/sites
+├ ƒ /api/seo/ai-analysis
+├ ƒ /api/seo/findings
+├ ƒ /api/seo/overview
+├ ƒ /api/settings/account
+├ ƒ /api/settings/password
+├ ƒ /api/settings/security/revoke-sessions
+├ ƒ /api/shopify/status
+├ ƒ /api/sync/cron
+├ ƒ /api/sync/refresh
+├ ƒ /api/sync/soak
+├ ƒ /api/team/access-requests
+├ ƒ /api/team/invites
+├ ƒ /api/team/members
+├ ƒ /api/team/workspaces
+├ ƒ /api/webhooks/shopify/customer-events
+├ ƒ /api/webhooks/shopify/customers-data-request
+├ ƒ /api/webhooks/shopify/customers-redact
+├ ƒ /api/webhooks/shopify/shop-redact
+├ ƒ /api/webhooks/shopify/sync
+├ ƒ /businesses/[businessId]/google/assign-accounts
+├ ƒ /businesses/[businessId]/meta/assign-accounts
+├ ƒ /businesses/new
+├ ƒ /command-center
+├ ƒ /commercial-truth
+├ ƒ /contact
+├ ƒ /copies
+├ ƒ /creatives
+├ ƒ /demo
+├ ƒ /geo-intelligence
+├ ƒ /google-ads
+├ ƒ /integrations
+├ ƒ /integrations/callback/[provider]
+├ ƒ /integrations/google/ad-accounts
+├ ƒ /integrations/meta/ad-accounts
+├ ƒ /integrations/meta/ad-accounts/debug
+├ ƒ /invite/[token]
+├ ƒ /landing-pages
+├ ƒ /login
+├ ƒ /overview
+├ ƒ /platforms/google
+├ ƒ /platforms/klaviyo
+├ ƒ /platforms/meta
+├ ƒ /platforms/pinterest
+├ ƒ /platforms/snapchat
+├ ƒ /platforms/tiktok
+├ ƒ /pricing
+├ ƒ /privacy
+├ ƒ /product
+├ ƒ /reports
+├ ƒ /reports/[reportId]
+├ ƒ /reports/[reportId]/edit
+├ ƒ /reports/[reportId]/print
+├ ƒ /reports/new
+├ ƒ /security
+├ ƒ /select-business
+├ ƒ /select-language
+├ ƒ /seo-intelligence
+├ ƒ /settings
+├ ƒ /share/creative/[token]
+├ ƒ /share/report/[token]
+├ ƒ /shopify/connect
+├ ƒ /signup
+├ ƒ /team
+└ ƒ /terms
+
+
+ƒ Proxy (Middleware)
+
+ƒ  (Dynamic)  server-rendered on demand
+
+[2026-04-26T00:06:54Z] exit_code=0

@@ -1,0 +1,26 @@
+{
+  "branch": "pr65",
+  "ref": "origin/pr/65",
+  "head": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+  "freshLocalLiveRerunAvailable": false,
+  "commandFailures": [
+    {
+      "branch": "pr65",
+      "ref": "origin/pr/65",
+      "head": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+      "timestamp": "2026-04-26T00:10:32Z",
+      "command": "CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts",
+      "worktree": "/tmp/adsecute-reset-pack-pr65",
+      "exitCode": 0,
+      "error": "runtimeBlockers: discovery:db_tunnel_connection_refused",
+      "dataUnavailable": [
+        "fresh local live Creative audit rows from this session",
+        "fresh local blind review export from this session",
+        "Creative UI screenshots for live account/date scope"
+      ],
+      "logPath": "logs/pr65/live-creative-audit-env-rerun.log"
+    }
+  ],
+  "committedSanitizedArtifactAvailable": true,
+  "committedSanitizedArtifactPath": "audits/pr65/creative-audit.committed-artifact.json"
+}

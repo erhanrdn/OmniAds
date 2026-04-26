@@ -1,0 +1,11 @@
+[2026-04-26T00:09:00Z] start focused-creative-critical-subset: npx vitest run lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'
+
+ RUN  v4.1.0 /private/tmp/adsecute-reset-pack-main
+
+
+ Test Files  9 passed (9)
+      Tests  163 passed (163)
+   Start at  03:09:01
+   Duration  704ms (transform 1.94s, setup 0ms, import 2.79s, tests 151ms, environment 0ms)
+
+[2026-04-26T00:09:02Z] exit_code=0

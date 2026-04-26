@@ -1,0 +1,158 @@
+{
+  "generatedAt": "2026-04-26T00:18:30.381Z",
+  "branches": {
+    "main": {
+      "label": "current main",
+      "ref": "origin/main",
+      "head": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+      "commitDate": "2026-04-25 17:56:34 +0300",
+      "subject": "Harden review-only Scale surface emphasis",
+      "commands": {
+        "npm-test": {
+          "command": "npm test",
+          "start": "2026-04-26T00:05:03Z",
+          "end": "2026-04-26T00:05:11Z",
+          "exitCode": 0,
+          "logPath": "logs/main/npm-test.log"
+        },
+        "typecheck": {
+          "command": "npx tsc --noEmit",
+          "start": "2026-04-26T00:05:11Z",
+          "end": "2026-04-26T00:05:21Z",
+          "exitCode": 0,
+          "logPath": "logs/main/typecheck.log"
+        },
+        "build": {
+          "command": "npm run build",
+          "start": "2026-04-26T00:05:22Z",
+          "end": "2026-04-26T00:05:58Z",
+          "exitCode": 0,
+          "logPath": "logs/main/build.log"
+        },
+        "focused-creative-tests": {
+          "command": "CREATIVE_TESTS=\"$(git ls-tree -r --name-only HEAD | rg '(^app/.*creatives.*\\.test|^app/api/(creatives|meta/creatives).*\\.test|^components/creatives/.*\\.test|^lib/creative.*\\.test|^scripts/creative.*\\.test)' | sort | tr '\\n' ' ')\" && npx vitest run $CREATIVE_TESTS",
+          "start": "2026-04-26T00:05:58Z",
+          "end": "2026-04-26T00:05:59Z",
+          "exitCode": 1,
+          "logPath": "logs/main/focused-creative-tests.log"
+        },
+        "focused-creative-critical-subset": {
+          "command": "npx vitest run lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'",
+          "start": "2026-04-26T00:09:00Z",
+          "end": "2026-04-26T00:09:02Z",
+          "exitCode": 0,
+          "logPath": "logs/main/focused-creative-critical-subset.log"
+        }
+      },
+      "results": {
+        "npmTestSummary": "Test Files  302 passed (302)",
+        "npmTestTests": "Tests  2161 passed (2161)",
+        "focusedCreativeSubsetSummary": "Test Files  9 passed (9)",
+        "focusedCreativeSubsetTests": "Tests  163 passed (163)",
+        "broadCreativeSweepNote": "Dynamic all-Creative file-list command returned Vitest \"No test files found\"; npm test covered the suite and the stable focused subset passed."
+      }
+    },
+    "pr65": {
+      "label": "PR #65",
+      "ref": "origin/pr/65",
+      "head": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+      "commitDate": "2026-04-26 01:35:06 +0300",
+      "subject": "Regenerate PR65 current output artifact",
+      "commands": {
+        "npm-test": {
+          "command": "npm test",
+          "start": "2026-04-26T00:05:59Z",
+          "end": "2026-04-26T00:06:07Z",
+          "exitCode": 0,
+          "logPath": "logs/pr65/npm-test.log"
+        },
+        "typecheck": {
+          "command": "npx tsc --noEmit",
+          "start": "2026-04-26T00:06:07Z",
+          "end": "2026-04-26T00:06:17Z",
+          "exitCode": 0,
+          "logPath": "logs/pr65/typecheck.log"
+        },
+        "build": {
+          "command": "npm run build",
+          "start": "2026-04-26T00:06:17Z",
+          "end": "2026-04-26T00:06:54Z",
+          "exitCode": 0,
+          "logPath": "logs/pr65/build.log"
+        },
+        "focused-creative-tests": {
+          "command": "CREATIVE_TESTS=\"$(git ls-tree -r --name-only HEAD | rg '(^app/.*creatives.*\\.test|^app/api/(creatives|meta/creatives).*\\.test|^components/creatives/.*\\.test|^lib/creative.*\\.test|^scripts/creative.*\\.test)' | sort | tr '\\n' ' ')\" && npx vitest run $CREATIVE_TESTS",
+          "start": "2026-04-26T00:06:54Z",
+          "end": "2026-04-26T00:06:54Z",
+          "exitCode": 1,
+          "logPath": "logs/pr65/focused-creative-tests.log"
+        },
+        "focused-creative-critical-subset": {
+          "command": "npx vitest run lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'",
+          "start": "2026-04-26T00:09:02Z",
+          "end": "2026-04-26T00:09:03Z",
+          "exitCode": 0,
+          "logPath": "logs/pr65/focused-creative-critical-subset.log"
+        }
+      },
+      "results": {
+        "npmTestSummary": "Test Files  301 passed (301)",
+        "npmTestTests": "Tests  2188 passed (2188)",
+        "focusedCreativeSubsetSummary": "Test Files  9 passed (9)",
+        "focusedCreativeSubsetTests": "Tests  182 passed (182)",
+        "broadCreativeSweepNote": "Dynamic all-Creative file-list command returned Vitest \"No test files found\"; npm test covered the suite and the stable focused subset passed."
+      }
+    },
+    "pr74": {
+      "label": "PR #74",
+      "ref": "origin/pr/74",
+      "head": "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+      "commitDate": "2026-04-25 19:16:00 +0300",
+      "subject": "Recalibrate fatigued winner Cut admission",
+      "commands": {
+        "npm-test": {
+          "command": "npm test",
+          "start": "2026-04-26T00:06:54Z",
+          "end": "2026-04-26T00:07:02Z",
+          "exitCode": 0,
+          "logPath": "logs/pr74/npm-test.log"
+        },
+        "typecheck": {
+          "command": "npx tsc --noEmit",
+          "start": "2026-04-26T00:07:02Z",
+          "end": "2026-04-26T00:07:13Z",
+          "exitCode": 0,
+          "logPath": "logs/pr74/typecheck.log"
+        },
+        "build": {
+          "command": "npm run build",
+          "start": "2026-04-26T00:07:13Z",
+          "end": "2026-04-26T00:07:49Z",
+          "exitCode": 0,
+          "logPath": "logs/pr74/build.log"
+        },
+        "focused-creative-tests": {
+          "command": "CREATIVE_TESTS=\"$(git ls-tree -r --name-only HEAD | rg '(^app/.*creatives.*\\.test|^app/api/(creatives|meta/creatives).*\\.test|^components/creatives/.*\\.test|^lib/creative.*\\.test|^scripts/creative.*\\.test)' | sort | tr '\\n' ' ')\" && npx vitest run $CREATIVE_TESTS",
+          "start": "2026-04-26T00:07:49Z",
+          "end": "2026-04-26T00:07:50Z",
+          "exitCode": 1,
+          "logPath": "logs/pr74/focused-creative-tests.log"
+        },
+        "focused-creative-critical-subset": {
+          "command": "npx vitest run lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'",
+          "start": "2026-04-26T00:09:03Z",
+          "end": "2026-04-26T00:09:04Z",
+          "exitCode": 0,
+          "logPath": "logs/pr74/focused-creative-critical-subset.log"
+        }
+      },
+      "results": {
+        "npmTestSummary": "Test Files  302 passed (302)",
+        "npmTestTests": "Tests  2166 passed (2166)",
+        "focusedCreativeSubsetSummary": "Test Files  9 passed (9)",
+        "focusedCreativeSubsetTests": "Tests  168 passed (168)",
+        "broadCreativeSweepNote": "Dynamic all-Creative file-list command returned Vitest \"No test files found\"; npm test covered the suite and the stable focused subset passed."
+      }
+    }
+  }
+}

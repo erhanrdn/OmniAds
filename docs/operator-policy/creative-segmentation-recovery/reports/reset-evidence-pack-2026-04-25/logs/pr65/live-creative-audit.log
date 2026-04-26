@@ -1,0 +1,11 @@
+[2026-04-26T00:09:52Z] start live-creative-audit: CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts
+{
+  "pr65CurrentOutputArtifact": "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json",
+  "valid_for_claude_review": false,
+  "validForClaudeReview": false,
+  "valid_for_acceptance": false,
+  "runtimeBlockers": [
+    "discovery:audit_source_read_failed"
+  ]
+}
+[2026-04-26T00:09:52Z] exit_code=0
