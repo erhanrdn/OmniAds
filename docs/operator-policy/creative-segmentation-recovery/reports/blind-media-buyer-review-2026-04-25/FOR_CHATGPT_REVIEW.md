@@ -27,6 +27,32 @@ Verdict: **baseline-first rebuild**, not targeted recalibration. (See section 16
 
 This report does not claim product-ready, accepted, approved, or 90+. None of the gate thresholds defined by the supervisor are met (see section 16).
 
+## ChatGPT Review Addendum - 2026-04-26
+
+ChatGPT treats this report as directional diagnosis, not final gold truth. The deterministic rubric remains useful for exposing broad failure clusters, but it self-admits buyer misses that require an adjudicated gold-labels-v0 pass before implementation acceptance.
+
+Known rubric misses to adjudicate explicitly:
+
+- A textbook scale-up candidate was labeled `Protect` by the blind rubric.
+- A clear huge-spend loser was labeled `Test More` by the blind rubric.
+
+No historical review conclusions were changed in this addendum. No product code, policy, threshold, UI, queue/apply, benchmark, or resolver behavior was changed.
+
+Hygiene checks rerun on this PR branch:
+
+- `git status --short --branch`
+- `git diff --check`
+- `git diff --cached --check`
+- `.env` extension filename scan
+- Hidden/bidirectional Unicode scan with UTF-8 decoding
+- Non-printing control-character scan with UTF-8 decoding, allowing tab/newline/carriage return only
+- Custom secret URL/token scan
+- Raw numeric ID and email scan
+- Raw-name field scan
+- Restricted filename scan
+
+Result: no `.env` extension files, hidden/bidirectional Unicode, disallowed control characters, raw private identifiers, DB URLs, secrets, tokens, cookies, or private screenshots were found in this report folder.
+
 ## 2. Blind review methodology
 
 Source artifact (consumed read-only):
