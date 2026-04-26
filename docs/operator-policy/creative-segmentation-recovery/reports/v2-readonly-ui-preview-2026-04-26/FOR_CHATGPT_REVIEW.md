@@ -334,6 +334,33 @@ Results:
 | Secret/raw-ID scan | passed |
 | Line-length/readability check | passed |
 
+# GitHub active file warning status
+
+After pushing the PR #81 update, active GitHub PR file blobs were fetched through
+the GitHub PR files API and raw blob URLs.
+
+Active PR #81 file scan:
+
+| File class | Result |
+| --- | --- |
+| Hidden/bidi/control codepoints | none found |
+| Local `FOR_CHATGPT_REVIEW.md` line count | 446 |
+| Local `authenticated-preview-screen-notes.md` line count | 92 |
+| Local `lib/creative-decision-os-v2-preview.ts` line count | 650 |
+| Local `lib/creative-decision-os-v2-preview.test.tsx` line count | 155 |
+| Local `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` line count | 509 |
+
+`app/(dashboard)/creatives/page.tsx` has existing non-ASCII UI text outside this
+patch's added lines. The strict non-ASCII scan on added/removed diff lines
+passed, so this update did not introduce new non-ASCII text.
+
+Active PR #79 file blobs were also checked after the v0.1.1 contract parity
+fix. Hidden/bidi/control codepoints were not found in active PR #79 files.
+
+If GitHub still shows a hidden/bidirectional Unicode warning in the PR
+conversation after these active blob checks, it is not explained by the current
+active file contents scanned here.
+
 # Preview validation
 
 Authenticated local/dev preview validation completed.
