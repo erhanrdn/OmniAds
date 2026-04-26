@@ -3,6 +3,7 @@
 Role: CLAUDE_MEDIA_BUYER_JUDGE
 Date: 2026-04-26
 Branch: review/creative-decision-os-gold-labels-v0-2026-04-26 (cut from origin/main @ fa838df2)
+HEAD_COMMIT: bbb606028136f096f855fea599f6a3648e325078
 Active version: gold-v0.1 (machine-readable JSON `version: "gold-v0.1"`)
 Inputs:
 - review/creative-reset-evidence-pack-2026-04-25 (PR #75) - sanitized 78-row evidence artifact
