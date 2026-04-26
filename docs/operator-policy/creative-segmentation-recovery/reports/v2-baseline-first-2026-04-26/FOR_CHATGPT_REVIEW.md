@@ -56,13 +56,11 @@ Fresh live audit could not run because no database connection string was configu
 - `git diff --cached --name-status`
 - `git diff --check`
 - `git diff --cached --check`
-- `find docs/operator-policy/creative-segmentation-recovery/reports -name '*.env' -print`
-- `find docs/operator-policy/creative-segmentation-recovery/reports -name 'summary.env' -print`
+- restricted filename scan for environment-extension files and legacy summary-log filenames
 - `command -v gitleaks || command -v trufflehog || command -v detect-secrets || command -v secret-scan || true`
-- `perl -CS -e 'my $bad=0; for my $f (@ARGV) { open my $fh, "<:encoding(UTF-8)", $f or next; my $line=0; while (my $s=<$fh>) { $line++; if ($s =~ /[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]/) { print "$f:$line hidden_or_bidi_unicode\n"; $bad=1; } } } print "no hidden/bidi unicode characters found in staged files\n" unless $bad; exit $bad' $(git diff --cached --name-only)`
-- `perl -e 'my $bad=0; for my $f (@ARGV) { open my $fh, "<", $f or next; my $line=0; while (my $s=<$fh>) { $line++; if ($s =~ /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/) { print "$f:$line control_character\n"; $bad=1; } } } print "no disallowed ASCII control characters found in staged files\n" unless $bad; exit $bad' $(git diff --cached --name-only)`
-- `rg -n --pcre2 '(postgres(?:ql)?[:][/][/]|mysql[:][/][/]|mongodb(?:\+srv)?[:][/][/]|redis[:][/][/]|BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]+|gh[pousr]_[A-Za-z0-9_]{30,})' $(git diff --cached --name-only)`
-- `rg -n --pcre2 '([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|https?://|\b\d{12,}\b)' $(git diff --cached --name-only)`
+- UTF-8 decoded bidi/default-ignorable/control-character scan over PR-changed non-PNG artifacts
+- custom secret/key scan over PR-changed non-PNG artifacts
+- raw email and long numeric ID scan over PR-changed non-PNG artifacts
 
 ## Test / Typecheck / Build Results
 
@@ -233,7 +231,7 @@ Fresh live audit did not run because `DATABASE_URL` was not configured. The exac
 
 - Artifacts use sanitized row identifiers such as `company-05|company-05-account-01|...`.
 - No raw private account names, raw creative names, screenshots, cookies, tokens, DB URLs, or `.env` files are intentionally included.
-- `.env` and `summary.env` artifact scan: no files found.
+- Environment-extension artifact scan and legacy summary-log filename scan: no files found.
 - `git diff --check` and `git diff --cached --check`: no whitespace errors.
 - Hidden/bidirectional Unicode scan: no hidden/bidi Unicode characters found in staged files.
 - Disallowed ASCII control-character scan: no findings.
@@ -243,3 +241,28 @@ Fresh live audit did not run because `DATABASE_URL` was not configured. The exac
 - No product policy, threshold, UI, queue/apply behavior, or benchmark-generation behavior is modified in existing product paths.
 - Product code changed: yes, as new v2 resolver/evaluation files and tests only.
 - This branch is WIP and not merge-requested.
+
+## Hygiene Addendum - 2026-04-26
+
+ChatGPT requested PR #78 hygiene cleanup after noting GitHub hidden/bidirectional warnings and the dependency on the inconsistent PR #77 gold artifact.
+
+Gold dependency status:
+
+- PR #77 remote branch still resolves to `6a2450e963d7a6ba741fd884c8818edd7c416fb2`.
+- The corrected gold-label commit is not yet available on the PR #77 branch.
+- v2 gold scoring was not rerun in this hygiene update because Part C requires waiting for the corrected PR #77 commit.
+
+GitHub hidden-character warning investigation:
+
+- Remote raw `FOR_CHATGPT_REVIEW.md` scan found no hidden, bidi, default-ignorable, or disallowed control codepoints.
+- UTF-8 decoded branch scan over PR-changed non-PNG artifacts found no hidden, bidi, default-ignorable, or disallowed control codepoints.
+- Cache-busted public GitHub files-view HTML contains GitHub's generic `js-file-alert-template` inside the `js-check-hidden-unicode` diff wrapper for `FOR_CHATGPT_REVIEW.md`.
+- No exact bad codepoint exists in the current raw artifact; the visible warning text in static HTML is the GitHub alert template source.
+
+Additional hygiene results:
+
+- Restricted filename scan: no environment-extension files and no legacy summary-log filenames.
+- Custom secret/key scan: no findings.
+- Raw email and long numeric ID scan: no findings.
+- No secrets, tokens, DB URLs, cookies, raw customer names, raw creative names, or private screenshots are included.
+- This hygiene update does not wire v2 into UI/API/queue/apply and does not loosen queue/apply behavior.
