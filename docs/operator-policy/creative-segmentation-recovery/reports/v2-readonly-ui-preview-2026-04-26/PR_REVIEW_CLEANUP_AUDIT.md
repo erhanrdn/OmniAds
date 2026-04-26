@@ -42,22 +42,21 @@ body because a commit cannot reliably contain its own final SHA.
 
 GitHub API check-run summary:
 
-| PR | Head | Required local jobs | Deploy/runtime jobs | Other app suite |
+| PR | Head | Required local jobs | Deprecated infra checks | Active blocker |
 | --- | --- | --- | --- | --- |
-| #78 | `3da2e05` | build/test/typecheck success | deploy/runtime jobs skipped | Vercel suite queued |
-| #79 | `d0c326d` | build/test/typecheck success | deploy/runtime jobs skipped | Vercel suite queued |
-| #80 | `9d2c582` | build/test/typecheck success | deploy/runtime jobs skipped | Vercel suite queued |
-| #81 | `8d04d35` | build/test/typecheck success | deploy/runtime jobs skipped | Vercel suite queued |
+| #78 | `3da2e05` | build/test/typecheck success | legacy deploy checks skipped; legacy external suite queued | no |
+| #79 | `d0c326d` | build/test/typecheck success | legacy deploy checks skipped; legacy external suite queued | no |
+| #80 | `9d2c582` | build/test/typecheck success | legacy deploy checks skipped; legacy external suite queued | no |
+| #81 | `8d04d35` | build/test/typecheck success | legacy deploy checks skipped; legacy external suite queued | no |
 
-The skipped deploy/runtime jobs were reported by GitHub Actions as completed
-with conclusion `skipped`. They were not changed in PR #81. They remain
-documented warnings for pre-merge review because ChatGPT's hard pre-merge rule
-requires every skipped or suspicious check to be resolved or explicitly
-documented.
+Infrastructure update: the active runtime is now the self-hosted site and
+self-hosted PostgreSQL database. Vercel and Neon references are deprecated
+infrastructure and must not be treated as active merge-readiness blockers.
 
-The Vercel suites were visible through the GitHub checks API as `queued` with no
-completed conclusion. PR #81 does not modify that external check integration.
-This remains documented as a pre-merge warning.
+The queued external app suites and skipped deploy/runtime jobs shown on #78-#81
+are tracked here as deprecated-infrastructure artifacts only. They are not
+active product blockers for PR #81. Any future active deployment/runtime check
+should be named and evaluated against the self-hosted server environment.
 
 ## 5. GitHub Files-View Warning Status
 
@@ -174,6 +173,43 @@ Local formatting/readability checks:
 
 The new report files are multiline Markdown, not generated one-line files.
 
+## Infrastructure Reference Audit
+
+Supervisor infrastructure update applied:
+
+- Active site runtime: self-hosted server.
+- Active database runtime: self-hosted PostgreSQL database.
+- Deprecated infrastructure names must not be treated as active blockers.
+- Generic `DATABASE_URL` requirements remain valid because the self-hosted DB
+  still needs a configured PostgreSQL connection string.
+
+PR #81 report updates:
+
+- `FOR_CHATGPT_REVIEW.md`: standard DB connection wording kept, with no
+  provider-specific assumption.
+- `authenticated-preview-screen-notes.md`: self-hosted DB wording retained.
+- `PR_REVIEW_CLEANUP_AUDIT.md`: legacy deploy/check wording reclassified as
+  deprecated infrastructure, not active blockers.
+- `OPERATOR_SESSION_CHECKLIST.md`: not present in this branch/worktree.
+
+Repository reference scan:
+
+| Path | Reference | Classification | Action |
+| --- | --- | --- | --- |
+| `lib/db.ts` | `DATABASE_URL` | active generic DB connection | keep |
+| `scripts/*seed*`, `scripts/check-google-reset.mjs` | `DATABASE_URL` | active generic DB connection | keep |
+| `lib/meta/*`, `lib/google-ads/*`, `lib/sync/runtime-contract.ts` | `DATABASE_URL` | active generic DB/runtime checks | keep |
+| `.github/workflows/db-normalization-second-window.yml` | remote `.env.production` `DATABASE_URL` | self-hosted workflow-style DB lookup | keep |
+| `app/api/db-test/route.ts` | legacy provider name in comment | legacy wording leftover | list only; no code change in PR #81 |
+| `lib/media-cache/cache-repository.ts` | legacy provider name in comment | legacy wording leftover | list only; no code change in PR #81 |
+| `docs/hetzner-migration.md` | legacy provider migration note | historical doc | list only |
+| `docs/architecture/serving-runtime-validation-evidence.md` | old provider-specific validation note | historical doc | list only |
+| `docs/self-hosted-db-ops.md` | self-hosted DB without deprecated provider | current self-hosted doc | keep |
+
+No product code or deployment workflow was changed in this audit branch. The
+legacy provider wording above should be cleaned separately if ChatGPT requests a
+repo-wide infrastructure documentation cleanup.
+
 ## 11. Remaining Warnings
 
 Remaining documented warnings:
@@ -182,11 +218,16 @@ Remaining documented warnings:
    the unauthenticated files UI, despite clean active raw/diff/patch scans.
 2. PR #79 and PR #81 conversation pages still show historical hidden/bidi
    warning banners from older commits.
-3. Vercel check suites for #78-#81 appear queued through the GitHub checks API.
-4. Deploy/runtime GitHub Actions jobs are skipped on #78-#81.
-5. The authenticated demo workspace has no direct-actionability row, so visual
+3. The authenticated demo workspace has no direct-actionability row, so visual
    proof of review-only Scale/high-spend Cut ranking above direct Protect/Test
    More is fixture-backed, not workspace-rendered.
+
+Deprecated-infrastructure notes, not active blockers:
+
+- Legacy external deployment suites appear queued through the GitHub checks API.
+- Legacy deploy/runtime GitHub Actions jobs are skipped on #78-#81.
+- These are not active blockers because the active infrastructure is the
+  self-hosted server and self-hosted database.
 
 ## 12. Remaining Warning Detail
 
@@ -198,8 +239,8 @@ Remaining documented warnings:
 | #81 | `app/(dashboard)/creatives/page.tsx` | GitHub files view lines 369-379 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and patch have no matching hidden/bidi/control codepoint |
 | #81 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | GitHub files view lines 469-478 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and PR patch have no matching hidden/bidi/control codepoint |
 | #81 | `app/api/creatives/decision-os-v2/preview/route.ts` | GitHub files view lines 542-551 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and PR patch have no matching hidden/bidi/control codepoint |
-| #78-#81 | GitHub checks | Check suites | Vercel suite queued | Not fixed in PR #81 | External check suite state; documented as pre-merge warning |
-| #78-#81 | GitHub Actions | Deploy/runtime jobs | Completed with conclusion `skipped` | Not fixed in PR #81 | Existing workflow behavior; documented as pre-merge warning |
+| #78-#81 | GitHub checks | Check suites | Legacy external deploy suite queued | Not fixed in PR #81 | Deprecated infrastructure; not an active blocker |
+| #78-#81 | GitHub Actions | Deploy/runtime jobs | Completed with conclusion `skipped` | Not fixed in PR #81 | Deprecated deploy/runtime path; not an active blocker |
 | #81 | Authenticated preview evidence | Demo workspace | No direct-actionability row present | Not a code fix | Non-blocking for limited preview; fixture-backed sort test remains the evidence |
 
 ## 13. No Silent Warning Ignoring

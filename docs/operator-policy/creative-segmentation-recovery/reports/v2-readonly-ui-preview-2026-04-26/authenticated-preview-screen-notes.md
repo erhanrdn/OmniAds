@@ -10,9 +10,10 @@ MAIN_PUSHED: NO
 
 Generated at: 2026-04-26T21:11:23Z
 
-Validation used a local DB-configured dev server and an authenticated demo
-workspace session. Connection details, environment values, raw account names,
-raw creative names, browser state, and session values are intentionally omitted.
+Validation used a local dev server configured for the self-hosted PostgreSQL
+database and an authenticated demo workspace session. Connection details,
+environment values, raw account names, raw creative names, browser state, and
+session values are intentionally omitted.
 
 No screenshots are committed because the preview was validated through sanitized
 screen notes and DOM assertions.

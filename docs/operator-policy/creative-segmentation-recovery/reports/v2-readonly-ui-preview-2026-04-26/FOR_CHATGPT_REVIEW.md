@@ -19,6 +19,11 @@ v0.1.1. It does not replace v1 Creative Decision OS, does not feed Command
 Center, does not create work items, and does not enable any platform write
 behavior.
 
+Infrastructure update applied: the active runtime is the self-hosted server and
+self-hosted PostgreSQL database. Deprecated provider-specific deploy/check
+references are not treated as active blockers for this limited read-only
+preview. Generic DB connection requirements still apply.
+
 # Dependencies
 
 - Resolver dependency: `wip/creative-decision-os-v2-baseline-first-2026-04-26`
@@ -280,6 +285,8 @@ npx vitest run \
   PR #81
 - GitHub PR `.diff` and `.patch` hidden/bidi/control scan for PR #79 and
   PR #81
+- Infrastructure reference audit for deprecated provider-specific wording and
+  generic DB connection requirements
 - Hidden/bidi/control scan:
 
 ```bash
@@ -381,7 +388,8 @@ Artifact:
 Validation environment:
 
 - Local DB-configured dev server.
-- `DATABASE_URL` and `DATABASE_URL_UNPOOLED` were configured for the shell.
+- Standard self-hosted PostgreSQL connection variables were configured for the
+  shell and values were not printed.
 - Environment values, connection details, browser state, and session values are
   omitted from committed artifacts.
 - Authenticated demo workspace session.
