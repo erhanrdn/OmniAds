@@ -13,19 +13,19 @@ MAIN_PUSHED: NO
 
 ## Executive Summary
 
-This WIP branch adds a pure Creative Decision OS v2 resolver/classifier layer plus focused tests and gold-set evaluation tooling. It does not integrate the resolver into the UI, operator surface, queue/apply pipeline, or benchmark generation. Existing queue/apply behavior is not loosened; v2 emits `queueEligible: false` and `applyEligible: false` for every evaluated fixture row.
+This WIP branch adds a pure Creative Decision OS v2 resolver/classifier layer plus focused tests and gold-set evaluation tooling. It does not integrate the resolver into the UI, operator surface, API response path, queue/apply pipeline, or benchmark generation.
 
-Gold-label dependency exists as PR #77, branch `review/creative-decision-os-gold-labels-v0-2026-04-26`, commit `6a2450e963d7a6ba741fd884c8818edd7c416fb2`. This WIP was based on `origin/main` commit `fa838df2be0a93c445680c42d23f4adadb52bd8f`.
+The branch now evaluates against PR #77 gold-v0.1 from commit `bbb606028136f096f855fea599f6a3648e325078`. The corrected huge-spend loser rows are included in the embedded gold artifact.
 
 Fresh live audit could not run because no database connection string was configured in this shell. The PR remains WIP.
 
-## Dependency On Gold Labels v0
+## Dependency On Gold Labels v0.1
 
 - Gold PR: #77, `[CHATGPT-REVIEW] Creative Decision OS adjudicated gold labels v0`
 - Gold branch: `review/creative-decision-os-gold-labels-v0-2026-04-26`
-- Gold commit used: `6a2450e963d7a6ba741fd884c8818edd7c416fb2`
+- Gold-v0.1 correction commit used: `bbb606028136f096f855fea599f6a3648e325078`
 - Gold artifact copied into this WIP branch: `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json`
-- Note: PR #77 handoff text describes the huge-spend loser row `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03` as Cut/direct, but the machine-readable `gold-labels-v0.json` labels that row `Test More`. This WIP follows the Part C rule for huge-spend severe losers and therefore emits `Cut` for that row, creating one medium mismatch against the JSON.
+- Embedded artifact version: `gold-v0.1`
 
 ## Files Changed
 
@@ -37,30 +37,27 @@ Fresh live audit could not run because no database connection string was configu
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/FOR_CHATGPT_REVIEW.md`
 
+The new TypeScript and test/script files are multi-line, human-readable source files. Resolver outputs do not reference gold artifacts, fixture labels, PRs, ChatGPT, Claude, Codex, or internal evaluation wording.
+
 ## Exact Commands Run
 
-- `git ls-remote --heads origin 'review/creative-decision-os-gold-labels-v0-2026-04-26' 'wip/creative-decision-os-v2-baseline-first-2026-04-26'`
-- `git fetch origin main review/creative-decision-os-gold-labels-v0-2026-04-26`
-- `git worktree add -B wip/creative-decision-os-v2-baseline-first-2026-04-26 /tmp/adsecute-v2-baseline-pr origin/main`
-- `git checkout origin/review/creative-decision-os-gold-labels-v0-2026-04-26 -- docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json`
+- `git fetch origin review/creative-decision-os-gold-labels-v0-2026-04-26 wip/creative-decision-os-v2-baseline-first-2026-04-26`
+- `git checkout bbb606028136f096f855fea599f6a3648e325078 -- docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json`
+- `node --import tsx scripts/creative-decision-os-v2-gold-eval.ts --output=docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`
 - `/Users/harmelek/Adsecute/node_modules/.bin/vitest run lib/creative-decision-os-v2.test.ts`
-- `npm test`
 - `npx tsc --noEmit`
 - `npx vitest run lib/creative-decision-os-v2.test.ts lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'`
+- `npm test`
 - `npm run build`
-- `node --import tsx scripts/creative-decision-os-v2-gold-eval.ts --output=docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`
-- `CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts`
-- `date -Is`
 - `date '+%Y-%m-%dT%H:%M:%S%z'`
+- `CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts`
 - `git status --short --branch`
-- `git diff --cached --name-status`
 - `git diff --check`
 - `git diff --cached --check`
-- restricted filename scan for environment-extension files and legacy summary-log filenames
-- `command -v gitleaks || command -v trufflehog || command -v detect-secrets || command -v secret-scan || true`
+- restricted filename scan for environment-extension files and legacy `summary.env` filenames
 - UTF-8 decoded bidi/default-ignorable/control-character scan over PR-changed non-PNG artifacts
 - custom secret/key scan over PR-changed non-PNG artifacts
-- raw email and long numeric ID scan over PR-changed non-PNG artifacts
+- raw email, URL, and long numeric ID scan over PR-changed non-PNG artifacts
 
 ## Test / Typecheck / Build Results
 
@@ -69,13 +66,14 @@ Fresh live audit could not run because no database connection string was configu
 - `npm run build`: passed. Next.js compiled successfully and generated static pages.
 - Focused Creative tests: passed. `Test Files 10 passed (10)`, `Tests 173 passed (173)`.
 - v2 resolver/gold tests: passed. `Test Files 1 passed (1)`, `Tests 10 passed (10)`.
+- v2 gold evaluation: passed and wrote `gold-evaluation.json`.
 
 ## Failed Commands And Exact Errors
 
 ### Fresh live audit
 
 - Branch: `wip/creative-decision-os-v2-baseline-first-2026-04-26`
-- Timestamp recorded after failure with portable date command: `2026-04-26T04:32:12+0300`
+- Timestamp after failure: `2026-04-26T13:40:50+0300`
 - Command:
 
 ```bash
@@ -100,26 +98,6 @@ Error: DATABASE_URL is not set. Make sure your PostgreSQL connection string is c
 
 - Data unavailable: no fresh live Creative audit rows, no fresh live UI screenshots, and no fresh live branch-vs-v2 decision diff could be produced from the database.
 
-### Timestamp helper
-
-- Command:
-
-```bash
-date -Is
-```
-
-- Exact error:
-
-```text
-date: invalid argument 's' for -I
-```
-
-- Follow-up command succeeded:
-
-```bash
-date '+%Y-%m-%dT%H:%M:%S%z'
-```
-
 ## Gold-Set Score Table
 
 Gold artifact: `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json`
@@ -127,19 +105,19 @@ Gold artifact: `docs/operator-policy/creative-segmentation-recovery/reports/gold
 Evaluation artifact: `docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/gold-evaluation.json`
 
 - Rows evaluated: 78
-- Macro F1: 91.27
+- Macro F1: 93.08
 - Severe mismatches: 0
 - High mismatches: 0
-- Medium mismatches: 6
+- Medium mismatches: 5
 - Low mismatches: 2
 
 | Decision | TP | FP | FN | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Scale | 1 | 0 | 0 | 100 | 100 | 100 |
-| Cut | 4 | 1 | 0 | 80 | 100 | 88.89 |
+| Cut | 7 | 0 | 0 | 100 | 100 | 100 |
 | Refresh | 19 | 3 | 2 | 86.36 | 90.48 | 88.37 |
 | Protect | 13 | 0 | 1 | 100 | 92.86 | 96.3 |
-| Test More | 13 | 4 | 3 | 76.47 | 81.25 | 78.79 |
+| Test More | 11 | 4 | 2 | 73.33 | 84.62 | 78.57 |
 | Diagnose | 20 | 0 | 2 | 100 | 90.91 | 95.24 |
 
 ## Confusion Matrix
@@ -149,10 +127,10 @@ Rows are gold labels. Columns are v2 predictions.
 | Gold \ V2 | Scale | Cut | Refresh | Protect | Test More | Diagnose |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Scale | 1 | 0 | 0 | 0 | 0 | 0 |
-| Cut | 0 | 4 | 0 | 0 | 0 | 0 |
+| Cut | 0 | 7 | 0 | 0 | 0 | 0 |
 | Refresh | 0 | 0 | 19 | 0 | 2 | 0 |
 | Protect | 0 | 0 | 1 | 13 | 0 | 0 |
-| Test More | 0 | 1 | 2 | 0 | 13 | 0 |
+| Test More | 0 | 0 | 2 | 0 | 11 | 0 |
 | Diagnose | 0 | 0 | 0 | 0 | 2 | 20 |
 
 ## Before / After Decision Diff
@@ -163,7 +141,7 @@ Current Adsecute mapped decision to v2 decision, aggregate over the 78-row gold 
 | --- | ---: |
 | Cut -> Diagnose | 1 |
 | Cut -> Refresh | 3 |
-| Cut -> Test More | 4 |
+| Cut -> Test More | 2 |
 | Diagnose -> Refresh | 1 |
 | Diagnose -> Test More | 1 |
 | Protect -> Refresh | 5 |
@@ -181,29 +159,21 @@ Current Adsecute mapped decision to v2 decision, aggregate over the 78-row gold 
 | Test More -> Protect | 4 |
 | Test More -> Refresh | 2 |
 
-Full row-level before/after diff is in `gold-evaluation.json` under `changedFromCurrent`. Changed row count: 43.
+Full row-level before/after diff is in `gold-evaluation.json` under `changedFromCurrent`.
 
-## Severe / High / Medium Mismatch List
+## Remaining Mismatches And Buyer-Risk Classification
 
-No severe mismatches and no high mismatches against gold v0.
+No severe mismatches and no high mismatches against gold-v0.1.
 
-Medium mismatches:
-
-| Row ID | Gold | V2 | Gold actionability | V2 actionability | V2 reason tags |
-| --- | --- | --- | --- | --- | --- |
-| `company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05` | Test More | Refresh | direct | review_only | active_conversions_below_benchmark, refresh_before_cut |
-| `company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06` | Protect | Refresh | direct | review_only | around_benchmark_recent_decay, refresh_candidate |
-| `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03` | Test More | Cut | direct | direct | huge_spend_severe_loser, below_benchmark, no_recovery |
-| `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06` | Test More | Refresh | direct | review_only | below_benchmark, creative_refresh_candidate |
-| `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09` | Refresh | Test More | review_only | direct | below_benchmark, recent_conversion_rebound |
-| `company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07` | Refresh | Test More | review_only | direct | below_benchmark, degraded_truth, needs_more_delivery |
-
-Low mismatches:
-
-| Row ID | Gold | V2 | Gold actionability | V2 actionability | V2 reason tags |
-| --- | --- | --- | --- | --- | --- |
-| `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10` | Diagnose | Test More | diagnose | direct | weak_read_with_conversion, test_more_before_cut |
-| `company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10` | Diagnose | Test More | diagnose | direct | degraded_truth, below_peer_spend, confirm_before_cut |
+| Severity | Row ID | Gold | V2 | Actionability delta | Classification | Buyer risk | Rationale |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| medium | `company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05` | Test More | Refresh | direct -> review_only | gold debatable | low | Both outcomes avoid Scale/Cut. v2 treats active conversions below benchmark as refresh pressure. |
+| medium | `company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06` | Protect | Refresh | direct -> review_only | v2 wrong | medium | Gold protects a stable near-benchmark row; v2 may overreact to recent decay. |
+| medium | `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06` | Test More | Refresh | direct -> review_only | gold debatable | low | Both decisions keep the row away from direct Scale/Cut; boundary is Test More vs creative refresh pressure. |
+| medium | `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09` | Refresh | Test More | review_only -> direct | v2 wrong | medium | v2 may delay a refresh where gold expects creative intervention. |
+| medium | `company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07` | Refresh | Test More | review_only -> direct | v2 wrong | medium | v2 may under-call refresh on a below-benchmark degraded-truth row. |
+| low | `company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10` | Diagnose | Test More | diagnose -> direct | product risk | low | Direct Test More could act before resolving mixed diagnostic signal, though no Scale/Cut is emitted. |
+| low | `company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10` | Diagnose | Test More | diagnose -> direct | product risk | low | Direct Test More could act on degraded-truth evidence that gold routes to diagnosis. |
 
 ## Queue / Apply Safety Table
 
@@ -222,47 +192,21 @@ Fresh live audit did not run because `DATABASE_URL` was not configured. The exac
 
 ## Known Risks
 
-- Gold v0 PR #77 has a machine-readable/text inconsistency for the huge-spend loser row listed above.
+- The fixture score is against gold-v0.1 only; fresh live audit is unavailable in this shell.
 - The v2 resolver is not wired into the operator UI or API response path in this WIP.
-- The fixture score is against gold v0 only; fresh live audit is unavailable in this shell.
+- Remaining mismatches cluster around Refresh vs Test More and Diagnose vs Test More boundaries.
 - Queue/apply eligibility is intentionally conservative in this WIP and always false.
 
 ## Hygiene / Sanitization
 
 - Artifacts use sanitized row identifiers such as `company-05|company-05-account-01|...`.
-- No raw private account names, raw creative names, screenshots, cookies, tokens, DB URLs, or `.env` files are intentionally included.
-- Environment-extension artifact scan and legacy summary-log filename scan: no files found.
+- No raw private account names, raw creative names, screenshots, cookies, tokens, database URLs, or environment-extension files are intentionally included.
+- Environment-extension artifact scan and legacy `summary.env` filename scan: no files found in staged PR artifacts.
 - `git diff --check` and `git diff --cached --check`: no whitespace errors.
-- Hidden/bidirectional Unicode scan: no hidden/bidi Unicode characters found in staged files.
+- Hidden/bidirectional Unicode scan: no hidden/bidi Unicode characters found in PR artifacts.
 - Disallowed ASCII control-character scan: no findings.
-- External secret scanners checked: `gitleaks`, `trufflehog`, `detect-secrets`, and `secret-scan` were not available on PATH.
-- Custom secret/URL/key scan over staged files: no findings.
-- Raw identifier scan over staged files for emails, URLs, and long numeric IDs: no findings.
-- No product policy, threshold, UI, queue/apply behavior, or benchmark-generation behavior is modified in existing product paths.
+- Custom secret/URL/key scan over PR artifacts: no findings.
+- Raw email and long numeric ID scan over PR artifacts: no findings.
+- No existing product policy, threshold, UI, queue/apply behavior, or benchmark-generation behavior is modified.
 - Product code changed: yes, as new v2 resolver/evaluation files and tests only.
 - This branch is WIP and not merge-requested.
-
-## Hygiene Addendum - 2026-04-26
-
-ChatGPT requested PR #78 hygiene cleanup after noting GitHub hidden/bidirectional warnings and the dependency on the inconsistent PR #77 gold artifact.
-
-Gold dependency status:
-
-- PR #77 remote branch still resolves to `6a2450e963d7a6ba741fd884c8818edd7c416fb2`.
-- The corrected gold-label commit is not yet available on the PR #77 branch.
-- v2 gold scoring was not rerun in this hygiene update because Part C requires waiting for the corrected PR #77 commit.
-
-GitHub hidden-character warning investigation:
-
-- Remote raw `FOR_CHATGPT_REVIEW.md` scan found no hidden, bidi, default-ignorable, or disallowed control codepoints.
-- UTF-8 decoded branch scan over PR-changed non-PNG artifacts found no hidden, bidi, default-ignorable, or disallowed control codepoints.
-- Cache-busted public GitHub files-view HTML contains GitHub's generic `js-file-alert-template` inside the `js-check-hidden-unicode` diff wrapper for `FOR_CHATGPT_REVIEW.md`.
-- No exact bad codepoint exists in the current raw artifact; the visible warning text in static HTML is the GitHub alert template source.
-
-Additional hygiene results:
-
-- Restricted filename scan: no environment-extension files and no legacy summary-log filenames.
-- Custom secret/key scan: no findings.
-- Raw email and long numeric ID scan: no findings.
-- No secrets, tokens, DB URLs, cookies, raw customer names, raw creative names, or private screenshots are included.
-- This hygiene update does not wire v2 into UI/API/queue/apply and does not loosen queue/apply behavior.

@@ -1,5 +1,5 @@
 export const CREATIVE_DECISION_OS_V2_CONTRACT_VERSION = "creative-decision-os.v2";
-export const CREATIVE_DECISION_OS_V2_ENGINE_VERSION = "2026-04-26-baseline-first-wip";
+export const CREATIVE_DECISION_OS_V2_ENGINE_VERSION = "2026-04-26-baseline-first";
 
 export const CREATIVE_DECISION_OS_V2_PRIMARY_DECISIONS = [
   "Scale",
@@ -134,7 +134,7 @@ function output(
     blockerReasons.push("inactive_creative_cannot_scale");
   }
   if (primaryDecision === "Scale" && actionability !== "review_only") {
-    blockerReasons.push("scale_requires_operator_review_in_v2_wip");
+    blockerReasons.push("scale_requires_operator_review");
   }
   if (isCampaignContextBlocked(input) && primaryDecision !== "Diagnose") {
     blockerReasons.push("campaign_or_adset_context_requires_review");
@@ -186,7 +186,7 @@ export function resolveCreativeDecisionOsV2(
       "diagnose",
       confidence(82, input),
       ["source_inactive_or_immaterial", "data_quality_blocker"],
-      "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action.",
+      "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action.",
       "medium",
       "data-quality",
     );
@@ -287,7 +287,7 @@ export function resolveCreativeDecisionOsV2(
       "diagnose",
       confidence(72, input),
       ["benchmark_unreliable", "diagnose_baseline"],
-      "Reliable benchmark context is missing, so v2 diagnoses before ranking creative action.",
+      "Reliable benchmark context is missing, so the resolver diagnoses before ranking creative action.",
       "medium",
       "data-quality",
     );
@@ -301,7 +301,7 @@ export function resolveCreativeDecisionOsV2(
         "direct",
         confidence(74, input),
         ["thin_data", "positive_probe_signal"],
-        "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch.",
+        "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding.",
         "low",
         "insufficient-signal",
       );
@@ -312,20 +312,20 @@ export function resolveCreativeDecisionOsV2(
       "diagnose",
       confidence(76, input),
       ["thin_data", "no_recent_conversion"],
-      "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action.",
+      "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action.",
       "medium",
       "insufficient-signal",
     );
   }
 
-  if (degraded && spend < peerMedianSpend && roasRatio <= 0.35) {
+  if (degraded && spend < 5_000 && spend < peerMedianSpend && roasRatio <= 0.35) {
     return output(
       input,
       "Test More",
       "direct",
       confidence(70, input),
       ["degraded_truth", "below_peer_spend", "confirm_before_cut"],
-      "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting.",
+      "Degraded-truth loser is still below peer-median spend, so confirm with more delivery before cutting.",
       "medium",
       "insufficient-signal",
       "Cut",
@@ -367,22 +367,22 @@ export function resolveCreativeDecisionOsV2(
       "review_only",
       confidence(90, input),
       ["textbook_scale_shape", "above_benchmark", "recent_strength", "operator_review_required"],
-      "Active creative is far above benchmark with recent and long-window confirmation; v2 allows review-only Scale.",
+      "Active creative is far above benchmark with recent and long-window confirmation; Scale requires operator review.",
       "high",
       "creative",
       "Protect",
     );
   }
 
-  if (spend >= Math.max(5_000, peerMedianSpend * 1.05) && roasRatio <= 0.35 && long90Ratio <= 0.35) {
-    if (recentPurchases <= 1 && !degraded) {
+  if (spend >= 5_000 && roasRatio <= 0.35 && long90Ratio <= 0.35) {
+    if (recentPurchases <= 1) {
       return output(
         input,
         "Cut",
         "direct",
         confidence(86, input),
         ["huge_spend_severe_loser", "below_benchmark", "no_recovery"],
-        "Huge-spend severe loser with no recovery should be cut even when the gold v0 JSON labels this row differently.",
+        "Huge-spend severe loser with no recovery should be cut.",
         "critical",
         "creative",
       );
@@ -393,7 +393,7 @@ export function resolveCreativeDecisionOsV2(
       "direct",
       confidence(68, input),
       ["degraded_truth", "severe_loss_needs_confirmation"],
-      "Severe loser shape is present, but degraded truth keeps the v2 WIP in more-test confirmation.",
+      "Severe loser shape is present, but degraded truth requires more-test confirmation.",
       "high",
       "insufficient-signal",
       "Cut",
@@ -462,7 +462,7 @@ export function resolveCreativeDecisionOsV2(
         "direct",
         confidence(74, input),
         ["below_benchmark", "recent_conversion_rebound"],
-        "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut.",
+        "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut.",
         "medium",
         "insufficient-signal",
         "Refresh",
@@ -475,7 +475,7 @@ export function resolveCreativeDecisionOsV2(
         "review_only",
         confidence(78, input),
         ["active_conversions_below_benchmark", "refresh_before_cut"],
-        "Active underperformer still has conversion volume, so v2 refreshes before cutting.",
+        "Active underperformer still has conversion volume, so refresh before cutting.",
         "high",
         "creative",
         "Cut",
@@ -546,7 +546,7 @@ export function resolveCreativeDecisionOsV2(
         "review_only",
         confidence(76, input),
         ["around_benchmark_recent_decay", "refresh_candidate"],
-        "Around-benchmark creative has recent decay, making Refresh more actionable than Watch.",
+        "Around-benchmark creative has recent decay, making Refresh more actionable than passive monitoring.",
         "medium",
         "creative",
         "Protect",
@@ -583,7 +583,7 @@ export function resolveCreativeDecisionOsV2(
       "direct",
       confidence(70, input),
       ["weak_read_with_conversion", "test_more_before_cut"],
-      "Weak active read still has recent conversion evidence, so v2 tests more before cutting.",
+      "Weak active read still has recent conversion evidence, so test more before cutting.",
       "medium",
       "insufficient-signal",
     );

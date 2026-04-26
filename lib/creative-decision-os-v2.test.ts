@@ -159,12 +159,12 @@ describe("Creative Decision OS v2 gold-label evaluation", () => {
   const artifact = readGoldLabelsV0();
   const evaluation = evaluateCreativeDecisionOsV2Gold(artifact);
 
-  it("scores the 78-row gold v0 fixture without severe Scale/Cut mismatches", () => {
+  it("scores the 78-row gold v0.1 fixture without severe Scale/Cut mismatches", () => {
     expect(evaluation.rowCount).toBe(78);
     expect(evaluation.mismatchCounts.severe).toBe(0);
     expect(evaluation.macroF1).toBeGreaterThanOrEqual(90);
     expect(evaluation.perDecision.find((row) => row.decision === "Scale")?.precision).toBe(100);
-    expect(evaluation.perDecision.find((row) => row.decision === "Cut")?.precision).toBeGreaterThanOrEqual(80);
+    expect(evaluation.perDecision.find((row) => row.decision === "Cut")?.f1).toBeGreaterThanOrEqual(90);
   });
 
   it("proves Watch and Scale Review are not v2 primary outputs on the gold fixture", () => {

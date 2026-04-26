@@ -1,7 +1,7 @@
 {
-  "artifactVersion": "gold-v0",
+  "artifactVersion": "gold-v0.1",
   "rowCount": 78,
-  "macroF1": 91.27,
+  "macroF1": 93.08,
   "perDecision": [
     {
       "decision": "Scale",
@@ -14,12 +14,12 @@
     },
     {
       "decision": "Cut",
-      "tp": 4,
-      "fp": 1,
+      "tp": 7,
+      "fp": 0,
       "fn": 0,
-      "precision": 80,
+      "precision": 100,
       "recall": 100,
-      "f1": 88.89
+      "f1": 100
     },
     {
       "decision": "Refresh",
@@ -41,12 +41,12 @@
     },
     {
       "decision": "Test More",
-      "tp": 13,
+      "tp": 11,
       "fp": 4,
-      "fn": 3,
-      "precision": 76.47,
-      "recall": 81.25,
-      "f1": 78.79
+      "fn": 2,
+      "precision": 73.33,
+      "recall": 84.62,
+      "f1": 78.57
     },
     {
       "decision": "Diagnose",
@@ -69,7 +69,7 @@
     },
     "Cut": {
       "Scale": 0,
-      "Cut": 4,
+      "Cut": 7,
       "Refresh": 0,
       "Protect": 0,
       "Test More": 0,
@@ -93,10 +93,10 @@
     },
     "Test More": {
       "Scale": 0,
-      "Cut": 1,
+      "Cut": 0,
       "Refresh": 2,
       "Protect": 0,
-      "Test More": 13,
+      "Test More": 11,
       "Diagnose": 0
     },
     "Diagnose": {
@@ -111,9 +111,9 @@
   "mismatchCounts": {
     "severe": 0,
     "high": 0,
-    "medium": 6,
+    "medium": 5,
     "low": 2,
-    "none": 70
+    "none": 71
   },
   "rows": [
     {
@@ -524,7 +524,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
@@ -562,7 +562,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
@@ -581,7 +581,7 @@
         "around_benchmark_recent_decay",
         "refresh_candidate"
       ],
-      "evidenceSummary": "Around-benchmark creative has recent decay, making Refresh more actionable than Watch."
+      "evidenceSummary": "Around-benchmark creative has recent decay, making Refresh more actionable than passive monitoring."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
@@ -638,7 +638,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-10",
@@ -657,7 +657,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
@@ -733,7 +733,7 @@
         "source_inactive_or_immaterial",
         "data_quality_blocker"
       ],
-      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-05",
@@ -752,7 +752,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-02|company-04-creative-06",
@@ -771,7 +771,7 @@
         "source_inactive_or_immaterial",
         "data_quality_blocker"
       ],
-      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-07",
@@ -790,7 +790,7 @@
         "source_inactive_or_immaterial",
         "data_quality_blocker"
       ],
-      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
@@ -809,7 +809,7 @@
         "source_inactive_or_immaterial",
         "data_quality_blocker"
       ],
-      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-03|company-04-creative-09",
@@ -828,7 +828,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-05|company-04-adset-04|company-04-creative-10",
@@ -847,7 +847,7 @@
         "source_inactive_or_immaterial",
         "data_quality_blocker"
       ],
-      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so the resolver diagnoses the data/source state instead of emitting a buyer action."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
@@ -887,18 +887,18 @@
         "recent_strength",
         "operator_review_required"
       ],
-      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; v2 allows review-only Scale."
+      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; Scale requires operator review."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03",
-      "goldDecision": "Test More",
+      "goldDecision": "Cut",
       "v2Decision": "Cut",
       "goldActionability": "direct",
       "v2Actionability": "direct",
       "currentAdsecuteDecision": "Cut",
       "currentAdsecuteMappedDecision": "Cut",
-      "severity": "medium",
-      "currentSeverity": "medium",
+      "severity": "none",
+      "currentSeverity": null,
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
@@ -907,7 +907,7 @@
         "below_benchmark",
         "no_recovery"
       ],
-      "evidenceSummary": "Huge-spend severe loser with no recovery should be cut even when the gold v0 JSON labels this row differently."
+      "evidenceSummary": "Huge-spend severe loser with no recovery should be cut."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
@@ -930,23 +930,23 @@
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
-      "goldDecision": "Test More",
-      "v2Decision": "Test More",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
       "goldActionability": "direct",
       "v2Actionability": "direct",
       "currentAdsecuteDecision": "Cut",
       "currentAdsecuteMappedDecision": "Cut",
       "severity": "none",
-      "currentSeverity": "medium",
+      "currentSeverity": null,
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
+        "huge_spend_severe_loser",
+        "below_benchmark",
+        "no_recovery"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+      "evidenceSummary": "Huge-spend severe loser with no recovery should be cut."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-06",
@@ -969,23 +969,23 @@
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-07",
-      "goldDecision": "Test More",
-      "v2Decision": "Test More",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
       "goldActionability": "direct",
       "v2Actionability": "direct",
       "currentAdsecuteDecision": "Cut",
       "currentAdsecuteMappedDecision": "Cut",
       "severity": "none",
-      "currentSeverity": "medium",
+      "currentSeverity": null,
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
+        "huge_spend_severe_loser",
+        "below_benchmark",
+        "no_recovery"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+      "evidenceSummary": "Huge-spend severe loser with no recovery should be cut."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-08",
@@ -1118,7 +1118,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
@@ -1137,7 +1137,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-06",
@@ -1156,7 +1156,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-07",
@@ -1175,7 +1175,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-08",
@@ -1194,7 +1194,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-09",
@@ -1213,7 +1213,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-10",
@@ -1232,7 +1232,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
@@ -1405,7 +1405,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
@@ -1424,7 +1424,7 @@
         "weak_read_with_conversion",
         "test_more_before_cut"
       ],
-      "evidenceSummary": "Weak active read still has recent conversion evidence, so v2 tests more before cutting."
+      "evidenceSummary": "Weak active read still has recent conversion evidence, so test more before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
@@ -1443,7 +1443,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
@@ -1462,7 +1462,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-03",
@@ -1519,7 +1519,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-06",
@@ -1616,7 +1616,7 @@
         "below_peer_spend",
         "confirm_before_cut"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so confirm with more delivery before cutting."
     }
   ],
   "changedFromCurrent": [
@@ -1853,7 +1853,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
@@ -1891,7 +1891,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
@@ -1948,7 +1948,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
@@ -2007,27 +2007,7 @@
         "recent_strength",
         "operator_review_required"
       ],
-      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; v2 allows review-only Scale."
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
-      "goldDecision": "Test More",
-      "v2Decision": "Test More",
-      "goldActionability": "direct",
-      "v2Actionability": "direct",
-      "currentAdsecuteDecision": "Cut",
-      "currentAdsecuteMappedDecision": "Cut",
-      "severity": "none",
-      "currentSeverity": "medium",
-      "queueEligible": false,
-      "applyEligible": false,
-      "blockerReasons": [],
-      "reasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
-      ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; Scale requires operator review."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-06",
@@ -2047,26 +2027,6 @@
         "diagnose_before_action"
       ],
       "evidenceSummary": "Weak active read has no recent conversion evidence and no decisive cut signal."
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-07",
-      "goldDecision": "Test More",
-      "v2Decision": "Test More",
-      "goldActionability": "direct",
-      "v2Actionability": "direct",
-      "currentAdsecuteDecision": "Cut",
-      "currentAdsecuteMappedDecision": "Cut",
-      "severity": "none",
-      "currentSeverity": "medium",
-      "queueEligible": false,
-      "applyEligible": false,
-      "blockerReasons": [],
-      "reasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
-      ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
     },
     {
       "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-09",
@@ -2161,7 +2121,7 @@
         "thin_data",
         "no_recent_conversion"
       ],
-      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so the resolver diagnoses the signal before action."
     },
     {
       "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-07",
@@ -2180,7 +2140,7 @@
         "thin_data",
         "positive_probe_signal"
       ],
-      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than passively holding."
     },
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
@@ -2238,7 +2198,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
@@ -2257,7 +2217,7 @@
         "weak_read_with_conversion",
         "test_more_before_cut"
       ],
-      "evidenceSummary": "Weak active read still has recent conversion evidence, so v2 tests more before cutting."
+      "evidenceSummary": "Weak active read still has recent conversion evidence, so test more before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
@@ -2276,7 +2236,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
@@ -2295,7 +2255,7 @@
         "active_conversions_below_benchmark",
         "refresh_before_cut"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-03",
@@ -2352,7 +2312,7 @@
         "below_benchmark",
         "recent_conversion_rebound"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-06",
@@ -2449,7 +2409,7 @@
         "below_peer_spend",
         "confirm_before_cut"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so confirm with more delivery before cutting."
     }
   ],
   "queueApplySafety": {
