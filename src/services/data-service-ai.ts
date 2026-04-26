@@ -9,6 +9,9 @@ import type {
 import type {
   CreativeDecisionOsSnapshotApiResponse,
 } from "@/lib/creative-decision-os-snapshots";
+import type {
+  CreativeDecisionOsV2PreviewApiResponse,
+} from "@/lib/creative-decision-os-v2-preview";
 import {
   buildApiUrl,
   getApiErrorMessage,
@@ -273,6 +276,18 @@ function assertCreativeDecisionOsSnapshotResponse(payload: unknown) {
   return payload as CreativeDecisionOsSnapshotResponse;
 }
 
+function assertCreativeDecisionOsV2PreviewResponse(payload: unknown) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    (payload as { contractVersion?: unknown }).contractVersion !==
+      "creative-decision-os-v2-preview.v0.1.1"
+  ) {
+    throw new Error("Creative Decision OS v2 preview API returned an invalid payload.");
+  }
+  return payload as CreativeDecisionOsV2PreviewApiResponse;
+}
+
 export async function getCreativeDecisionOsSnapshot(
   businessId: string,
   options?: {
@@ -300,6 +315,39 @@ export async function getCreativeDecisionOsSnapshot(
   }
 
   return assertCreativeDecisionOsSnapshotResponse(payload);
+}
+
+export async function getCreativeDecisionOsV2Preview(
+  businessId: string,
+  options?: {
+    benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
+    enabled?: boolean;
+  },
+): Promise<CreativeDecisionOsV2PreviewApiResponse> {
+  const url = getClientApiUrl("/api/creatives/decision-os-v2/preview");
+  url.searchParams.set("businessId", businessId);
+  if (options?.enabled) {
+    url.searchParams.set("creativeDecisionOsV2Preview", "1");
+  }
+  appendCreativeDecisionOsBenchmarkScope(url, options?.benchmarkScope);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS v2 preview.")
+        : `Creative Decision OS v2 preview request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return assertCreativeDecisionOsV2PreviewResponse(payload);
 }
 
 export async function runCreativeDecisionOsAnalysis(

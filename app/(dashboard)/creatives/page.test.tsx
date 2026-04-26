@@ -9,6 +9,7 @@ let mockDateRange = {
   lastDays: 14,
   sinceDate: "",
 };
+let mockSearchParams = new URLSearchParams();
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
 const mutateRunAnalysis = vi.fn();
@@ -69,6 +70,7 @@ vi.mock("next/dynamic", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -138,6 +140,7 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
 
 vi.mock("@/src/services", () => ({
   getCreativeDecisionOsSnapshot: vi.fn(),
+  getCreativeDecisionOsV2Preview: vi.fn(),
   runCreativeDecisionOsAnalysis: vi.fn(),
 }));
 
@@ -232,6 +235,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
       lastDays: 14,
       sinceDate: "",
     };
+    mockSearchParams = new URLSearchParams();
   });
 
   it("loads snapshots without date range in the Decision OS query identity", () => {
@@ -246,6 +250,8 @@ describe("Creatives page Decision OS snapshot contract", () => {
       null,
     ]);
     expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
+    expect(html).not.toContain("Decision OS v2 operator surface");
     expect(html).toContain("Run Creative Analysis");
     expect(html).toContain("Decision OS");
     expect(mutateRunAnalysis).not.toHaveBeenCalled();
