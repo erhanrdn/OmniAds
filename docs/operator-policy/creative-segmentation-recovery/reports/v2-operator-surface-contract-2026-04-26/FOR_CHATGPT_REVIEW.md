@@ -815,12 +815,22 @@ the active files were rewritten as ASCII-only report files, the old v0
 JSON was removed, and strict scans confirmed no hidden, bidirectional,
 control, or non-ASCII characters remain in the report folder.
 
-After push, the GitHub branch blob views for the active handoff file and
-`surface-contract-v0.1.json` were inspected. The active JSON file showed
-no matches for "hidden", "bidirectional", or "This file contains". The
-active handoff file only matched "hidden" and "bidirectional" in this
-hygiene text, not in a GitHub warning banner. No exact warning codepoint
-remains to identify in the active report files.
+GitHub warning status:
+
+- Active files are clean.
+- Exact active file/line/codepoint remaining: none found.
+- The current branch raw files were inspected from GitHub after push.
+  They match the pushed branch head and have normal line breaks:
+  - `FOR_CHATGPT_REVIEW.md`: 836 lines
+  - `surface-contract-v0.1.json`: 659 lines
+- The active GitHub raw files have no strict non-ASCII matches and no
+  lines over 160 characters.
+- The active branch blob views were also opened. No exact active warning
+  codepoint was visible in the active report files.
+- If the PR conversation still shows a hidden/bidirectional Unicode
+  warning, this is historical/stale PR rendering or conversation-level
+  state from earlier generated files, not a reproducible character in
+  the active branch files.
 
 ## Confirmations
 
