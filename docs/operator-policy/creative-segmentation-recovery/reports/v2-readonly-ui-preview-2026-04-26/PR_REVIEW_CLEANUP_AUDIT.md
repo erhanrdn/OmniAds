@@ -229,19 +229,61 @@ Deprecated-infrastructure notes, not active blockers:
 - These are not active blockers because the active infrastructure is the
   self-hosted server and self-hosted database.
 
+## Pre-Merge Hard Gate Still Open
+
+Limited read-only preview is allowed. Merge is not allowed.
+
+Before any merge decision, every active warning must be fixed or explicitly
+closed with evidence:
+
+- GitHub/Codex PR Review warnings remain tracked.
+- Hidden/bidirectional Unicode GitHub UI warnings remain tracked.
+- Security, secret, and raw-data warnings remain tracked.
+- Formatting and readability warnings remain tracked.
+- Unresolved review threads remain tracked.
+- Suspicious active self-hosted runtime/deployment checks remain tracked.
+- Any active self-hosted DB/live-preview validation blocker remains tracked.
+
+Deprecated infrastructure is not an active blocker:
+
+- Vercel and Neon are deprecated infrastructure.
+- Vercel queued/skipped checks must not be listed as active blockers.
+- Neon-specific DB assumptions must be removed or marked legacy.
+- Active deployment/runtime validation should refer to the self-hosted server
+  and self-hosted PostgreSQL database only.
+
+No warning is being ignored silently. Visible GitHub UI warnings and review
+items remain documented in this audit until fixed or explicitly closed with
+evidence.
+
 ## 12. Remaining Warning Detail
 
-| PR | File | Line/context | Exact warning/comment | Fixed | Reason if not fixed |
-| --- | --- | --- | --- | --- | --- |
-| #79 | Conversation, historical commit `895016d` | Web text lines 273-279 | Hidden/bidirectional Unicode warning | No code change | Active files view and raw/diff/patch scans are clean; warning is historical/stale in conversation |
-| #81 | Conversation, historical commit `735765d` | Web text lines 278-284 | Hidden/bidirectional Unicode warning | No code change | Active raw/diff/patch scans are clean; warning remains visible in conversation |
-| #81 | `app/(dashboard)/creatives/page.test.tsx` | GitHub files view lines 318-327 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and PR patch have no matching hidden/bidi/control codepoint |
-| #81 | `app/(dashboard)/creatives/page.tsx` | GitHub files view lines 369-379 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and patch have no matching hidden/bidi/control codepoint |
-| #81 | `app/api/creatives/decision-os-v2/preview/route.test.ts` | GitHub files view lines 469-478 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and PR patch have no matching hidden/bidi/control codepoint |
-| #81 | `app/api/creatives/decision-os-v2/preview/route.ts` | GitHub files view lines 542-551 | Hidden/bidirectional Unicode warning | No code change | Active raw blob and PR patch have no matching hidden/bidi/control codepoint |
-| #78-#81 | GitHub checks | Check suites | Legacy external deploy suite queued | Not fixed in PR #81 | Deprecated infrastructure; not an active blocker |
-| #78-#81 | GitHub Actions | Deploy/runtime jobs | Completed with conclusion `skipped` | Not fixed in PR #81 | Deprecated deploy/runtime path; not an active blocker |
-| #81 | Authenticated preview evidence | Demo workspace | No direct-actionability row present | Not a code fix | Non-blocking for limited preview; fixture-backed sort test remains the evidence |
+- PR #79, conversation historical commit `895016d`, web text lines 273-279:
+  hidden/bidirectional Unicode warning. Not changed in code because active files
+  view and raw/diff/patch scans are clean. Classified as historical/stale.
+- PR #81, conversation historical commit `735765d`, web text lines 278-284:
+  hidden/bidirectional Unicode warning. Not changed in code because active
+  raw/diff/patch scans are clean. Warning remains visible in conversation.
+- PR #81, `app/(dashboard)/creatives/page.test.tsx`, GitHub files view lines
+  318-327: hidden/bidirectional Unicode warning. Active raw blob and PR patch
+  have no matching hidden/bidi/control codepoint.
+- PR #81, `app/(dashboard)/creatives/page.tsx`, GitHub files view lines
+  369-379: hidden/bidirectional Unicode warning. Active raw blob and PR patch
+  have no matching hidden/bidi/control codepoint.
+- PR #81, `app/api/creatives/decision-os-v2/preview/route.test.ts`, GitHub
+  files view lines 469-478: hidden/bidirectional Unicode warning. Active raw
+  blob and PR patch have no matching hidden/bidi/control codepoint.
+- PR #81, `app/api/creatives/decision-os-v2/preview/route.ts`, GitHub files
+  view lines 542-551: hidden/bidirectional Unicode warning. Active raw blob and
+  PR patch have no matching hidden/bidi/control codepoint.
+- PR #78-#81, GitHub checks: legacy external deploy suite queued. Not fixed in
+  PR #81 because it is deprecated infrastructure, not an active blocker.
+- PR #78-#81, GitHub Actions deploy/runtime jobs: completed with conclusion
+  `skipped`. Not fixed in PR #81 because this is a deprecated deploy/runtime
+  path, not an active blocker.
+- PR #81, authenticated preview evidence: no direct-actionability row was
+  present in the demo workspace. This is not a code fix; fixture-backed sorting
+  tests remain the evidence for limited preview.
 
 ## 13. No Silent Warning Ignoring
 
