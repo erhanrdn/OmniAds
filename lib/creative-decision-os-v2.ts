@@ -111,6 +111,18 @@ function isDegradedTruth(input: CreativeDecisionOsV2Input) {
   return trust === "degraded_missing_truth" || trust === "inactive_or_immaterial";
 }
 
+function hasSourceOrProvenanceBlocker(input: CreativeDecisionOsV2Input) {
+  const flags = input.sourceTrustFlags?.map((flag) => flag.trim().toLowerCase()) ?? [];
+  return flags.some(
+    (flag) =>
+      flag.includes("degraded") ||
+      flag.includes("inactive_or_immaterial") ||
+      flag.includes("missing") ||
+      flag.includes("blocked") ||
+      flag.includes("read_only"),
+  );
+}
+
 function confidence(base: number, input: CreativeDecisionOsV2Input, adjustment = 0) {
   const benchmarkAdjustment = hasReliableBenchmark(input) ? 5 : -8;
   const trustAdjustment = isDegradedTruth(input) ? -6 : 3;
@@ -136,18 +148,52 @@ function output(
   if (primaryDecision === "Scale" && actionability !== "review_only") {
     blockerReasons.push("scale_requires_operator_review");
   }
+  if (primaryDecision === "Cut" && input.activeStatus === false) {
+    blockerReasons.push("inactive_cut_requires_review");
+  }
   if (isCampaignContextBlocked(input) && primaryDecision !== "Diagnose") {
     blockerReasons.push("campaign_or_adset_context_requires_review");
   }
   if (!hasReliableBenchmark(input)) {
     blockerReasons.push("benchmark_context_not_strong");
   }
+  if (primaryDecision !== "Diagnose" && hasSourceOrProvenanceBlocker(input)) {
+    blockerReasons.push("source_or_provenance_requires_review");
+  }
+  if (primaryDecision !== "Diagnose" && isDegradedTruth(input)) {
+    blockerReasons.push("degraded_truth_requires_review");
+  }
+  if (
+    primaryDecision === "Cut" &&
+    actionability === "direct" &&
+    (
+      input.activeStatus !== true ||
+      n(input.recentPurchases) > 0 ||
+      !reasonTags.some((tag) => tag === "huge_spend_severe_loser" || tag === "severe_sustained_loser")
+    )
+  ) {
+    blockerReasons.push("cut_requires_buyer_review");
+  }
+
+  let resolvedActionability = actionability;
+  if (primaryDecision === "Scale") resolvedActionability = "review_only";
+  if (primaryDecision === "Diagnose") resolvedActionability = "diagnose";
+  if (primaryDecision !== "Diagnose" && actionability === "direct" && blockerReasons.length > 0) {
+    resolvedActionability = "review_only";
+  }
+  if (
+    primaryDecision === "Test More" &&
+    actionability === "direct" &&
+    (isDegradedTruth(input) || problemClass === "data-quality")
+  ) {
+    resolvedActionability = "review_only";
+  }
 
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_CONTRACT_VERSION,
     engineVersion: CREATIVE_DECISION_OS_V2_ENGINE_VERSION,
     primaryDecision,
-    actionability,
+    actionability: resolvedActionability,
     confidence: confidenceValue,
     reasonTags: Array.from(new Set(reasonTags)),
     evidenceSummary,
@@ -362,6 +408,39 @@ export function resolveCreativeDecisionOsV2(
       "medium",
       "campaign-context",
       "Refresh",
+    );
+  }
+
+  if (
+    active &&
+    recentPurchases === 0 &&
+    recentRatio <= 0.15 &&
+    (roasRatio >= 1.25 || (roasRatio >= 1 && long90Ratio >= 1.25)) &&
+    (spend >= 150 || spendVsPeer >= 0.7)
+  ) {
+    if (degraded || campaignBlocked || hasSourceOrProvenanceBlocker(input)) {
+      return output(
+        input,
+        "Diagnose",
+        "diagnose",
+        confidence(78, input),
+        ["strong_history_recent_stop", "diagnose_before_refresh"],
+        "Strong historical signal stopped converting recently, but source or context risk makes the buyer action ambiguous.",
+        "high",
+        "data-quality",
+        "Refresh",
+      );
+    }
+    return output(
+      input,
+      "Refresh",
+      "review_only",
+      confidence(82, input),
+      ["strong_history_recent_stop", "refresh_candidate"],
+      "Strong historical signal stopped converting in the recent window, so refresh before protecting.",
+      "high",
+      "creative",
+      "Protect",
     );
   }
 

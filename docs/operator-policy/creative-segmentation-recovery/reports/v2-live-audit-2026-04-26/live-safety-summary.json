@@ -1,43 +1,43 @@
 {
-  "generatedAt": "2026-04-26T13:06:09.514Z",
+  "generatedAt": "2026-04-26T13:57:16.171Z",
   "branch": "wip/creative-decision-os-v2-baseline-first-2026-04-26",
-  "headCommit": "d0550b32902f1cba9036da3176f88f1aebb8f94f",
+  "headCommit": "b9b1915c26ef2484a8da0b92aa914e8d966ef792",
   "exactCommand": "<database connection configured via local tunnel; value omitted> DB_QUERY_TIMEOUT_MS=60000 DB_CONNECTION_TIMEOUT_MS=30000 CREATIVE_LIVE_ENV_DIR=/Users/harmelek/Adsecute CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-decision-os-v2-live-audit.ts",
-  "sourceAuditGeneratedAt": "2026-04-26T12:50:43.803Z",
+  "sourceAuditGeneratedAt": "2026-04-26T13:42:47.151Z",
   "businessesAudited": 8,
   "accountsAudited": 9,
   "creativeRowsAudited": 303,
   "v2DecisionDistribution": {
-    "Refresh": 42,
-    "Diagnose": 194,
+    "Protect": 17,
+    "Refresh": 37,
     "Cut": 15,
-    "Protect": 16,
-    "Test More": 35,
+    "Test More": 40,
+    "Diagnose": 193,
     "Scale": 1
   },
   "currentDecisionDistribution": {
-    "Protect": 10,
     "Refresh": 30,
     "Test More": 20,
-    "Diagnose": 211,
     "Scale": 3,
-    "Cut": 29
+    "Cut": 29,
+    "Diagnose": 211,
+    "Protect": 10
   },
-  "changedRowCount": 99,
+  "changedRowCount": 105,
   "changedRowsByTransition": {
-    "Protect -> Refresh": 5,
-    "Refresh -> Diagnose": 3,
+    "Refresh -> Protect": 5,
     "Test More -> Refresh": 4,
-    "Diagnose -> Refresh": 8,
-    "Scale -> Diagnose": 1,
+    "Scale -> Protect": 1,
+    "Diagnose -> Test More": 24,
+    "Refresh -> Test More": 7,
     "Test More -> Diagnose": 13,
-    "Diagnose -> Protect": 8,
-    "Refresh -> Protect": 4,
-    "Refresh -> Test More": 4,
+    "Protect -> Refresh": 5,
+    "Refresh -> Diagnose": 4,
+    "Diagnose -> Refresh": 8,
+    "Diagnose -> Protect": 7,
     "Cut -> Test More": 5,
     "Protect -> Test More": 1,
     "Test More -> Protect": 1,
-    "Diagnose -> Test More": 22,
     "Diagnose -> Cut": 3,
     "Scale -> Refresh": 1,
     "Protect -> Scale": 1,
@@ -53,26 +53,59 @@
   "watchPrimaryCount": 0,
   "scaleReviewPrimaryCount": 0,
   "cutCount": 15,
-  "refreshCount": 42,
-  "diagnoseCount": 194,
+  "refreshCount": 37,
+  "diagnoseCount": 193,
   "rowsWithBlockerReasons": [
     "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-01",
     "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
-    "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-03",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-03|company-01-creative-05",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-04|company-01-creative-06",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-05|company-01-creative-07",
-    "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-08",
-    "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-09",
-    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-11",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-13",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-14",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-15",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-03",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-04",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-05",
+    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-06",
+    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-07",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-08",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-09",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-10",
+    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-12",
+    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-25",
+    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-26",
+    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-28",
+    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-29",
+    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-12",
+    "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+    "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+    "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
+    "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-04",
     "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14",
     "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
     "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
     "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
     "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-18",
+    "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+    "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03",
+    "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
+    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+    "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-06",
+    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-07",
+    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-09",
+    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-12",
+    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-13",
+    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
+    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-16",
+    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-19",
+    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-27",
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-46",
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
@@ -85,85 +118,39 @@
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-57",
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
     "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-59",
-    "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
-    "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
-    "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
-    "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36"
-  ],
-  "directActionDespiteSourceOrCampaignBlockers": [
-    "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-11",
-    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
-    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-12",
-    "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
-    "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-04",
-    "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
-    "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
-    "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
-    "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
-    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
-    "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-06",
-    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-07",
-    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-12",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-13",
-    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
-    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-16",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-19",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-27",
-    "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
-    "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54",
-    "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-57",
-    "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
-    "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-59",
+    "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+    "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-02",
+    "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-03",
+    "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
     "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-06",
     "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-23",
+    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-12",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-14",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-18",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-20",
     "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-25",
+    "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+    "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-03",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-04",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-05",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-06",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
-    "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-13",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-16",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-17",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-21",
-    "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-23",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-24",
-    "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35"
-  ],
-  "testMoreDirectOnDegradedOrDataQualityRisk": [
-    "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
-    "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
-    "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-04",
-    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
-    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-12",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-13",
-    "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
-    "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-16",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-19",
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-27",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-12",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-14",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-08",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
     "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-13",
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-15",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-16",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-17",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-18",
@@ -171,18 +158,19 @@
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
     "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-21",
     "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-23",
-    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-24"
+    "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-24",
+    "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
+    "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
+    "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
+    "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36"
   ],
+  "directActionDespiteSourceOrCampaignBlockers": [],
+  "testMoreDirectOnDegradedOrDataQualityRisk": [],
   "cutOnActiveWithRecentConversions": [
     "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03"
   ],
-  "protectDespiteRecentSevereDecay": [
-    "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-11",
-    "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11"
-  ],
+  "protectDespiteRecentSevereDecay": [],
   "refreshDespiteStableAboveBenchmark": [
-    "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
-    "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-14",
     "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14"
   ],
   "top20HighestSpendV2Decisions": [
@@ -215,7 +203,7 @@
       "spend": 57588.45,
       "currentOperatorDecision": "Refresh",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
         "inactive_confirmed_loser",
@@ -288,7 +276,7 @@
       "spend": 25506.3,
       "currentOperatorDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
         "inactive_confirmed_loser",
@@ -325,7 +313,7 @@
       "spend": 13373.07,
       "currentOperatorDecision": "Protect",
       "v2PrimaryDecision": "Protect",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "low",
       "v2ReasonTags": [
         "around_benchmark_stable",
@@ -337,7 +325,7 @@
       "spend": 12644.77,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
         "inactive_confirmed_loser",
@@ -364,7 +352,7 @@
       "spend": 10022.46,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "critical",
       "v2ReasonTags": [
         "huge_spend_severe_loser",
@@ -377,7 +365,7 @@
       "spend": 8765.22,
       "currentOperatorDecision": "Diagnose",
       "v2PrimaryDecision": "Protect",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "low",
       "v2ReasonTags": [
         "stable_above_benchmark_winner",
@@ -386,7 +374,7 @@
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
-      "spend": 8295.33,
+      "spend": 8295.35,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
       "v2Actionability": "review_only",
@@ -401,7 +389,7 @@
       "spend": 6991.75,
       "currentOperatorDecision": "Diagnose",
       "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "medium",
       "v2ReasonTags": [
         "weak_read_with_conversion",
@@ -413,7 +401,7 @@
       "spend": 6686.77,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "critical",
       "v2ReasonTags": [
         "huge_spend_severe_loser",
@@ -426,7 +414,7 @@
       "spend": 6314.72,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "critical",
       "v2ReasonTags": [
         "huge_spend_severe_loser",
@@ -441,7 +429,7 @@
       "spend": 57588.45,
       "currentOperatorDecision": "Refresh",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
         "inactive_confirmed_loser",
@@ -454,50 +442,12 @@
       "spend": 25506.3,
       "currentOperatorDecision": "Diagnose",
       "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
         "inactive_confirmed_loser",
         "below_benchmark",
         "no_recovery"
-      ]
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
-      "spend": 5025.29,
-      "currentOperatorDecision": "Diagnose",
-      "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "high",
-      "v2ReasonTags": [
-        "inactive_confirmed_loser",
-        "below_benchmark",
-        "no_recovery"
-      ]
-    },
-    {
-      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
-      "spend": 286.87,
-      "currentOperatorDecision": "Diagnose",
-      "v2PrimaryDecision": "Cut",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "high",
-      "v2ReasonTags": [
-        "inactive_confirmed_loser",
-        "below_benchmark",
-        "no_recovery"
-      ]
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
-      "spend": 28450.98,
-      "currentOperatorDecision": "Refresh",
-      "v2PrimaryDecision": "Diagnose",
-      "v2Actionability": "diagnose",
-      "v2RiskLevel": "high",
-      "v2ReasonTags": [
-        "inactive_winner_status_question",
-        "campaign_context_diagnosis"
       ]
     },
     {
@@ -516,7 +466,7 @@
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
-      "spend": 8295.33,
+      "spend": 8295.35,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
       "v2Actionability": "review_only",
@@ -527,8 +477,21 @@
       ]
     },
     {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
+      "spend": 5025.29,
+      "currentOperatorDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "high",
+      "v2ReasonTags": [
+        "inactive_confirmed_loser",
+        "below_benchmark",
+        "no_recovery"
+      ]
+    },
+    {
       "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
-      "spend": 4364.99,
+      "spend": 4365.02,
       "currentOperatorDecision": "Cut",
       "v2PrimaryDecision": "Refresh",
       "v2Actionability": "review_only",
@@ -551,27 +514,28 @@
       ]
     },
     {
-      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-04",
-      "spend": 983.89,
-      "currentOperatorDecision": "Refresh",
-      "v2PrimaryDecision": "Diagnose",
-      "v2Actionability": "diagnose",
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "spend": 833.63,
+      "currentOperatorDecision": "Test More",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
-        "inactive_historical_winner",
-        "campaign_context_blocked"
+        "lifetime_strong_recent_decay",
+        "refresh_before_cut"
       ]
     },
     {
-      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-10",
-      "spend": 356.73,
-      "currentOperatorDecision": "Scale",
-      "v2PrimaryDecision": "Diagnose",
-      "v2Actionability": "diagnose",
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "spend": 286.87,
+      "currentOperatorDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "high",
       "v2ReasonTags": [
-        "inactive_historical_winner",
-        "campaign_context_blocked"
+        "inactive_confirmed_loser",
+        "below_benchmark",
+        "no_recovery"
       ]
     },
     {
@@ -599,85 +563,107 @@
       ]
     },
     {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
+      "spend": 28450.98,
+      "currentOperatorDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "v2Actionability": "diagnose",
+      "v2RiskLevel": "high",
+      "v2ReasonTags": [
+        "inactive_winner_status_question",
+        "campaign_context_diagnosis"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "spend": 983.91,
+      "currentOperatorDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "v2Actionability": "diagnose",
+      "v2RiskLevel": "high",
+      "v2ReasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "spend": 277.11,
+      "currentOperatorDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "v2Actionability": "diagnose",
+      "v2RiskLevel": "high",
+      "v2ReasonTags": [
+        "strong_history_recent_stop",
+        "diagnose_before_refresh"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
+      "spend": 61027.88,
+      "currentOperatorDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "medium",
+      "v2ReasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49",
+      "spend": 33858.47,
+      "currentOperatorDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "medium",
+      "v2ReasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51",
+      "spend": 29265.56,
+      "currentOperatorDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "medium",
+      "v2ReasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55",
+      "spend": 23522.86,
+      "currentOperatorDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "medium",
+      "v2ReasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56",
+      "spend": 16255.87,
+      "currentOperatorDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "v2Actionability": "review_only",
+      "v2RiskLevel": "medium",
+      "v2ReasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ]
+    },
+    {
       "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
       "spend": 6991.75,
       "currentOperatorDecision": "Diagnose",
       "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "weak_read_with_conversion",
-        "test_more_before_cut"
-      ]
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-12",
-      "spend": 4336.3,
-      "currentOperatorDecision": "Cut",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
-      ]
-    },
-    {
-      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
-      "spend": 3637.07,
-      "currentOperatorDecision": "Cut",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
-      ]
-    },
-    {
-      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
-      "spend": 587.18,
-      "currentOperatorDecision": "Cut",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "below_benchmark",
-        "recent_conversion_rebound"
-      ]
-    },
-    {
-      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
-      "spend": 513.21,
-      "currentOperatorDecision": "Diagnose",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "promising_under_sampled_winner",
-        "protect_scale_precision"
-      ]
-    },
-    {
-      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
-      "spend": 447.06,
-      "currentOperatorDecision": "Diagnose",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
-      "v2RiskLevel": "medium",
-      "v2ReasonTags": [
-        "promising_under_sampled_winner",
-        "protect_scale_precision"
-      ]
-    },
-    {
-      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-13",
-      "spend": 336.64,
-      "currentOperatorDecision": "Diagnose",
-      "v2PrimaryDecision": "Test More",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "v2RiskLevel": "medium",
       "v2ReasonTags": [
         "weak_read_with_conversion",

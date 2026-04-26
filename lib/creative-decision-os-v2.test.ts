@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   resolveCreativeDecisionOsV2,
@@ -51,7 +52,7 @@ describe("resolveCreativeDecisionOsV2", () => {
       spend: 10_022,
       roas: 0.8,
       recentRoas: 0.8,
-      recentPurchases: 1,
+      recentPurchases: 0,
       long90Roas: 0.72,
       activeBenchmarkRoas: 2.98,
       peerMedianSpend: 8_749,
@@ -63,6 +64,44 @@ describe("resolveCreativeDecisionOsV2", () => {
     expect(result.queueEligible).toBe(false);
     expect(result.applyEligible).toBe(false);
     expect(result.reasonTags).toContain("huge_spend_severe_loser");
+  });
+
+  it("refreshes active historical winners that stopped converting recently", () => {
+    const result = resolveCreativeDecisionOsV2(row({
+      spend: 4_388,
+      roas: 6.84,
+      recentRoas: 0,
+      recentPurchases: 0,
+      long90Roas: 10.92,
+      activeBenchmarkRoas: 2.79,
+      activeBenchmarkCpa: 2_826,
+      peerMedianSpend: 10_071,
+      trustState: "live_confident",
+      sourceTrustFlags: ["trust_live_confident", "validation_favorable"],
+    }));
+
+    expect(result.primaryDecision).toBe("Refresh");
+    expect(result.actionability).toBe("review_only");
+    expect(result.reasonTags).toContain("strong_history_recent_stop");
+  });
+
+  it("diagnoses recent-stop winners when source context is ambiguous", () => {
+    const result = resolveCreativeDecisionOsV2(row({
+      spend: 153,
+      roas: 7.22,
+      recentRoas: 0,
+      recentPurchases: 0,
+      long90Roas: 5.99,
+      activeBenchmarkRoas: 3.22,
+      activeBenchmarkCpa: 89,
+      peerMedianSpend: 200,
+      trustState: "degraded_missing_truth",
+      sourceTrustFlags: ["trust_degraded_missing_truth", "validation_missing"],
+    }));
+
+    expect(result.primaryDecision).toBe("Diagnose");
+    expect(result.actionability).toBe("diagnose");
+    expect(result.reasonTags).toContain("strong_history_recent_stop");
   });
 
   it("refreshes active converting underperformers before cutting", () => {
@@ -112,8 +151,24 @@ describe("resolveCreativeDecisionOsV2", () => {
     }));
 
     expect(result.primaryDecision).toBe("Test More");
-    expect(result.actionability).toBe("direct");
+    expect(result.actionability).toBe("review_only");
     expect(result.primaryDecision).not.toBe("Watch" as never);
+  });
+
+  it("downgrades direct actionability when source or campaign blockers are present", () => {
+    const result = resolveCreativeDecisionOsV2(row({
+      roas: 2.46,
+      recentRoas: 2.07,
+      recentPurchases: 5,
+      long90Roas: 2.46,
+      activeBenchmarkRoas: 1.74,
+      peerMedianSpend: 381,
+      campaignContextBlockerFlags: ["campaign_context_limited"],
+    }));
+
+    expect(result.primaryDecision).toBe("Protect");
+    expect(result.actionability).toBe("review_only");
+    expect(result.blockerReasons).toContain("campaign_or_adset_context_requires_review");
   });
 
   it("diagnoses thin or source-blocked reads while preserving queue/apply safety", () => {
@@ -219,5 +274,21 @@ describe("Creative Decision OS v2 gold-label evaluation", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("keeps v2 source files formatted as readable multi-line code", () => {
+    const sourceFiles = [
+      "lib/creative-decision-os-v2.ts",
+      "lib/creative-decision-os-v2.test.ts",
+      "scripts/creative-decision-os-v2-live-audit.ts",
+    ];
+
+    for (const path of sourceFiles) {
+      const source = readFileSync(path, "utf8");
+      const lineCount = source.split("\n").length;
+      const averageLineLength = source.length / lineCount;
+      expect(lineCount, `${path} line count`).toBeGreaterThan(100);
+      expect(averageLineLength, `${path} average line length`).toBeLessThan(180);
+    }
   });
 });

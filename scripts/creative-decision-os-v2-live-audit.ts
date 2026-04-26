@@ -97,6 +97,7 @@ type V2LiveAuditRow = {
   v2ReasonTags: string[];
   v2EvidenceSummary: string;
   v2RiskLevel: CreativeDecisionOsV2Output["riskLevel"];
+  v2ProblemClass: CreativeDecisionOsV2Output["problemClass"];
   v2QueueEligible: boolean;
   v2ApplyEligible: boolean;
   v2BlockerReasons: string[];
@@ -287,6 +288,7 @@ function writeCsv(path: string, rows: V2LiveAuditRow[]) {
     "v2Confidence",
     "v2ReasonTags",
     "v2RiskLevel",
+    "v2ProblemClass",
     "v2QueueEligible",
     "v2ApplyEligible",
     "spend",
@@ -328,12 +330,16 @@ function summarize(rows: V2LiveAuditRow[], artifact: CurrentSanitizedArtifact): 
   const hasSourceOrCampaignBlocker = (row: V2LiveAuditRow) =>
     row.campaignAdsetBlockerFlags.length > 0 ||
     row.trustSourceProvenanceFlags.some((flag) =>
-      flag.includes("inactive_or_immaterial") || flag.includes("missing"),
+      flag.includes("inactive_or_immaterial") ||
+      flag.includes("degraded") ||
+      flag.includes("missing") ||
+      flag.includes("blocked") ||
+      flag.includes("read_only"),
     );
   const degradedOrDataQuality = (row: V2LiveAuditRow) =>
     row.trustSourceProvenanceFlags.some((flag) => flag.includes("degraded")) ||
     row.v2BlockerReasons.includes("benchmark_context_not_strong") ||
-    row.v2RiskLevel === "medium";
+    row.v2ProblemClass === "data-quality";
   const recentSevereDecay = (row: V2LiveAuditRow) =>
     row.recentRoas != null &&
     row.activeBenchmarkRoas != null &&
@@ -487,6 +493,7 @@ async function main() {
       v2ReasonTags: output.reasonTags,
       v2EvidenceSummary: output.evidenceSummary,
       v2RiskLevel: output.riskLevel,
+      v2ProblemClass: output.problemClass,
       v2QueueEligible: output.queueEligible,
       v2ApplyEligible: output.applyEligible,
       v2BlockerReasons: output.blockerReasons,
