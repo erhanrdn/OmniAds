@@ -319,6 +319,19 @@ export function resolveCreativeDecisionOsV2(
   }
 
   if (degraded && spend < 5_000 && spend < peerMedianSpend && roasRatio <= 0.35) {
+    if (recentPurchases === 0 && recentRatio === 0 && spendVsPeer >= 0.75 && long90Ratio >= 0.5) {
+      return output(
+        input,
+        "Diagnose",
+        "diagnose",
+        confidence(74, input),
+        ["degraded_truth", "no_recent_conversion", "diagnose_before_action"],
+        "Degraded-truth read has no recent conversions and only partial historical support, so diagnose before choosing a buyer action.",
+        "medium",
+        "data-quality",
+        "Test More",
+      );
+    }
     return output(
       input,
       "Test More",
@@ -349,6 +362,27 @@ export function resolveCreativeDecisionOsV2(
       "medium",
       "campaign-context",
       "Refresh",
+    );
+  }
+
+  if (
+    !degraded &&
+    recentPurchases === 0 &&
+    roasRatio >= 0.95 &&
+    roasRatio < 1.25 &&
+    long90Ratio >= 0.6 &&
+    long90Ratio < 1.5 &&
+    spendVsPeer >= 1
+  ) {
+    return output(
+      input,
+      "Protect",
+      "direct",
+      confidence(76, input),
+      ["around_benchmark_stable", "protect"],
+      "On-benchmark creative at peer-level spend should be protected unless recent decay is severe enough to require a refresh.",
+      "low",
+      "creative",
     );
   }
 
@@ -455,6 +489,24 @@ export function resolveCreativeDecisionOsV2(
   }
 
   if (roasRatio < 0.85 && spend >= peerMedianSpend) {
+    if (
+      !degraded &&
+      roasRatio >= 0.8 &&
+      recentPurchases <= 1 &&
+      long90Ratio < 1.1
+    ) {
+      return output(
+        input,
+        "Refresh",
+        "review_only",
+        confidence(76, input),
+        ["below_benchmark", "peer_level_spend", "creative_refresh_candidate"],
+        "Peer-level spend with below-benchmark lifetime performance needs a creative refresh, even if the latest conversion window rebounded.",
+        "medium",
+        "creative",
+        "Test More",
+      );
+    }
     if (recentPurchases >= 1 && recentRatio >= 1) {
       return output(
         input,
@@ -463,6 +515,25 @@ export function resolveCreativeDecisionOsV2(
         confidence(74, input),
         ["below_benchmark", "recent_conversion_rebound"],
         "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut.",
+        "medium",
+        "insufficient-signal",
+        "Refresh",
+      );
+    }
+    if (
+      degraded &&
+      recentPurchases <= 1 &&
+      spend < 250 &&
+      spendVsPeer < 1.5 &&
+      recentRatio < 0.75
+    ) {
+      return output(
+        input,
+        "Test More",
+        "direct",
+        confidence(70, input),
+        ["degraded_truth", "sparse_purchases", "confirm_before_refresh"],
+        "Sparse degraded-truth signal needs more delivery before deciding whether refresh is warranted.",
         "medium",
         "insufficient-signal",
         "Refresh",
@@ -479,6 +550,19 @@ export function resolveCreativeDecisionOsV2(
         "high",
         "creative",
         "Cut",
+      );
+    }
+    if (degraded && recentPurchases >= 2 && spendVsPeer >= 1 && roasRatio >= 0.5) {
+      return output(
+        input,
+        "Refresh",
+        "review_only",
+        confidence(76, input),
+        ["below_benchmark", "degraded_truth", "creative_refresh_candidate"],
+        "Below-benchmark degraded-truth read has enough conversion volume and peer-level spend to refresh before further testing.",
+        "medium",
+        "creative",
+        "Test More",
       );
     }
     if (degraded && spend < peerMedianSpend * 1.5) {
@@ -573,6 +657,32 @@ export function resolveCreativeDecisionOsV2(
       "Stable around-benchmark creative should be protected while more evidence accrues.",
       "low",
       "creative",
+    );
+  }
+
+  if (
+    active &&
+    !degraded &&
+    recentPurchases === 1 &&
+    roasRatio >= 0.55 &&
+    roasRatio < 0.85 &&
+    recentRatio >= 0.45 &&
+    recentRatio < 0.75 &&
+    long90Ratio >= 0.85 &&
+    long90Ratio < 1.1 &&
+    spendVsPeer >= 0.8 &&
+    spendVsPeer < 1.2
+  ) {
+    return output(
+      input,
+      "Diagnose",
+      "diagnose",
+      confidence(72, input),
+      ["mixed_signal", "diagnose_before_action"],
+      "Near-peer spend with mixed lifetime and recent signals needs diagnosis before refresh or more delivery.",
+      "medium",
+      "data-quality",
+      "Test More",
     );
   }
 

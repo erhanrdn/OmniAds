@@ -183,4 +183,41 @@ describe("Creative Decision OS v2 gold-label evaluation", () => {
     expect(evaluation.queueApplySafety.directScaleCount).toBe(0);
     expect(evaluation.queueApplySafety.inactiveDirectScaleCount).toBe(0);
   });
+
+  it("keeps emitted resolver output free of internal artifact wording", () => {
+    const forbiddenTerms = [
+      /gold/i,
+      /json/i,
+      /fixture/i,
+      /\bPR\b/,
+      /ChatGPT/i,
+      /Claude/i,
+      /Codex/i,
+      /WIP/i,
+      /internal/i,
+      /labels this row/i,
+    ];
+    const violations: string[] = [];
+
+    function visit(value: unknown, path: string) {
+      if (typeof value === "string") {
+        for (const term of forbiddenTerms) {
+          if (term.test(value)) violations.push(`${path}: ${value}`);
+        }
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, `${path}[${index}]`));
+      }
+    }
+
+    for (const goldRow of artifact.rows) {
+      const result = resolveCreativeDecisionOsV2(mapGoldRowToV2Input(goldRow));
+      for (const [field, value] of Object.entries(result)) {
+        visit(value, `${goldRow.row_id}.${field}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });

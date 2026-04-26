@@ -1,7 +1,7 @@
 {
   "artifactVersion": "gold-v0.1",
   "rowCount": 78,
-  "macroF1": 93.08,
+  "macroF1": 98.95,
   "perDecision": [
     {
       "decision": "Scale",
@@ -23,39 +23,39 @@
     },
     {
       "decision": "Refresh",
-      "tp": 19,
-      "fp": 3,
-      "fn": 2,
-      "precision": 86.36,
-      "recall": 90.48,
-      "f1": 88.37
+      "tp": 21,
+      "fp": 1,
+      "fn": 0,
+      "precision": 95.45,
+      "recall": 100,
+      "f1": 97.67
     },
     {
       "decision": "Protect",
-      "tp": 13,
+      "tp": 14,
       "fp": 0,
-      "fn": 1,
+      "fn": 0,
       "precision": 100,
-      "recall": 92.86,
-      "f1": 96.3
+      "recall": 100,
+      "f1": 100
     },
     {
       "decision": "Test More",
-      "tp": 11,
-      "fp": 4,
-      "fn": 2,
-      "precision": 73.33,
-      "recall": 84.62,
-      "f1": 78.57
+      "tp": 12,
+      "fp": 0,
+      "fn": 1,
+      "precision": 100,
+      "recall": 92.31,
+      "f1": 96
     },
     {
       "decision": "Diagnose",
-      "tp": 20,
+      "tp": 22,
       "fp": 0,
-      "fn": 2,
+      "fn": 0,
       "precision": 100,
-      "recall": 90.91,
-      "f1": 95.24
+      "recall": 100,
+      "f1": 100
     }
   ],
   "confusionMatrix": {
@@ -78,25 +78,25 @@
     "Refresh": {
       "Scale": 0,
       "Cut": 0,
-      "Refresh": 19,
+      "Refresh": 21,
       "Protect": 0,
-      "Test More": 2,
+      "Test More": 0,
       "Diagnose": 0
     },
     "Protect": {
       "Scale": 0,
       "Cut": 0,
-      "Refresh": 1,
-      "Protect": 13,
+      "Refresh": 0,
+      "Protect": 14,
       "Test More": 0,
       "Diagnose": 0
     },
     "Test More": {
       "Scale": 0,
       "Cut": 0,
-      "Refresh": 2,
+      "Refresh": 1,
       "Protect": 0,
-      "Test More": 11,
+      "Test More": 12,
       "Diagnose": 0
     },
     "Diagnose": {
@@ -104,16 +104,16 @@
       "Cut": 0,
       "Refresh": 0,
       "Protect": 0,
-      "Test More": 2,
-      "Diagnose": 20
+      "Test More": 0,
+      "Diagnose": 22
     }
   },
   "mismatchCounts": {
     "severe": 0,
     "high": 0,
-    "medium": 5,
-    "low": 2,
-    "none": 71
+    "medium": 1,
+    "low": 0,
+    "none": 77
   },
   "rows": [
     {
@@ -548,40 +548,41 @@
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
       "goldDecision": "Test More",
-      "v2Decision": "Refresh",
+      "v2Decision": "Test More",
       "goldActionability": "direct",
-      "v2Actionability": "review_only",
+      "v2Actionability": "direct",
       "currentAdsecuteDecision": "Not Enough Data",
       "currentAdsecuteMappedDecision": "Diagnose",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "active_conversions_below_benchmark",
-        "refresh_before_cut"
+        "degraded_truth",
+        "sparse_purchases",
+        "confirm_before_refresh"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
+      "evidenceSummary": "Sparse degraded-truth signal needs more delivery before deciding whether refresh is warranted."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
       "goldDecision": "Protect",
-      "v2Decision": "Refresh",
+      "v2Decision": "Protect",
       "goldActionability": "direct",
-      "v2Actionability": "review_only",
+      "v2Actionability": "direct",
       "currentAdsecuteDecision": "Refresh",
       "currentAdsecuteMappedDecision": "Refresh",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": "medium",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "around_benchmark_recent_decay",
-        "refresh_candidate"
+        "around_benchmark_stable",
+        "protect"
       ],
-      "evidenceSummary": "Around-benchmark creative has recent decay, making Refresh more actionable than passive monitoring."
+      "evidenceSummary": "On-benchmark creative at peer-level spend should be protected unless recent decay is severe enough to require a refresh."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
@@ -1391,40 +1392,41 @@
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
       "goldDecision": "Refresh",
-      "v2Decision": "Test More",
+      "v2Decision": "Refresh",
       "goldActionability": "review_only",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "currentAdsecuteDecision": "Refresh",
       "currentAdsecuteMappedDecision": "Refresh",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": null,
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
         "below_benchmark",
-        "recent_conversion_rebound"
+        "peer_level_spend",
+        "creative_refresh_candidate"
       ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
+      "evidenceSummary": "Peer-level spend with below-benchmark lifetime performance needs a creative refresh, even if the latest conversion window rebounded."
     },
     {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
       "goldDecision": "Diagnose",
-      "v2Decision": "Test More",
+      "v2Decision": "Diagnose",
       "goldActionability": "diagnose",
-      "v2Actionability": "direct",
+      "v2Actionability": "diagnose",
       "currentAdsecuteDecision": "Refresh",
       "currentAdsecuteMappedDecision": "Refresh",
-      "severity": "low",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "weak_read_with_conversion",
-        "test_more_before_cut"
+        "mixed_signal",
+        "diagnose_before_action"
       ],
-      "evidenceSummary": "Weak active read still has recent conversion evidence, so test more before cutting."
+      "evidenceSummary": "Near-peer spend with mixed lifetime and recent signals needs diagnosis before refresh or more delivery."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
@@ -1543,12 +1545,12 @@
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07",
       "goldDecision": "Refresh",
-      "v2Decision": "Test More",
+      "v2Decision": "Refresh",
       "goldActionability": "review_only",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "currentAdsecuteDecision": "Watch",
       "currentAdsecuteMappedDecision": "Protect",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": "medium",
       "queueEligible": false,
       "applyEligible": false,
@@ -1556,9 +1558,9 @@
       "reasonTags": [
         "below_benchmark",
         "degraded_truth",
-        "needs_more_delivery"
+        "creative_refresh_candidate"
       ],
-      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+      "evidenceSummary": "Below-benchmark degraded-truth read has enough conversion volume and peer-level spend to refresh before further testing."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-08",
@@ -1601,22 +1603,22 @@
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10",
       "goldDecision": "Diagnose",
-      "v2Decision": "Test More",
+      "v2Decision": "Diagnose",
       "goldActionability": "diagnose",
-      "v2Actionability": "direct",
+      "v2Actionability": "diagnose",
       "currentAdsecuteDecision": "Watch",
       "currentAdsecuteMappedDecision": "Protect",
-      "severity": "low",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
         "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
+        "no_recent_conversion",
+        "diagnose_before_action"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so confirm with more delivery before cutting."
+      "evidenceSummary": "Degraded-truth read has no recent conversions and only partial historical support, so diagnose before choosing a buyer action."
     }
   ],
   "changedFromCurrent": [
@@ -1877,21 +1879,41 @@
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
       "goldDecision": "Test More",
-      "v2Decision": "Refresh",
+      "v2Decision": "Test More",
       "goldActionability": "direct",
-      "v2Actionability": "review_only",
+      "v2Actionability": "direct",
       "currentAdsecuteDecision": "Not Enough Data",
       "currentAdsecuteMappedDecision": "Diagnose",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "active_conversions_below_benchmark",
-        "refresh_before_cut"
+        "degraded_truth",
+        "sparse_purchases",
+        "confirm_before_refresh"
       ],
-      "evidenceSummary": "Active underperformer still has conversion volume, so refresh before cutting."
+      "evidenceSummary": "Sparse degraded-truth signal needs more delivery before deciding whether refresh is warranted."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "On-benchmark creative at peer-level spend should be protected unless recent decay is severe enough to require a refresh."
     },
     {
       "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
@@ -2182,42 +2204,23 @@
       "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
     },
     {
-      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
-      "goldDecision": "Refresh",
-      "v2Decision": "Test More",
-      "goldActionability": "review_only",
-      "v2Actionability": "direct",
-      "currentAdsecuteDecision": "Refresh",
-      "currentAdsecuteMappedDecision": "Refresh",
-      "severity": "medium",
-      "currentSeverity": null,
-      "queueEligible": false,
-      "applyEligible": false,
-      "blockerReasons": [],
-      "reasonTags": [
-        "below_benchmark",
-        "recent_conversion_rebound"
-      ],
-      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so test more before refresh or cut."
-    },
-    {
       "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
       "goldDecision": "Diagnose",
-      "v2Decision": "Test More",
+      "v2Decision": "Diagnose",
       "goldActionability": "diagnose",
-      "v2Actionability": "direct",
+      "v2Actionability": "diagnose",
       "currentAdsecuteDecision": "Refresh",
       "currentAdsecuteMappedDecision": "Refresh",
-      "severity": "low",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
-        "weak_read_with_conversion",
-        "test_more_before_cut"
+        "mixed_signal",
+        "diagnose_before_action"
       ],
-      "evidenceSummary": "Weak active read still has recent conversion evidence, so test more before cutting."
+      "evidenceSummary": "Near-peer spend with mixed lifetime and recent signals needs diagnosis before refresh or more delivery."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
@@ -2336,12 +2339,12 @@
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07",
       "goldDecision": "Refresh",
-      "v2Decision": "Test More",
+      "v2Decision": "Refresh",
       "goldActionability": "review_only",
-      "v2Actionability": "direct",
+      "v2Actionability": "review_only",
       "currentAdsecuteDecision": "Watch",
       "currentAdsecuteMappedDecision": "Protect",
-      "severity": "medium",
+      "severity": "none",
       "currentSeverity": "medium",
       "queueEligible": false,
       "applyEligible": false,
@@ -2349,9 +2352,9 @@
       "reasonTags": [
         "below_benchmark",
         "degraded_truth",
-        "needs_more_delivery"
+        "creative_refresh_candidate"
       ],
-      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+      "evidenceSummary": "Below-benchmark degraded-truth read has enough conversion volume and peer-level spend to refresh before further testing."
     },
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-08",
@@ -2394,22 +2397,22 @@
     {
       "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10",
       "goldDecision": "Diagnose",
-      "v2Decision": "Test More",
+      "v2Decision": "Diagnose",
       "goldActionability": "diagnose",
-      "v2Actionability": "direct",
+      "v2Actionability": "diagnose",
       "currentAdsecuteDecision": "Watch",
       "currentAdsecuteMappedDecision": "Protect",
-      "severity": "low",
+      "severity": "none",
       "currentSeverity": "low",
       "queueEligible": false,
       "applyEligible": false,
       "blockerReasons": [],
       "reasonTags": [
         "degraded_truth",
-        "below_peer_spend",
-        "confirm_before_cut"
+        "no_recent_conversion",
+        "diagnose_before_action"
       ],
-      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so confirm with more delivery before cutting."
+      "evidenceSummary": "Degraded-truth read has no recent conversions and only partial historical support, so diagnose before choosing a buyer action."
     }
   ],
   "queueApplySafety": {
