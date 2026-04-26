@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
@@ -23,6 +24,30 @@ const preview: CreativeDecisionOsV2PreviewPayload = {
   rowCount: surface.rows.length,
   surface,
 };
+
+const requiredForbiddenButtonTerms = [
+  "Auto-*",
+  "Push live",
+  "Push to review queue",
+  "Apply",
+  "Queue",
+  "Scale now",
+  "Cut now",
+  "Approve",
+  "Product-ready",
+];
+
+const readablePreviewFiles = [
+  "app/(dashboard)/creatives/page.tsx",
+  "app/(dashboard)/creatives/page.test.tsx",
+  "app/api/creatives/decision-os-v2/preview/route.ts",
+  "app/api/creatives/decision-os-v2/preview/route.test.ts",
+  "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx",
+  "docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md",
+  "lib/creative-decision-os-v2-preview.ts",
+  "lib/creative-decision-os-v2-preview.test.tsx",
+  "src/services/data-service-ai.ts",
+];
 
 function bucket(id: string) {
   const found = surface.buckets.find((item) => item.id === id);
@@ -84,6 +109,17 @@ describe("Creative Decision OS v2 preview surface model", () => {
 });
 
 describe("CreativeDecisionOsV2PreviewSurface", () => {
+  it("keeps required contract-forbidden terms in the rendered-output scan", () => {
+    const missingTerms = requiredForbiddenButtonTerms.filter(
+      (term) =>
+        !CREATIVE_DECISION_OS_V2_PREVIEW_FORBIDDEN_BUTTON_TEXT.some((pattern) =>
+          pattern.test(term),
+        ),
+    );
+
+    expect(missingTerms).toEqual([]);
+  });
+
   it("renders safe read-only text without forbidden button or internal artifact terms", () => {
     const html = renderToStaticMarkup(
       <CreativeDecisionOsV2PreviewSurface preview={preview} onOpenRow={() => undefined} />,
@@ -102,5 +138,18 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
       /JSON labels/i,
     ].filter((term) => term.test(html));
     expect(violations).toEqual([]);
+  });
+});
+
+describe("Creative Decision OS v2 preview file hygiene", () => {
+  it("keeps new preview source, test, and report files readable", () => {
+    const compressedFiles = readablePreviewFiles.filter((file) => {
+      const text = readFileSync(file, "utf8");
+      const lines = text.split(/\r?\n/).length;
+
+      return text.length > 4000 && lines < 40;
+    });
+
+    expect(compressedFiles).toEqual([]);
   });
 });

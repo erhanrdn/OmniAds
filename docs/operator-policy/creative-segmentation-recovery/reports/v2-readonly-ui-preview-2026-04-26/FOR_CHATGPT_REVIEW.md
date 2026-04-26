@@ -1,7 +1,7 @@
 CHATGPT_REVIEW_READY: YES
 ROLE: CODEX_WIP_IMPLEMENTATION
 BRANCH: wip/creative-v2-readonly-ui-preview-2026-04-26
-HEAD_COMMIT: SEE_PR_BODY_HEAD_COMMIT
+HEAD_COMMIT: SEE_DRAFT_PR_BODY_CURRENT_HEAD
 PRIMARY_REPORT_PATH: docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md
 HANDOFF_FILE: docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md
 SANITIZED: YES
@@ -11,15 +11,31 @@ MAIN_PUSHED: NO
 
 # Executive summary
 
-Implemented a read-only Creative Decision OS v2 preview surface behind an off-by-default query-param gate.
+Implemented a read-only Creative Decision OS v2 preview surface behind an
+off-by-default query-param gate.
 
-This is stacked on PR #78 resolver branch and depends on PR #79 contract v0.1.1. It does not replace v1 Creative Decision OS, does not feed Command Center, does not create work items, and does not enable any platform write behavior.
+This is stacked on PR #78 resolver branch and depends on PR #79 contract
+v0.1.1. It does not replace v1 Creative Decision OS, does not feed Command
+Center, does not create work items, and does not enable any platform write
+behavior.
 
 # Dependencies
 
 - Resolver dependency: `wip/creative-decision-os-v2-baseline-first-2026-04-26`
-- Surface contract dependency: `review/creative-v2-operator-surface-contract-2026-04-26`, contract v0.1.1
+- Surface contract dependency:
+  `review/creative-v2-operator-surface-contract-2026-04-26`
+- Surface contract commit:
+  `d0c326d3051510df74a7ef063bbd3e93d127a8f2`
+- Contract version: `v0.1.1`
+- Contract JSON path:
+  `docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json`
 - Intended PR base: `wip/creative-decision-os-v2-baseline-first-2026-04-26`
+
+The contract JSON forbidden button language includes the required parity terms:
+
+- `Auto-*`
+- `Push live`
+- `Push to review queue`
 
 # Files changed
 
@@ -32,6 +48,7 @@ This is stacked on PR #78 resolver branch and depends on PR #79 contract v0.1.1.
 - `lib/creative-decision-os-v2-preview.test.tsx`
 - `src/services/data-service-ai.ts`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
 
 # Feature gate
 
@@ -58,7 +75,9 @@ Client state:
 
 - `creativeDecisionOsV2Preview`
 
-The endpoint reads the latest v1 Creative Decision OS snapshot, transforms rows through the PR #78 v2 resolver, and returns a separate preview payload. It does not write to DB and does not save a new snapshot.
+The endpoint reads the latest v1 Creative Decision OS snapshot, transforms rows
+through the PR #78 v2 resolver, and returns a separate preview payload. It does
+not write to DB and does not save a new snapshot.
 
 # UI components
 
@@ -203,6 +222,9 @@ Product preview output scan:
 
 - Forbidden button/text scan: passed in `lib/creative-decision-os-v2-preview.test.tsx`
 - Forbidden internal-artifact scan: passed in `lib/creative-decision-os-v2-preview.test.tsx`
+- Contract parity scan: passed. The rendered-output scan includes
+  `Auto-*`, `Push live`, `Push to review queue`, `Apply`, `Queue`,
+  `Scale now`, `Cut now`, `Approve`, and `Product-ready`.
 
 Forbidden rendered terms scanned:
 
@@ -292,14 +314,18 @@ git ls-files -mo --exclude-standard |
   xargs awk 'length($0) > 240 { print FILENAME ":" FNR ":" length($0) }'
 ```
 
+- Readability test:
+  `lib/creative-decision-os-v2-preview.test.tsx` fails if large v2 preview
+  source, test, or report files are compressed into suspiciously few lines.
+
 Results:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | passed, 305 files, 2184 tests |
+| `npm test` | passed, 305 files, 2186 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 31 tests |
+| Focused Creative/v2 preview tests | passed, 6 files, 33 tests |
 | v2 gold eval | macro F1 97.96, severe 0, high 0, medium 2, low 0 |
 | `git diff --check` | passed |
 | Hidden/bidi/control scan | passed |
@@ -310,63 +336,74 @@ Results:
 
 # Preview validation
 
-DB-configured dev server attempt:
+Authenticated local/dev preview validation completed.
 
-- Local DB tunnel: started with connection details omitted from this committed report.
-- Dev server: `npm run dev` with `DATABASE_URL` and `DATABASE_URL_UNPOOLED` configured, values omitted.
-- URL tested: `http://127.0.0.1:3000/creatives?creativeDecisionOsV2Preview=1`
+Artifact:
 
-Headless browser smoke command:
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
 
-```bash
-node <<'NODE'
-const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
-  await page.goto('http://127.0.0.1:3000/creatives?creativeDecisionOsV2Preview=1', {
-    waitUntil: 'domcontentloaded',
-    timeout: 30000,
-  });
-  await page.waitForLoadState('load', { timeout: 10000 }).catch(() => null);
-  const result = {
-    url: page.url(),
-    title: await page.title(),
-    previewCount: await page.locator('[data-testid="creative-v2-preview-surface"]').count(),
-    loginControls:
-      await page.locator('input[type="email"], input[name="email"]').count() +
-      await page.getByText('Login', { exact: false }).count().catch(() => 0) +
-      await page.getByText('Sign in', { exact: false }).count().catch(() => 0),
-    forbiddenVisible:
-      await page
-        .getByText(/Apply|Queue|Push live|Push to review queue|Auto-|Scale now|Cut now|Approve|Product-ready/i)
-        .count()
-        .catch(() => 0),
-  };
-  console.log(JSON.stringify(result, null, 2));
-  await browser.close();
-})();
-NODE
-```
+Validation environment:
 
-Result:
+- Local DB-configured dev server.
+- `DATABASE_URL` and `DATABASE_URL_UNPOOLED` were configured for the shell.
+- Environment values, connection details, browser state, and session values are
+  omitted from committed artifacts.
+- Authenticated demo workspace session.
+
+The authenticated demo workspace initially had no latest v1 Creative Decision
+OS snapshot, so the v2 preview endpoint correctly returned no payload. The
+existing v1 Creative Decision OS analysis endpoint was run once for that
+authenticated demo workspace to create the prerequisite v1 snapshot.
+
+This did not add a v2 write path. The v2 preview endpoint remained read-only,
+and the v2 preview detail/open interaction captured zero app write requests.
+
+Sanitized DOM validation result:
 
 ```json
 {
-  "url": "http://127.0.0.1:3000/login?next=%2Fcreatives%3FcreativeDecisionOsV2Preview%3D1",
-  "title": "Adsecute",
-  "previewCount": 0,
-  "loginControls": 4,
-  "forbiddenVisible": 0
+  "authenticated": true,
+  "businessCount": 1,
+  "activeBusinessPresent": true,
+  "previewCount": 1,
+  "v1Visible": true,
+  "todayPriorityVisible": 1,
+  "todayPriorityMentionsScale": true,
+  "todayPriorityMentionsCut": true,
+  "todayPriorityMentionsRefresh": true,
+  "diagnoseDetailsCount": 1,
+  "diagnoseOpenCount": 0,
+  "inactiveDetailsCount": 1,
+  "inactiveOpenCount": 0,
+  "forbiddenVisible": 0,
+  "internalVisible": 0,
+  "safeActionButtonsVisible": 6,
+  "writesDuringDetailClick": 0
 }
 ```
 
-Screenshots were not committed because the headless browser was not authenticated and never reached the Creative page.
+Required preview checks:
+
+| Check | Result |
+| --- | --- |
+| Creative page authenticated | passed |
+| `[data-testid="creative-v2-preview-surface"]` rendered | passed |
+| v1 remained visible | passed |
+| Today Priority rendered | passed |
+| Diagnose collapsed/grouped by default | passed |
+| Inactive Review collapsed by default | passed |
+| Forbidden action language visible | 0 |
+| Internal artifact terms visible | 0 |
+| Safe detail/open interaction app writes | 0 |
+
+Screenshots were not committed because the validation artifact is a sanitized
+screen-note report with DOM assertions and no raw private visual data.
 
 # Known risks
 
-- Preview screenshot validation still needs an authenticated local browser session.
-- The preview endpoint currently derives v2 rows from the latest v1 Creative Decision OS snapshot, so the preview appears only after v1 analysis exists for the selected scope.
+- The preview endpoint currently derives v2 rows from the latest v1 Creative
+  Decision OS snapshot, so the preview appears only after v1 analysis exists for
+  the selected scope.
 - This branch is stacked on PR #78 and should be reviewed against that branch for an isolated UI diff.
 
 # Confirmations
