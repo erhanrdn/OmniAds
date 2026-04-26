@@ -594,9 +594,12 @@ the active files were rewritten as ASCII-only report files, the old v0
 JSON was removed, and strict scans confirmed no hidden, bidirectional,
 control, or non-ASCII characters remain in the report folder.
 
-If GitHub still shows a hidden/bidirectional warning after this push,
-the local byte-level scans do not reproduce a codepoint in the active
-report files. The active report files contain ASCII text only.
+After push, the GitHub branch blob views for the active handoff file and
+`surface-contract-v0.1.json` were inspected. The active JSON file showed
+no matches for "hidden", "bidirectional", or "This file contains". The
+active handoff file only matched "hidden" and "bidirectional" in this
+hygiene text, not in a GitHub warning banner. No exact warning codepoint
+remains to identify in the active report files.
 
 ## Confirmations
 
