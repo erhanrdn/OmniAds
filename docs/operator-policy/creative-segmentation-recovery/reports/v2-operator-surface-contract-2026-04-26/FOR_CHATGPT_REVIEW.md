@@ -50,6 +50,24 @@ correction that direct is actionability confidence and not buyer urgency.
 UI implementation remains blocked pending Claude's explicit review of
 this v0.1 contract.
 
+## v0.1.1 Micro-Fix: forbiddenButtonLanguage Parity
+
+ChatGPT accepted the v0.1 contract direction and Claude's explicit
+v0.1 review with one blocking contract issue: the Markdown forbidden
+button list included three terms that were missing from
+`surface-contract-v0.1.json`.
+
+Added to `forbiddenButtonLanguage`:
+
+- `Auto-*`
+- `Push live`
+- `Push to review queue`
+
+This addresses Claude's only blocking contract issue before read-only
+UI preview implementation. No product code, UI, API, resolver,
+Command Center, queue, apply, write behavior, thresholds, or gold labels
+changed in this micro-fix.
+
 The v2 live audit has 303 rows:
 
 - 1 Scale
