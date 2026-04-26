@@ -326,11 +326,13 @@ External scanners checked but unavailable in this environment:
 
 ## Hygiene Addendum - 2026-04-26
 
-Codex updated this evidence branch after ChatGPT review to remove `.env` filename extensions from committed evidence logs:
+Codex updated this evidence branch after ChatGPT review to remove environment-style filename extensions from committed evidence logs.
 
-- `logs/main/summary.env` was renamed to `logs/main/summary.txt`
-- `logs/pr65/summary.env` was renamed to `logs/pr65/summary.txt`
-- `logs/pr74/summary.env` was renamed to `logs/pr74/summary.txt`
+Current summary log paths:
+
+- `logs/main/summary.txt`
+- `logs/pr65/summary.txt`
+- `logs/pr74/summary.txt`
 
 No product code, policy, threshold, UI, queue/apply behavior, benchmark logic, or resolver behavior changed in this hygiene update.
 
@@ -349,4 +351,21 @@ Additional hygiene checks rerun on the committed report folder:
 
 Scanner note: a byte-oriented control scan can misclassify valid UTF-8 continuation bytes in Next.js build-log symbols as C1 control code points. The final scan was rerun with UTF-8 decoding before classifying characters.
 
-Final scan result: no `.env` extension files remain in this PR branch; no hidden/bidirectional Unicode or disallowed control characters were found in non-PNG evidence artifacts.
+Final scan result: no environment-extension artifact files remain in this PR branch; no hidden/bidirectional Unicode or disallowed control characters were found in non-PNG evidence artifacts.
+
+## Hygiene Addendum 2 - 2026-04-26
+
+Codex rechecked the PR after ChatGPT reported that GitHub still showed environment-extension files and hidden/bidirectional warnings.
+
+GitHub files-view verification:
+
+- Connector file list for PR #75 shows `logs/main/summary.txt`, `logs/pr65/summary.txt`, and `logs/pr74/summary.txt`.
+- Cache-busted public GitHub files view shows extension filters: `.csv`, `.json`, `.log`, `.md`, `.png`, `.txt`; it no longer shows an environment-extension filter.
+- Git tree scan for environment-style filenames and legacy summary-log filenames returned no matches for this branch.
+
+GitHub hidden-character warning investigation:
+
+- Cache-busted public GitHub files-view HTML contains GitHub's generic `js-file-alert-template` inside the `js-check-hidden-unicode` diff wrapper for `FOR_CHATGPT_REVIEW.md`.
+- Remote raw file scan for `FOR_CHATGPT_REVIEW.md` found no hidden, bidi, default-ignorable, or disallowed control codepoints.
+- Local branch-wide UTF-8 decoded scan over PR-changed non-PNG artifacts found no hidden, bidi, default-ignorable, or disallowed control codepoints.
+- Therefore there is no exact bad codepoint to remove from the current raw artifact. The exact static HTML source of the warning text is GitHub's alert template, not a character present in the raw file.
