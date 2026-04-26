@@ -1,7 +1,7 @@
 CHATGPT_REVIEW_READY: YES
 ROLE: CODEX_WIP_IMPLEMENTATION
 BRANCH: wip/creative-decision-os-v2-baseline-first-2026-04-26
-HEAD_COMMIT: see Draft PR metadata after push
+HEAD_COMMIT: see PR body
 PRIMARY_REPORT_PATH: docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/
 HANDOFF_FILE: docs/operator-policy/creative-segmentation-recovery/reports/v2-baseline-first-2026-04-26/FOR_CHATGPT_REVIEW.md
 SANITIZED: YES
