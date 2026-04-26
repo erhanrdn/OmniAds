@@ -1,0 +1,2463 @@
+{
+  "artifactVersion": "gold-v0",
+  "rowCount": 78,
+  "macroF1": 91.27,
+  "perDecision": [
+    {
+      "decision": "Scale",
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    {
+      "decision": "Cut",
+      "tp": 4,
+      "fp": 1,
+      "fn": 0,
+      "precision": 80,
+      "recall": 100,
+      "f1": 88.89
+    },
+    {
+      "decision": "Refresh",
+      "tp": 19,
+      "fp": 3,
+      "fn": 2,
+      "precision": 86.36,
+      "recall": 90.48,
+      "f1": 88.37
+    },
+    {
+      "decision": "Protect",
+      "tp": 13,
+      "fp": 0,
+      "fn": 1,
+      "precision": 100,
+      "recall": 92.86,
+      "f1": 96.3
+    },
+    {
+      "decision": "Test More",
+      "tp": 13,
+      "fp": 4,
+      "fn": 3,
+      "precision": 76.47,
+      "recall": 81.25,
+      "f1": 78.79
+    },
+    {
+      "decision": "Diagnose",
+      "tp": 20,
+      "fp": 0,
+      "fn": 2,
+      "precision": 100,
+      "recall": 90.91,
+      "f1": 95.24
+    }
+  ],
+  "confusionMatrix": {
+    "Scale": {
+      "Scale": 1,
+      "Cut": 0,
+      "Refresh": 0,
+      "Protect": 0,
+      "Test More": 0,
+      "Diagnose": 0
+    },
+    "Cut": {
+      "Scale": 0,
+      "Cut": 4,
+      "Refresh": 0,
+      "Protect": 0,
+      "Test More": 0,
+      "Diagnose": 0
+    },
+    "Refresh": {
+      "Scale": 0,
+      "Cut": 0,
+      "Refresh": 19,
+      "Protect": 0,
+      "Test More": 2,
+      "Diagnose": 0
+    },
+    "Protect": {
+      "Scale": 0,
+      "Cut": 0,
+      "Refresh": 1,
+      "Protect": 13,
+      "Test More": 0,
+      "Diagnose": 0
+    },
+    "Test More": {
+      "Scale": 0,
+      "Cut": 1,
+      "Refresh": 2,
+      "Protect": 0,
+      "Test More": 13,
+      "Diagnose": 0
+    },
+    "Diagnose": {
+      "Scale": 0,
+      "Cut": 0,
+      "Refresh": 0,
+      "Protect": 0,
+      "Test More": 2,
+      "Diagnose": 20
+    }
+  },
+  "mismatchCounts": {
+    "severe": 0,
+    "high": 0,
+    "medium": 6,
+    "low": 2,
+    "none": 70
+  },
+  "rows": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Retest",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-03",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-04",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-03|company-01-creative-05",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-04|company-01-creative-06",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_confirmed_loser",
+        "below_benchmark",
+        "no_recovery"
+      ],
+      "evidenceSummary": "Inactive creative spent enough to confirm a below-benchmark loser with no recent recovery."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-07",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-05|company-01-creative-08",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-09",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-03",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-04",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_winner_status_question",
+        "campaign_context_diagnosis"
+      ],
+      "evidenceSummary": "Inactive winner has a live-confident historical signal but not enough current delivery to choose refresh versus status diagnosis."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_confirmed_loser",
+        "below_benchmark",
+        "no_recovery"
+      ],
+      "evidenceSummary": "Inactive creative spent enough to confirm a below-benchmark loser with no recent recovery."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-07",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_creative",
+        "insufficient_signal"
+      ],
+      "evidenceSummary": "Inactive creative has too little reliable spend or benchmark context for a buyer action."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-08",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_creative",
+        "insufficient_signal"
+      ],
+      "evidenceSummary": "Inactive creative has too little reliable spend or benchmark context for a buyer action."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "severe_sustained_loser",
+        "below_benchmark",
+        "no_recent_recovery"
+      ],
+      "evidenceSummary": "Active creative has enough spend and sustained below-benchmark performance to cut."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "Stable around-benchmark creative should be protected while more evidence accrues."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "Stable around-benchmark creative should be protected while more evidence accrues."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Refresh",
+      "goldActionability": "direct",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "medium",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "goldDecision": "Protect",
+      "v2Decision": "Refresh",
+      "goldActionability": "direct",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_recent_decay",
+        "refresh_candidate"
+      ],
+      "evidenceSummary": "Around-benchmark creative has recent decay, making Refresh more actionable than Watch."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_no_recent_conversion",
+        "diagnose_before_action"
+      ],
+      "evidenceSummary": "Weak active read has no recent conversion evidence and no decisive cut signal."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-09",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-02",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-03",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Around-benchmark read is not yet mature enough to protect or cut."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-03|company-04-creative-04",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not eligible for evaluation",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "source_inactive_or_immaterial",
+        "data_quality_blocker"
+      ],
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-02|company-04-creative-06",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not eligible for evaluation",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "source_inactive_or_immaterial",
+        "data_quality_blocker"
+      ],
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-07",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not eligible for evaluation",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "source_inactive_or_immaterial",
+        "data_quality_blocker"
+      ],
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not eligible for evaluation",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "source_inactive_or_immaterial",
+        "data_quality_blocker"
+      ],
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-03|company-04-creative-09",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-05|company-04-adset-04|company-04-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not eligible for evaluation",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "source_inactive_or_immaterial",
+        "data_quality_blocker"
+      ],
+      "evidenceSummary": "Source marks the creative inactive or immaterial, so v2 diagnoses the data/source state instead of emitting a buyer action."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "Stable around-benchmark creative should be protected while more evidence accrues."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "goldDecision": "Scale",
+      "v2Decision": "Scale",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "textbook_scale_shape",
+        "above_benchmark",
+        "recent_strength",
+        "operator_review_required"
+      ],
+      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; v2 allows review-only Scale."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03",
+      "goldDecision": "Test More",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "huge_spend_severe_loser",
+        "below_benchmark",
+        "no_recovery"
+      ],
+      "evidenceSummary": "Huge-spend severe loser with no recovery should be cut even when the gold v0 JSON labels this row differently."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-06",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_no_recent_conversion",
+        "diagnose_before_action"
+      ],
+      "evidenceSummary": "Weak active read has no recent conversion evidence and no decisive cut signal."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-07",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-08",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-09",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "historical_strength_dead_recent",
+        "diagnose_before_refresh"
+      ],
+      "evidenceSummary": "Historical strength with no recent conversion needs diagnosis before the buyer chooses refresh or protection."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "Stable around-benchmark creative should be protected while more evidence accrues."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-06",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-07",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-08",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-09",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "lifetime_strong_recent_decay",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Lifetime or long-window signal remains credible, but recent ROAS decayed below benchmark; refresh before cutting."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "severe_sustained_loser",
+        "below_benchmark",
+        "no_recent_recovery"
+      ],
+      "evidenceSummary": "Active creative has enough spend and sustained below-benchmark performance to cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "goldDecision": "Test More",
+      "v2Decision": "Refresh",
+      "goldActionability": "direct",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "lifetime_strong_recent_decay",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Lifetime or long-window signal remains credible, but recent ROAS decayed below benchmark; refresh before cutting."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "degraded_truth",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "goldDecision": "Refresh",
+      "v2Decision": "Test More",
+      "goldActionability": "review_only",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "medium",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Test More",
+      "goldActionability": "diagnose",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "low",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_with_conversion",
+        "test_more_before_cut"
+      ],
+      "evidenceSummary": "Weak active read still has recent conversion evidence, so v2 tests more before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-03",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-04|company-08-creative-04",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-06",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "promising_under_sampled_winner",
+        "protect_scale_precision"
+      ],
+      "evidenceSummary": "Strong but still under-scaled active winner should get more test delivery before Scale."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07",
+      "goldDecision": "Refresh",
+      "v2Decision": "Test More",
+      "goldActionability": "review_only",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "degraded_truth",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-08",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-04|company-08-creative-09",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Around-benchmark read is not yet mature enough to protect or cut."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Test More",
+      "goldActionability": "diagnose",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "low",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    }
+  ],
+  "changedFromCurrent": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Retest",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-03",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-04",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-03|company-01-creative-05",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-09",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [
+        "campaign_or_adset_context_requires_review"
+      ],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-03",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_signal",
+        "refresh_before_relaunch"
+      ],
+      "evidenceSummary": "Inactive creative has enough historical or recent signal to treat as a refresh/relaunch candidate, not direct Scale."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-04",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_winner_status_question",
+        "campaign_context_diagnosis"
+      ],
+      "evidenceSummary": "Inactive winner has a live-confident historical signal but not enough current delivery to choose refresh versus status diagnosis."
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "inactive_historical_winner",
+        "campaign_context_blocked"
+      ],
+      "evidenceSummary": "Paused historical winner needs campaign/status diagnosis before relaunch or scale."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "goldDecision": "Cut",
+      "v2Decision": "Cut",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "severe_sustained_loser",
+        "below_benchmark",
+        "no_recent_recovery"
+      ],
+      "evidenceSummary": "Active creative has enough spend and sustained below-benchmark performance to cut."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark_stable",
+        "protect"
+      ],
+      "evidenceSummary": "Stable around-benchmark creative should be protected while more evidence accrues."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Refresh",
+      "goldActionability": "direct",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "medium",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_no_recent_conversion",
+        "diagnose_before_action"
+      ],
+      "evidenceSummary": "Weak active read has no recent conversion evidence and no decisive cut signal."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-02",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "goldDecision": "Scale",
+      "v2Decision": "Scale",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "textbook_scale_shape",
+        "above_benchmark",
+        "recent_strength",
+        "operator_review_required"
+      ],
+      "evidenceSummary": "Active creative is far above benchmark with recent and long-window confirmation; v2 allows review-only Scale."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-06",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_no_recent_conversion",
+        "diagnose_before_action"
+      ],
+      "evidenceSummary": "Weak active read has no recent conversion evidence and no decisive cut signal."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-07",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-09",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "historical_strength_dead_recent",
+        "diagnose_before_refresh"
+      ],
+      "evidenceSummary": "Historical strength with no recent conversion needs diagnosis before the buyer chooses refresh or protection."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Diagnose",
+      "goldActionability": "diagnose",
+      "v2Actionability": "diagnose",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "no_recent_conversion"
+      ],
+      "evidenceSummary": "Thin active read has no recent conversion evidence, so v2 diagnoses the signal before action."
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-07",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Not Enough Data",
+      "currentAdsecuteMappedDecision": "Diagnose",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "thin_data",
+        "positive_probe_signal"
+      ],
+      "evidenceSummary": "Thin active read has some positive conversion or historical signal; continue testing rather than holding in Watch."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "goldDecision": "Test More",
+      "v2Decision": "Refresh",
+      "goldActionability": "direct",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "creative_refresh_candidate"
+      ],
+      "evidenceSummary": "Moderate below-benchmark active read needs creative refresh before a harder cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "degraded_truth",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "goldDecision": "Refresh",
+      "v2Decision": "Test More",
+      "goldActionability": "review_only",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "medium",
+      "currentSeverity": null,
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Test More",
+      "goldActionability": "diagnose",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Refresh",
+      "currentAdsecuteMappedDecision": "Refresh",
+      "severity": "low",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "weak_read_with_conversion",
+        "test_more_before_cut"
+      ],
+      "evidenceSummary": "Weak active read still has recent conversion evidence, so v2 tests more before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "goldDecision": "Refresh",
+      "v2Decision": "Refresh",
+      "goldActionability": "review_only",
+      "v2Actionability": "review_only",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "active_conversions_below_benchmark",
+        "refresh_before_cut"
+      ],
+      "evidenceSummary": "Active underperformer still has conversion volume, so v2 refreshes before cutting."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-03",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "high",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-04|company-08-creative-04",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-05",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Cut",
+      "currentAdsecuteMappedDecision": "Cut",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "recent_conversion_rebound"
+      ],
+      "evidenceSummary": "Below-benchmark creative has recent conversion rebound, so v2 tests more before refresh or cut."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-03|company-08-creative-06",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Scale Review",
+      "currentAdsecuteMappedDecision": "Scale",
+      "severity": "none",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "promising_under_sampled_winner",
+        "protect_scale_precision"
+      ],
+      "evidenceSummary": "Strong but still under-scaled active winner should get more test delivery before Scale."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-07",
+      "goldDecision": "Refresh",
+      "v2Decision": "Test More",
+      "goldActionability": "review_only",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "medium",
+      "currentSeverity": "medium",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "below_benchmark",
+        "degraded_truth",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Below-benchmark active read is not severe enough for a direct cut under degraded truth."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-05|company-08-creative-08",
+      "goldDecision": "Protect",
+      "v2Decision": "Protect",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Test More",
+      "currentAdsecuteMappedDecision": "Test More",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "stable_above_benchmark_winner",
+        "protect_before_scale"
+      ],
+      "evidenceSummary": "Above-benchmark active winner should be protected unless scalable evidence is overwhelming."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-04|company-08-creative-09",
+      "goldDecision": "Test More",
+      "v2Decision": "Test More",
+      "goldActionability": "direct",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Protect",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "none",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "around_benchmark",
+        "needs_more_delivery"
+      ],
+      "evidenceSummary": "Around-benchmark read is not yet mature enough to protect or cut."
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-02|company-08-adset-06|company-08-creative-10",
+      "goldDecision": "Diagnose",
+      "v2Decision": "Test More",
+      "goldActionability": "diagnose",
+      "v2Actionability": "direct",
+      "currentAdsecuteDecision": "Watch",
+      "currentAdsecuteMappedDecision": "Protect",
+      "severity": "low",
+      "currentSeverity": "low",
+      "queueEligible": false,
+      "applyEligible": false,
+      "blockerReasons": [],
+      "reasonTags": [
+        "degraded_truth",
+        "below_peer_spend",
+        "confirm_before_cut"
+      ],
+      "evidenceSummary": "Degraded-truth loser is still below peer-median spend, so v2 confirms with more delivery before cutting."
+    }
+  ],
+  "queueApplySafety": {
+    "queueEligibleCount": 0,
+    "applyEligibleCount": 0,
+    "directScaleCount": 0,
+    "inactiveDirectScaleCount": 0,
+    "watchPrimaryCount": 0,
+    "scaleReviewPrimaryCount": 0
+  }
+}
