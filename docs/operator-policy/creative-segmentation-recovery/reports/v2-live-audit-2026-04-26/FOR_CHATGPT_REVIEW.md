@@ -211,7 +211,7 @@ Remaining watchlist notes:
 
 ## GitHub Hidden / Bidi Warning Check
 
-Local hidden/bidi/control scan passed for all changed files. After push, PR files and PR view will be inspected. If a warning remains, the exact file, codepoint, and line/context will be documented in the PR body.
+Local hidden/bidi/control scan passed for all changed files. GitHub PR files view and PR page were fetched after push. After excluding GitHub's reusable hidden-character alert template blocks, no active file-specific hidden/bidi warning remained in the fetched HTML.
 
 ## Sanitization
 

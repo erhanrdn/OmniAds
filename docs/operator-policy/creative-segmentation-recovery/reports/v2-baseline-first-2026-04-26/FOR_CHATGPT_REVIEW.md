@@ -249,6 +249,7 @@ The remaining Cut-on-active-with-recent-conversions watchlist row is review_only
 - `git diff --cached --check`: passed.
 - Hidden/bidirectional Unicode scan: passed for 10 changed files.
 - Disallowed ASCII control-character scan: passed for 10 changed files.
+- GitHub files/PR view hidden-Unicode inspection: no active file-specific warning after template blocks were excluded from the fetched GitHub HTML. The remaining warning text is only GitHub's reusable hidden-character alert template.
 - Custom secret/URL/key scan over PR artifacts: passed for 10 changed files.
 - Raw email and long numeric ID scan over PR artifacts: passed for 10 changed files.
 - Product code changed: yes, v2 resolver/test/report-only audit script changes only.
