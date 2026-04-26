@@ -1,17 +1,46 @@
-# FOR_CHATGPT_REVIEW.md - Creative Decision OS Adjudicated Gold Labels v0
+# FOR_CHATGPT_REVIEW.md - Creative Decision OS Adjudicated Gold Labels v0.1
 
 Role: CLAUDE_MEDIA_BUYER_JUDGE
 Date: 2026-04-26
 Branch: review/creative-decision-os-gold-labels-v0-2026-04-26 (cut from origin/main @ fa838df2)
+Active version: gold-v0.1 (machine-readable JSON `version: "gold-v0.1"`)
 Inputs:
 - review/creative-reset-evidence-pack-2026-04-25 (PR #75) - sanitized 78-row evidence artifact
 - review/creative-claude-blind-media-buyer-2026-04-25 (PR #76) - blind buyer review
 
-This is gold v0. It is NOT product-ready, NOT accepted, NOT approved, NOT 90+. It is the adjudicated buyer label set against which v2 candidates should be measured. ChatGPT remains decision owner.
+This is gold v0.1. It is NOT product-ready, NOT accepted, NOT approved, NOT 90+. It is the adjudicated buyer label set against which v2 candidates should be measured. ChatGPT remains decision owner.
 
 No product code, policy, threshold, UI, queue, apply, benchmark, or resolver behavior was changed by this work. Diff = 3 docs-only files.
 
 All artifacts are sanitized: the only inputs consumed are the committed sanitized artifacts on PR #75 (`rawIdsIncluded: false`, `rawNamesIncluded: false`; identifiers are aliases like `company-NN`). All output identifiers are the same aliases. JSON output is written with `ensure_ascii=True`. Markdown and Python files are pure ASCII.
+
+---
+
+## 0. Gold v0.1 correction addendum (2026-04-26)
+
+ChatGPT review of PR #77 (the original gold v0) found that the machine-readable JSON and this Markdown disagreed on `company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03`. Markdown labeled it `Cut / direct` (huge-spend severe loser, $10,022, ROAS 0.27x benchmark, 1 recent purchase, no recovery, confidence 95). JSON labeled it `Test More` at confidence 70.
+
+ChatGPT's authoritative ruling: this row is **Cut / direct** unless an explicit buyer rationale strong enough to overrule it is produced. No such overrule was produced. The same severe-loser shape applies to the two other huge-spend losers in the company-05 cluster (creative-05 at $6,471 ROAS 0; creative-07 at $5,624 ROAS 0), both of which were labeled Cut/direct in this Markdown's section 4 cluster C and section 6 mandatory adjudication summary, but Test More in the JSON.
+
+Root cause in `gold_labels.py`: the active-path adjudicator routed any row with lifetime `purchases < 3` to `Test More` *before* checking the huge-spend severe-loser branch. At $4K+ spend the very thinness of conversions IS the loss signal, so this ordering is wrong. The JSON therefore did not reach the explicit `huge_loss` branch the Markdown's section 6 promised was active.
+
+Fix applied in v0.1: the adjudicator now evaluates the huge-spend severe-loser branch **before** the thin-spend / low-purchases gate. Three rows now resolve to `Cut / direct` (confidence 95) and `differs_from_blind_rubric: true` with the explicit `change_reason` "Rubric Test More was wrong on huge-spend zero-recovery losers - buyer override per supervisor adjudication mandate":
+
+| row_id | spend | bench_r | rec_purchases | gold v0 | gold v0.1 |
+|---|---:|---:|---:|---|---|
+| `company-05\|...\|company-05-creative-03` | $10,022 | 0.27x | 1 | Test More | **Cut / direct** |
+| `company-05\|...\|company-05-creative-05` | $6,471  | 0.00x | 0 | Test More | **Cut / direct** |
+| `company-05\|...\|company-05-creative-07` | $5,624  | 0.00x | 0 | Test More | **Cut / direct** |
+
+Aggregate impact (v0 -> v0.1):
+- gold distribution: Cut **4 -> 7**, Test More **16 -> 13**. All other counts unchanged.
+- macro F1 (current Adsecute vs gold): **36.84 -> 41.74**.
+- Cut F1 (current Adsecute vs gold): 37.5 -> **63.2** (precision 25.0 -> 50.0; recall 75.0 -> 85.7).
+- Test More F1: 33.3 -> 37.0 (recall 31.2 -> 38.5; precision unchanged).
+- severity counts: severe 0 -> 0 (unchanged); high 7 -> 7 (unchanged); medium **19 -> 16**; low 18 -> 18.
+- override count vs blind rubric: 12 -> **15** (the three newly Cut-routed rows).
+
+The Markdown sections below (1, 2, 3, 4, override list) are written from v0.1 and now match the JSON exactly. The original v0 numbers are reproduced in this addendum as the audit trail. JSON `version` field is `"gold-v0.1"` and includes a `version_note` describing the change.
 
 ---
 
@@ -20,10 +49,10 @@ All artifacts are sanitized: the only inputs consumed are the committed sanitize
 | decision   | count |
 |------------|-------|
 | Scale      | 1     |
-| Cut        | 4     |
+| Cut        | 7     |
 | Refresh    | 21    |
 | Protect    | 14    |
-| Test More  | 16    |
+| Test More  | 13    |
 | Diagnose   | 22    |
 | **total**  | 78    |
 
@@ -42,30 +71,30 @@ Adsecute -> allowed-taxonomy mapping used: `Scale Review -> Scale`, `Watch -> Pr
 
 ## 2. Current Adsecute vs gold confusion matrix
 
-Rows = gold v0 adjudicated decision. Columns = current Adsecute decision after mapping. Counts.
+Rows = gold v0.1 adjudicated decision. Columns = current Adsecute decision after mapping. Counts.
 
 | gold \ adsecute | Scale | Cut | Refresh | Protect | Test More | Diagnose | total |
 |---|---|---|---|---|---|---|---|
 | Scale     | 0 | 0  | 0 | 1 | 0 | 0  | 1  |
-| Cut       | 0 | 3  | 1 | 0 | 0 | 0  | 4  |
+| Cut       | 0 | 6  | 1 | 0 | 0 | 0  | 7  |
 | Refresh   | 2 | 2  | 9 | 6 | 2 | 0  | 21 |
 | Protect   | 1 | 0  | 3 | 6 | 4 | 0  | 14 |
-| Test More | 1 | 6  | 0 | 2 | 5 | 2  | 16 |
+| Test More | 1 | 3  | 0 | 2 | 5 | 2  | 13 |
 | Diagnose  | 2 | 1  | 4 | 1 | 3 | 11 | 22 |
 | **total** | 6 | 12 | 17| 16| 14| 13 | 78 |
 
-Per-decision precision / recall / F1 (current Adsecute scored against gold v0):
+Per-decision precision / recall / F1 (current Adsecute scored against gold v0.1):
 
 | decision   | tp | fp | fn | precision | recall | F1   |
 |------------|----|----|----|-----------|--------|------|
 | Scale      | 0  | 6  | 1  | 0.0       | 0.0    | 0.0  |
-| Cut        | 3  | 9  | 1  | 25.0      | 75.0   | 37.5 |
+| Cut        | 6  | 6  | 1  | 50.0      | 85.7   | 63.2 |
 | Refresh    | 9  | 8  | 12 | 52.9      | 42.9   | 47.4 |
 | Protect    | 6  | 10 | 8  | 37.5      | 42.9   | 40.0 |
-| Test More  | 5  | 9  | 11 | 35.7      | 31.2   | 33.3 |
+| Test More  | 5  | 9  | 8  | 35.7      | 38.5   | 37.0 |
 | Diagnose   | 11 | 2  | 11 | 84.6      | 50.0   | 62.9 |
 
-Macro F1 (current Adsecute vs gold v0): 36.84
+Macro F1 (current Adsecute vs gold v0.1): **41.74** (rounded to 41.7 in script stdout).
 
 ## 3. Severity counts vs current Adsecute
 
@@ -79,7 +108,7 @@ Severity definitions:
 |----------|-------|
 | severe   | 0     |
 | high     | 7     |
-| medium   | 19    |
+| medium   | 16    |
 | low      | 18    |
 
 ### Severe mismatch list
@@ -100,11 +129,11 @@ None. (Gold v0 has 0 Scale<->Cut directional flips against current Adsecute.)
 
 ### Medium mismatch list
 
-19 rows. The full list with per-row detail is in `gold-labels-v0.json` under `rows[*]` where `severity_vs_adsecute == "medium"`. Top patterns:
+16 rows. The full list with per-row detail is in `gold-labels-v0.json` under `rows[*]` where `severity_vs_adsecute == "medium"`. Top patterns:
 
-- gold Test More vs Adsecute Cut on huge-spend losers (company-05 cluster - 4 rows where gold also confirms severe loss but routes through Test More because of borderline thresholds; see also section 4 cluster B).
 - gold Refresh vs Adsecute Watch / Test More on lifetime-strong recent-decay rows.
 - gold Diagnose vs Adsecute Refresh / Test More on inactive historical-winner rows where the buyer asks "why was it stopped" first.
+- gold Test More vs Adsecute Cut on a smaller residual set of low-spend rows (the three huge-spend company-05 rows that previously sat here have been re-adjudicated to Cut/direct in v0.1; remaining medium rows are the genuine "give more runway" cases).
 
 ### Low mismatch list
 
@@ -118,8 +147,8 @@ Adsecute issues `Scale Review` for 4 inactive creatives at company-01 (creative-
 **Cluster B - Cut threshold inconsistency on active creatives with material conversion volume.**
 Adsecute Cut fires on `company-08-creative-01` ($3,760 spend, 16 recent purchases, ROAS 0.74x bench) and `company-08-creative-02` ($1,233 spend, 1 recent purchase, ROAS 0.66x bench). Gold v0 applies supervisor rule 7 - active creatives with material recent conversions below benchmark should generally Refresh before Cut unless loss is severe and sustained. Gold = Refresh. Note: the same Adsecute Cut threshold also misses the huge-spend company-05 losers in cluster C - showing the Cut rule is not consistently calibrated.
 
-**Cluster C - Adsecute under-cuts huge-spend zero-recovery losers (correctly here, but the gold rubric was too lenient).**
-`company-05-creative-03` ($10,022 spend, ROAS 0.80, 1 recent purchase), `creative-05` ($6,470, ROAS 0), `creative-07` ($5,623, ROAS 0). Adsecute marks these `Cut` correctly. Gold also routes to `Cut` via the new "huge-spend severe loser" branch - this cluster is now fixed in the rubric, and the v0 rubric's prior `Test More` miss has been adjudicated to `Cut`.
+**Cluster C - Adsecute correctly Cuts huge-spend zero-recovery losers; gold v0.1 confirms.**
+`company-05-creative-03` ($10,022 spend, ROAS 0.80, 1 recent purchase), `creative-05` ($6,471, ROAS 0), `creative-07` ($5,624, ROAS 0). Adsecute marks these `Cut` correctly. Gold v0.1 also routes to `Cut / direct` confidence 95 via the explicit "huge-spend severe loser" branch (now ordered above the thin-spend gate). Both v0.1 gold and Adsecute Cut agree on these three rows; severity is null (no mismatch). This is the correction documented in section 0.
 
 **Cluster D - Watch as default holding pen.**
 Adsecute `Watch` lands across paused creatives, zero-recent / zero-ROAS active creatives, and healthy near-benchmark creatives. Gold v0 routes Watch-shaped rows to `Refresh`, `Test More`, `Diagnose`, or `Protect` per the actual signal shape. `Watch` is not a primary decision in gold v0 (per supervisor rule).
@@ -130,23 +159,23 @@ Active creatives with lifetime ROAS >= benchmark but recent ROAS at <0.55x of be
 **Cluster F - Paused-creative routing.**
 Gold v0 separates paused creatives into four explicit outcomes: severe-loss Cut (direct), historical-big-winner Diagnose (`campaign-context`), recent-or-long-90-strong Refresh (`review_only`), and thin-data Diagnose. The current Adsecute system routes most paused creatives through `Refresh` / `Watch` without the campaign-context split.
 
-## 5. Explicit acceptance that this is gold v0, not product-ready
+## 5. Explicit acceptance that this is gold v0.1, not product-ready
 
-This file and the accompanying `gold-labels-v0.json` are gold v0. They are the buyer-adjudicated labels that v2 implementation candidates should be scored against. They are not, and do not claim to be:
+This file and the accompanying `gold-labels-v0.json` (version `gold-v0.1`) are gold v0.1. They are the buyer-adjudicated labels that v2 implementation candidates should be scored against. They are not, and do not claim to be:
 
 - product-ready
 - accepted by ChatGPT
 - approved by the supervisor
 - a 90+ system
 
-Limitations of gold v0:
+Limitations of gold v0.1:
 - It is one buyer judge (Claude Code) doing adjudication, not a multi-buyer panel.
 - Some borderline rows (Refresh vs Cut on company-08-creative-02 with thin recent volume; Protect vs Test More vs Scale on emergent winners) reflect a single buyer judgment call. ChatGPT may overrule any specific row.
 - The adjudication is limited to the supervisor-allowed 6-decision taxonomy and the 4-value actionability axis. Any domain-specific override (e.g., known stock-out, seasonal launch, brand campaign) cannot be reflected from the sanitized data alone.
 - 6 rows are explicitly flagged as needing human / business context (see section 6).
-- Macro F1 of current Adsecute vs gold = 36.84. This is the *current system's* score against gold, not the gold's own score.
+- Macro F1 of current Adsecute vs gold v0.1 = 41.74. This is the *current system's* score against gold, not the gold's own score.
 
-Treat gold v0 as directional: high-severity buyer disagreement is real and should not be ignored, but individual row labels remain debatable.
+Treat gold v0.1 as directional: high-severity buyer disagreement is real and should not be ignored, but individual row labels remain debatable.
 
 ## 6. Rows needing human / business context
 
@@ -165,10 +194,10 @@ These rows were labeled `Diagnose` with `problem_class != "creative"` because th
 
 Confirmed. This branch contains only:
 - `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/FOR_CHATGPT_REVIEW.md` (this file)
-- `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json` (machine-readable gold)
+- `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold-labels-v0.json` (machine-readable gold v0.1)
 - `docs/operator-policy/creative-segmentation-recovery/reports/gold-labels-v0-2026-04-26/gold_labels.py` (deterministic adjudicator for reproducibility)
 
-No source files under `app/`, `lib/`, `apps/`, `packages/`, `prisma/`, `scripts/`, `src/`, `server/`, or any policy / threshold / benchmark / resolver / queue / apply / UI module was touched. `git diff origin/main..HEAD --stat` reflects exactly these three files.
+No source files under `app/`, `lib/`, `apps/`, `packages/`, `prisma/`, `scripts/`, `src/`, `server/`, or any policy / threshold / benchmark / resolver / queue / apply / UI module was touched. `git diff origin/main..HEAD --stat` reflects exactly these three files. The v0.1 correction is a docs-only Python rule reorder + JSON regeneration + Markdown reconciliation.
 
 ## 8. Confirmation: artifacts sanitized
 
@@ -223,12 +252,13 @@ Per the supervisor's instructions, the following rows received explicit re-evalu
 
 - **All lifetime-strong / recent-decay rows** - re-evaluated. New explicit Refresh rule fires when `bench_r >= 0.95 AND bench_recent < 0.55 AND rec_purchases >= 1`.
 
-## Override list (rows where gold v0 disagrees with the original blind rubric)
+## Override list (rows where gold v0.1 disagrees with the original blind rubric)
 
-12 rows. Full detail in `gold-labels-v0.json[rows[*]].change_reason`. Summary:
+15 rows. Full detail in `gold-labels-v0.json[rows[*]].change_reason`. Summary:
 
 - 4 rows: `Cut -> Refresh` on paused near-benchmark creatives with remaining viability signal.
 - 4 rows: `Refresh -> Diagnose` on paused historical big winners (long-90 >= 1.2x benchmark) where the buyer needs the campaign-context answer first.
+- 3 rows: `Test More -> Cut` on huge-spend zero-recovery losers in the company-05 cluster (creative-03, creative-05, creative-07; v0.1 correction per ChatGPT ruling).
 - 1 row: `Protect -> Scale` (textbook adjudication on company-05-creative-02).
 - 1 row: `Refresh -> Cut` on active sub-60% benchmark losers with thin recent conversions and material spend (severe + sustained).
 - 1 row: `Refresh -> Protect` on a sustained above-benchmark winner.

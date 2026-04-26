@@ -187,7 +187,30 @@ def adjudicate(r):
 
     # === ACTIVE PATH ===
 
-    # 2. Insufficient spend / signal.
+    # 2. ADJUDICATED HUGE-SPEND SEVERE LOSER -> Cut, direct (gold v0.1 correction).
+    # This MUST fire before the thin-spend / low-purchases gate. Otherwise a $10K+ creative
+    # with bench_r < 0.4 and total purchases < 3 falls into "Test More" because lifetime purchases
+    # are sparse - the very thinness of conversions is the loss signal at this spend level.
+    # ChatGPT ruling on company-05|...|company-05-creative-03 made this gate authoritative.
+    huge_loss = (
+        bench_roas > 0
+        and spend >= 4000
+        and (roas / bench_roas) < 0.4
+        and (rec_purchases <= 1 or rec_roas < bench_roas * 0.4)
+    )
+    if huge_loss:
+        decision, action, conf = "Cut", "direct", 95
+        rationale = "Active creative with $4K+ spend and <40% of benchmark ROAS, no recovery in recent window - direct cut."
+        problem = "creative"
+        if rubric == "Test More":
+            change_reason = "Rubric Test More was wrong on huge-spend zero-recovery losers - buyer override per supervisor adjudication mandate."
+        elif rubric == "Diagnose":
+            change_reason = "Rubric Diagnose was too soft - at $4K+ spend with sub-40% ROAS no diagnosis is needed; cut."
+        elif rubric != decision:
+            change_reason = f"Rubric chose {rubric}; gold confirms Cut."
+        return decision, action, conf, rationale, problem, change_reason
+
+    # 3. Insufficient spend / signal.
     floor_spend = max(75.0, (peer_med_spend * 0.4) if peer_med_spend else 75.0)
     if spend < floor_spend or purchases < 3:
         if rec_imps < 5000 and rec_purchases == 0:
@@ -204,20 +227,6 @@ def adjudicate(r):
         decision, action, conf = "Diagnose", "diagnose", 50
         rationale = "No benchmark available."
         problem = "data-quality"
-        return decision, action, conf, rationale, problem, change_reason
-
-    # 3. ADJUDICATED HUGE-SPEND SEVERE LOSER -> Cut, direct (rubric Test More miss).
-    huge_loss = spend >= 4000 and bench_r < 0.4 and (rec_purchases <= 1 or rec_roas < bench_roas * 0.4)
-    if huge_loss:
-        decision, action, conf = "Cut", "direct", 95
-        rationale = "Active creative with $4K+ spend and <40% of benchmark ROAS, no recovery in recent window - direct cut."
-        problem = "creative"
-        if rubric == "Test More":
-            change_reason = "Rubric Test More was wrong on huge-spend zero-recovery losers - buyer override per supervisor adjudication mandate."
-        elif rubric == "Diagnose":
-            change_reason = "Rubric Diagnose was too soft - at $4K+ spend with sub-40% ROAS no diagnosis is needed; cut."
-        elif rubric != decision:
-            change_reason = f"Rubric chose {rubric}; gold confirms Cut."
         return decision, action, conf, rationale, problem, change_reason
 
     # 4. ADJUDICATED TEXTBOOK SCALE - clear, sustained, high-confidence.
@@ -505,7 +514,8 @@ def main():
     # Compose JSON output
     out = {
         "generated_at": "2026-04-26",
-        "version": "gold-v0",
+        "version": "gold-v0.1",
+        "version_note": "v0.1 reorders adjudicator so the huge-spend severe-loser Cut branch fires before the thin-spend gate. Per ChatGPT ruling on company-05|...|company-05-creative-03, three rows ($10,022, $6,471, $5,624 spend at 0.27x/0.00x/0.00x benchmark) move from Test More to Cut/direct.",
         "source_blind_artifact": "review/creative-reset-evidence-pack-2026-04-25:docs/operator-policy/creative-segmentation-recovery/reports/reset-evidence-pack-2026-04-25/audits/main/blind-review.committed-artifact.json",
         "blind_review_pr": "PR #76 (review/creative-claude-blind-media-buyer-2026-04-25)",
         "evidence_pack_pr": "PR #75 (review/creative-reset-evidence-pack-2026-04-25)",
