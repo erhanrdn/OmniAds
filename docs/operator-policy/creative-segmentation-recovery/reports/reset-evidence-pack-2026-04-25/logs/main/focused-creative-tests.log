@@ -1,0 +1,11 @@
+[2026-04-26T00:05:58Z] start focused-creative-tests: CREATIVE_TESTS="$(git ls-tree -r --name-only HEAD | rg '(^app/.*creatives.*\.test|^app/api/(creatives|meta/creatives).*\.test|^components/creatives/.*\.test|^lib/creative.*\.test|^scripts/creative.*\.test)' | sort | tr '\n' ' ')" && npx vitest run $CREATIVE_TESTS
+
+ RUN  v4.1.0 /private/tmp/adsecute-reset-pack-main
+
+No test files found, exiting with code 1
+
+filter: app/(dashboard)/creatives/page-support.test.ts app/(dashboard)/creatives/page.test.tsx app/api/ai/creatives/commentary/route.test.ts app/api/ai/creatives/decisions/route.test.ts app/api/creatives/decision-os/route.test.ts app/api/meta/creatives/detail/route.test.ts app/api/meta/creatives/history/route.test.ts app/api/meta/creatives/route.test.ts components/creatives/CreativeBenchmarkScopeControl.test.tsx components/creatives/CreativeDecisionOsDrawer.test.ts components/creatives/CreativeDecisionOsDrawer.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativeDetailExperience.test.tsx components/creatives/CreativesTableSection.test.tsx components/creatives/CreativesTopSection.test.tsx components/creatives/creative-commercial-context-card.test.tsx components/creatives/creatives-top-section-support.test.ts lib/creative-decision-os-snapshots.test.ts lib/creative-decision-os-source.test.ts lib/creative-decision-os.test.ts lib/creative-historical-intelligence.test.ts lib/creative-old-rule-challenger.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts scripts/creative-segmentation-calibration-lab.test.ts scripts/creative-segmentation-holdout-validation.test.ts
+include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+exclude:  node_modules/**, dist/**, .next/**, playwright/**
+
+[2026-04-26T00:05:59Z] exit_code=1

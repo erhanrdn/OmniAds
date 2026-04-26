@@ -1,0 +1,10 @@
+{
+  "url": "http://127.0.0.1:3101/creatives",
+  "startedAt": "2026-04-26T00:13:59.535Z",
+  "storageStateUsed": true,
+  "finalUrl": "http://127.0.0.1:3101/login",
+  "title": "Adsecute",
+  "bodyTextSample": "Adsecute\n\nSign in to your account to continue\n\nEmail\nPassword\nRemember me\nSign in\nOR\nSign in with Google\n\nNo account yet? Create one.",
+  "screenshot": "screenshots/main-creative-page-attempt.png",
+  "endedAt": "2026-04-26T00:14:28.845Z"
+}

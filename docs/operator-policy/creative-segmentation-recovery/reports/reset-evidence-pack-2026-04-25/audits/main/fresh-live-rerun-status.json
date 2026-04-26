@@ -1,0 +1,44 @@
+{
+  "branch": "main",
+  "ref": "origin/main",
+  "head": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+  "freshLocalLiveRerunAvailable": false,
+  "commandFailures": [
+    {
+      "branch": "main",
+      "ref": "origin/main",
+      "head": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+      "timestamp": "2026-04-26T00:09:52Z",
+      "command": "CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts",
+      "worktree": "/tmp/adsecute-reset-pack-main",
+      "exitCode": 1,
+      "error": "DATABASE_URL is not set. Make sure your PostgreSQL connection string is configured.",
+      "dataUnavailable": [
+        "fresh live Creative audit rows",
+        "fresh blind review export",
+        "fresh row decision diff",
+        "Creative UI screenshots for live account/date scope"
+      ],
+      "logPath": "logs/main/live-creative-audit.log"
+    },
+    {
+      "branch": "main",
+      "ref": "origin/main",
+      "head": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+      "timestamp": "2026-04-26T00:10:26Z",
+      "command": "CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts",
+      "worktree": "/tmp/adsecute-reset-pack-main",
+      "exitCode": 1,
+      "error": "connect ECONNREFUSED 127.0.0.1:15432",
+      "dataUnavailable": [
+        "fresh live Creative audit rows",
+        "fresh blind review export",
+        "fresh row decision diff",
+        "Creative UI screenshots for live account/date scope"
+      ],
+      "logPath": "logs/main/live-creative-audit-env-rerun.log"
+    }
+  ],
+  "committedSanitizedArtifactAvailable": true,
+  "committedSanitizedArtifactPath": "audits/main/creative-audit.committed-artifact.json"
+}

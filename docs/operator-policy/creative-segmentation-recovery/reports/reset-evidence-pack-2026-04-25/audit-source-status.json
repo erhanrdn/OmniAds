@@ -1,0 +1,146 @@
+{
+  "generatedAt": "2026-04-26T00:18:30.392Z",
+  "branches": {
+    "main": {
+      "branch": "current main",
+      "ref": "origin/main",
+      "head": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+      "committedSanitizedArtifactAvailable": true,
+      "committedSanitizedArtifact": {
+        "generatedAt": "2026-04-24T21:26:56.219Z",
+        "auditWindow": {
+          "todayReference": "2026-04-25",
+          "startDate": "2026-03-26",
+          "endDate": "2026-04-24",
+          "days": 30,
+          "excludesToday": true
+        },
+        "rows": 78,
+        "businesses": 8,
+        "globalSummary": {
+          "sampledCreatives": 78,
+          "businessesWithZeroScale": 8,
+          "businessesWithZeroScaleReview": 6,
+          "userFacingSegments": {
+            "Retest": 1,
+            "Scale Review": 6,
+            "Protect": 6,
+            "Cut": 12,
+            "Refresh": 17,
+            "Watch": 10,
+            "Not Enough Data": 8,
+            "Test More": 13,
+            "Not eligible for evaluation": 5
+          }
+        },
+        "source": "creative_live_firm_audit",
+        "sanitization": {
+          "rawIdsIncluded": false,
+          "rawNamesIncluded": false,
+          "notes": [
+            "Company, campaign, ad set, account, and creative identifiers are replaced with stable aliases.",
+            "A local private reference artifact with raw names is written to /tmp and is not committed."
+          ]
+        }
+      },
+      "freshLocalLiveRerunAvailable": false,
+      "freshLocalLiveRerunBlocker": [
+        "DATABASE_URL is not set. Make sure your PostgreSQL connection string is configured.",
+        "connect ECONNREFUSED 127.0.0.1:15432"
+      ]
+    },
+    "pr65": {
+      "branch": "PR #65",
+      "ref": "origin/pr/65",
+      "head": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+      "committedSanitizedArtifactAvailable": true,
+      "committedSanitizedArtifact": {
+        "generatedAt": "2026-04-25T22:20:32.480Z",
+        "auditWindow": {
+          "todayReference": "2026-04-26",
+          "startDate": "2026-03-27",
+          "endDate": "2026-04-25",
+          "days": 30,
+          "excludesToday": true
+        },
+        "rows": 78,
+        "businesses": 8,
+        "globalSummary": {
+          "sampledCreatives": 78,
+          "businessesWithZeroScale": 8,
+          "businessesWithZeroScaleReview": 7,
+          "userFacingSegments": {
+            "Refresh": 21,
+            "Test More": 6,
+            "Scale Review": 1,
+            "Cut": 13,
+            "Not Enough Data": 16,
+            "Protect": 6,
+            "Watch": 10,
+            "Not eligible for evaluation": 5
+          }
+        },
+        "source": "creative_live_firm_audit",
+        "sanitization": {
+          "rawIdsIncluded": false,
+          "rawNamesIncluded": false,
+          "notes": [
+            "Company, campaign, ad set, account, and creative identifiers are replaced with stable aliases.",
+            "A local private reference artifact with raw names is written to /tmp and is not committed."
+          ]
+        }
+      },
+      "freshLocalLiveRerunAvailable": false,
+      "freshLocalLiveRerunBlocker": [
+        "runtimeBlockers: discovery:db_tunnel_connection_refused"
+      ]
+    },
+    "pr74": {
+      "branch": "PR #74",
+      "ref": "origin/pr/74",
+      "head": "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+      "committedSanitizedArtifactAvailable": true,
+      "committedSanitizedArtifact": {
+        "generatedAt": "2026-04-24T21:26:56.219Z",
+        "auditWindow": {
+          "todayReference": "2026-04-25",
+          "startDate": "2026-03-26",
+          "endDate": "2026-04-24",
+          "days": 30,
+          "excludesToday": true
+        },
+        "rows": 78,
+        "businesses": 8,
+        "globalSummary": {
+          "sampledCreatives": 78,
+          "businessesWithZeroScale": 8,
+          "businessesWithZeroScaleReview": 6,
+          "userFacingSegments": {
+            "Retest": 1,
+            "Scale Review": 6,
+            "Protect": 6,
+            "Cut": 12,
+            "Refresh": 17,
+            "Watch": 10,
+            "Not Enough Data": 8,
+            "Test More": 13,
+            "Not eligible for evaluation": 5
+          }
+        },
+        "source": "creative_live_firm_audit",
+        "sanitization": {
+          "rawIdsIncluded": false,
+          "rawNamesIncluded": false,
+          "notes": [
+            "Company, campaign, ad set, account, and creative identifiers are replaced with stable aliases.",
+            "A local private reference artifact with raw names is written to /tmp and is not committed."
+          ]
+        }
+      },
+      "freshLocalLiveRerunAvailable": false,
+      "freshLocalLiveRerunBlocker": [
+        "connect ECONNREFUSED 127.0.0.1:15432"
+      ]
+    }
+  }
+}

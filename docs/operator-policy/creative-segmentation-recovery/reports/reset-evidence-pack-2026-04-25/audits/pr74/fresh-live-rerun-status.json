@@ -1,0 +1,27 @@
+{
+  "branch": "pr74",
+  "ref": "origin/pr/74",
+  "head": "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+  "freshLocalLiveRerunAvailable": false,
+  "commandFailures": [
+    {
+      "branch": "pr74",
+      "ref": "origin/pr/74",
+      "head": "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+      "timestamp": "2026-04-26T00:10:38Z",
+      "command": "CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts",
+      "worktree": "/tmp/adsecute-reset-pack-pr74",
+      "exitCode": 1,
+      "error": "connect ECONNREFUSED 127.0.0.1:15432",
+      "dataUnavailable": [
+        "fresh live Creative audit rows",
+        "fresh blind review export",
+        "fresh row decision diff",
+        "Creative UI screenshots for live account/date scope"
+      ],
+      "logPath": "logs/pr74/live-creative-audit-env-rerun.log"
+    }
+  ],
+  "committedSanitizedArtifactAvailable": true,
+  "committedSanitizedArtifactPath": "audits/pr74/creative-audit.committed-artifact.json"
+}

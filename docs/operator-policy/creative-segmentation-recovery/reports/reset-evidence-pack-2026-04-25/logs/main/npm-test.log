@@ -1,0 +1,15 @@
+[2026-04-26T00:05:03Z] start npm-test: npm test
+
+> adsecute@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.0 /private/tmp/adsecute-reset-pack-main
+
+
+ Test Files  302 passed (302)
+      Tests  2161 passed (2161)
+   Start at  03:05:03
+   Duration  7.55s (transform 15.54s, setup 0ms, import 32.76s, tests 9.15s, environment 20ms)
+
+[2026-04-26T00:05:11Z] exit_code=0

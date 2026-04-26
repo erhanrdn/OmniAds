@@ -1,0 +1,198 @@
+{
+  "generatedAt": "2026-04-26T00:18:30.375Z",
+  "currentHead": {
+    "branch": "feature/adsecute-creative-claude-fix-plan-implementation",
+    "commit": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+    "status": "## feature/adsecute-creative-claude-fix-plan-implementation...origin/feature/adsecute-creative-claude-fix-plan-implementation\n M docs/external-reviews/creative-segmentation-recovery/equal-segment-review.md\n?? docs/external-reviews/creative-segmentation-recovery/primary-decision-ui-review.md\n?? docs/operator-policy/creative-segmentation-recovery/reports/reset-evidence-pack-2026-04-25/\n?? scripts/grandmix-usa-audit.ts",
+    "lastCommit": [
+      "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+      "HEAD -> feature/adsecute-creative-claude-fix-plan-implementation, origin/pr/65, origin/feature/adsecute-creative-claude-fix-plan-implementation",
+      "2026-04-26 01:35:06 +0300",
+      "Regenerate PR65 current output artifact"
+    ]
+  },
+  "githubCli": {
+    "pr65Command": "gh pr view 65 --json number,title,state,isDraft,baseRefName,headRefName,headRepositoryOwner,headRepository,mergeable,url,updatedAt",
+    "pr74Command": "gh pr view 74 --json number,title,state,isDraft,baseRefName,headRefName,headRepositoryOwner,headRepository,mergeable,url,updatedAt",
+    "result": "failed: gh auth login required; PR refs were fetched with git instead"
+  },
+  "inspectedRefs": {
+    "main": {
+      "label": "current main",
+      "ref": "origin/main",
+      "branchName": "main",
+      "commit": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+      "lastCommit": [
+        "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+        "origin/main, origin/HEAD, main",
+        "2026-04-25 17:56:34 +0300",
+        "Harden review-only Scale surface emphasis"
+      ],
+      "changedFiles": []
+    },
+    "pr65": {
+      "label": "PR #65",
+      "ref": "origin/pr/65",
+      "branchName": "feature/adsecute-creative-claude-fix-plan-implementation",
+      "commit": "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+      "lastCommit": [
+        "3a7c5cda41ae83525c31cfc3b4c5772a34030164",
+        "HEAD -> feature/adsecute-creative-claude-fix-plan-implementation, origin/pr/65, origin/feature/adsecute-creative-claude-fix-plan-implementation",
+        "2026-04-26 01:35:06 +0300",
+        "Regenerate PR65 current output artifact"
+      ],
+      "changedFiles": [
+        "docs/external-reviews/creative-segmentation-recovery/equal-segment-review.md",
+        "docs/operator-policy/creative-segmentation-recovery/STATE.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/claude-fix-plan-implementation/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-equal-segment.json",
+        "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/artifacts/pr65-current-output-fresh.json",
+        "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/live-firm-audit/artifacts/sanitized-live-firm-audit.json",
+        "docs/operator-policy/creative-segmentation-recovery/reports/media-buyer-scoring-engine/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/pr65-fresh-scoring-unblock/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/pr65-score-reconciliation/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/pr65-scoring-runtime-recovery/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/protect-boundary-investigation/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/round-5-equal-segment-target-closure/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/round-6-watch-refresh-edge-fix/final.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/watch-floor-policy-fix/final.md",
+        "lib/creative-decision-os-source.ts",
+        "lib/creative-media-buyer-scoring.test.ts",
+        "lib/creative-media-buyer-scoring.ts",
+        "lib/creative-operator-policy.test.ts",
+        "lib/creative-operator-policy.ts",
+        "lib/creative-operator-surface.test.ts",
+        "lib/creative-operator-surface.ts",
+        "lib/meta/adsets-source.ts",
+        "lib/meta/campaigns-source.ts",
+        "lib/meta/operator-decision-source.ts",
+        "lib/meta/serving.ts",
+        "lib/meta/warehouse.ts",
+        "scripts/creative-live-firm-audit.test.ts",
+        "scripts/creative-live-firm-audit.ts"
+      ]
+    },
+    "pr74": {
+      "label": "PR #74",
+      "ref": "origin/pr/74",
+      "branchName": "feature/adsecute-creative-fatigued-winner-cut-recalibration",
+      "commit": "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+      "lastCommit": [
+        "995c59d9e8247c01d0dec47919bf1202bbbb38ec",
+        "origin/pr/74, origin/feature/adsecute-creative-fatigued-winner-cut-recalibration, feature/adsecute-creative-fatigued-winner-cut-recalibration",
+        "2026-04-25 19:16:00 +0300",
+        "Recalibrate fatigued winner Cut admission"
+      ],
+      "changedFiles": [
+        "docs/operator-policy/creative-segmentation-recovery/STATE.md",
+        "docs/operator-policy/creative-segmentation-recovery/reports/fatigued-winner-cut-recalibration/final.md",
+        "lib/creative-operator-policy.test.ts",
+        "lib/creative-operator-policy.ts"
+      ]
+    }
+  },
+  "localCreativeBranches": [
+    "chore/adsecute-creative-equal-segment-final-state",
+    "chore/adsecute-creative-trend-collapse-hardening-state",
+    "feature/adsecute-creative-calibration-agent-panel",
+    "feature/adsecute-creative-claude-fix-plan-implementation",
+    "feature/adsecute-creative-critical-fix-hardening",
+    "feature/adsecute-creative-critical-media-buyer-fixes",
+    "feature/adsecute-creative-date-range-invariance",
+    "feature/adsecute-creative-decision-os-snapshots",
+    "feature/adsecute-creative-decision-os-snapshots-state-final",
+    "feature/adsecute-creative-equal-segment-final-fixes",
+    "feature/adsecute-creative-equal-segment-gate-fixes",
+    "feature/adsecute-creative-equal-segment-scoring",
+    "feature/adsecute-creative-fatigued-winner-cut-recalibration",
+    "feature/adsecute-creative-independent-media-buyer-review",
+    "feature/adsecute-creative-live-firm-audit",
+    "feature/adsecute-creative-live-output-restoration",
+    "feature/adsecute-creative-mature-loser-cut-refresh",
+    "feature/adsecute-creative-operator-policy",
+    "feature/adsecute-creative-pass-6-fatigue-hardening",
+    "feature/adsecute-creative-primary-decision-resolver",
+    "feature/adsecute-creative-primary-decision-ui-swap",
+    "feature/adsecute-creative-product-truth-review",
+    "feature/adsecute-creative-scale-review-surface-hardening",
+    "feature/adsecute-creative-segmentation-calibration-lab",
+    "feature/adsecute-creative-segmentation-foundation-hardening",
+    "feature/adsecute-creative-segmentation-implementation-pass-1",
+    "feature/adsecute-creative-segmentation-implementation-pass-2",
+    "feature/adsecute-creative-segmentation-implementation-pass-3",
+    "feature/adsecute-creative-segmentation-implementation-pass-4",
+    "feature/adsecute-creative-segmentation-implementation-pass-5",
+    "feature/adsecute-creative-segmentation-implementation-pass-6",
+    "feature/adsecute-creative-segmentation-recovery-foundation",
+    "feature/adsecute-creative-source-health-diagnosis",
+    "feature/adsecute-creative-taxonomy-counter-hardening",
+    "feature/adsecute-creative-test-campaign-actionability",
+    "feature/adsecute-creative-trend-collapse-evidence-hardening",
+    "feature/adsecute-creative-ui-truth-scale-review-fix"
+  ],
+  "remoteCreativeBranches": [
+    "origin/chore/adsecute-creative-equal-segment-final-state",
+    "origin/chore/adsecute-creative-trend-collapse-hardening-state",
+    "origin/feature/adsecute-creative-calibration-agent-panel",
+    "origin/feature/adsecute-creative-claude-fix-plan-implementation",
+    "origin/feature/adsecute-creative-critical-fix-hardening",
+    "origin/feature/adsecute-creative-critical-media-buyer-fixes",
+    "origin/feature/adsecute-creative-date-range-invariance",
+    "origin/feature/adsecute-creative-decision-os-snapshots",
+    "origin/feature/adsecute-creative-decision-os-snapshots-state-final",
+    "origin/feature/adsecute-creative-equal-segment-final-fixes",
+    "origin/feature/adsecute-creative-equal-segment-gate-fixes",
+    "origin/feature/adsecute-creative-equal-segment-scoring",
+    "origin/feature/adsecute-creative-fatigued-winner-cut-recalibration",
+    "origin/feature/adsecute-creative-independent-media-buyer-review",
+    "origin/feature/adsecute-creative-live-firm-audit",
+    "origin/feature/adsecute-creative-live-output-restoration",
+    "origin/feature/adsecute-creative-mature-loser-cut-refresh",
+    "origin/feature/adsecute-creative-operator-policy",
+    "origin/feature/adsecute-creative-pass-6-fatigue-hardening",
+    "origin/feature/adsecute-creative-primary-decision-resolver",
+    "origin/feature/adsecute-creative-primary-decision-ui-swap",
+    "origin/feature/adsecute-creative-product-truth-review",
+    "origin/feature/adsecute-creative-scale-review-surface-hardening",
+    "origin/feature/adsecute-creative-segmentation-calibration-lab",
+    "origin/feature/adsecute-creative-segmentation-foundation-hardening",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-1",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-2",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-3",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-4",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-5",
+    "origin/feature/adsecute-creative-segmentation-implementation-pass-6",
+    "origin/feature/adsecute-creative-segmentation-recovery-foundation",
+    "origin/feature/adsecute-creative-source-health-diagnosis",
+    "origin/feature/adsecute-creative-taxonomy-counter-hardening",
+    "origin/feature/adsecute-creative-test-campaign-actionability",
+    "origin/feature/adsecute-creative-trend-collapse-evidence-hardening",
+    "origin/feature/adsecute-creative-ui-truth-scale-review-fix"
+  ],
+  "overlap": {
+    "pr65AndPr74OverlapInFiles": true,
+    "overlappingFiles": [
+      "docs/operator-policy/creative-segmentation-recovery/STATE.md",
+      "lib/creative-operator-policy.test.ts",
+      "lib/creative-operator-policy.ts"
+    ],
+    "overlappingFunctionsOrAreas": [
+      "lib/creative-operator-policy.ts: assessCreativeOperatorPolicy / resolveSegment policy routing area",
+      "lib/creative-operator-policy.test.ts: assessCreativeOperatorPolicy regression coverage",
+      "docs/operator-policy/creative-segmentation-recovery/STATE.md"
+    ]
+  },
+  "stackAttempt": {
+    "available": false,
+    "cleanlyApplicable": false,
+    "command": "git worktree add --detach /tmp/adsecute-reset-pack-stack origin/pr/65 && cd /tmp/adsecute-reset-pack-stack && git cherry-pick origin/main..origin/pr/74",
+    "result": "conflict; cherry-pick aborted without manual resolution",
+    "conflictedFiles": [
+      "docs/operator-policy/creative-segmentation-recovery/STATE.md",
+      "lib/creative-operator-policy.ts"
+    ]
+  }
+}
