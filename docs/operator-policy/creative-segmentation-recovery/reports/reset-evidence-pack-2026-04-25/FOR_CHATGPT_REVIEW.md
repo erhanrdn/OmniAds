@@ -323,3 +323,30 @@ External scanners checked but unavailable in this environment:
 - `detect-secrets`
 - `trufflehog`
 - `ripsecrets`
+
+## Hygiene Addendum - 2026-04-26
+
+Codex updated this evidence branch after ChatGPT review to remove `.env` filename extensions from committed evidence logs:
+
+- `logs/main/summary.env` was renamed to `logs/main/summary.txt`
+- `logs/pr65/summary.env` was renamed to `logs/pr65/summary.txt`
+- `logs/pr74/summary.env` was renamed to `logs/pr74/summary.txt`
+
+No product code, policy, threshold, UI, queue/apply behavior, benchmark logic, or resolver behavior changed in this hygiene update.
+
+Additional hygiene checks rerun on the committed report folder:
+
+- `git status --short --branch`
+- `git diff --check`
+- `git diff --cached --check`
+- `.env` extension filename scan
+- Hidden/bidirectional Unicode scan
+- Non-printing control-character scan, allowing tab/newline/carriage return only
+- Custom secret URL/token scan
+- Raw numeric ID and email scan
+- Raw-name field scan
+- Restricted filename scan
+
+Scanner note: a byte-oriented control scan can misclassify valid UTF-8 continuation bytes in Next.js build-log symbols as C1 control code points. The final scan was rerun with UTF-8 decoding before classifying characters.
+
+Final scan result: no `.env` extension files remain in this PR branch; no hidden/bidirectional Unicode or disallowed control characters were found in non-PNG evidence artifacts.
