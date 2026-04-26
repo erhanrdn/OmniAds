@@ -8,7 +8,7 @@ MAIN_PUSHED: NO
 
 # Authenticated Preview Screen Notes
 
-Generated at: 2026-04-26T19:12:00Z
+Generated at: 2026-04-26T21:11:23Z
 
 Validation used a local DB-configured dev server and an authenticated demo
 workspace session. Connection details, environment values, raw account names,
@@ -17,22 +17,33 @@ raw creative names, browser state, and session values are intentionally omitted.
 No screenshots are committed because the preview was validated through sanitized
 screen notes and DOM assertions.
 
-## Prerequisite Snapshot
+## Session Scope
 
-The authenticated demo workspace initially had no latest v1 Creative Decision
-OS snapshot:
+The same authenticated demo workspace was used for a second limited
+read-only preview validation.
 
-- v1 snapshot status: `not_run`
-- v2 preview payload: absent
+No queue/apply path was exercised. No platform write path was exercised.
 
-To render the read-only v2 preview, the existing v1 Creative Decision OS
-analysis endpoint was run once for the authenticated demo workspace. That
-created the prerequisite v1 snapshot through existing v1 behavior.
+## No-Flag Page Check
 
-This did not add any new v2 write path. The v2 preview endpoint remained
-read-only and v2 preview row interactions did not create app write requests.
+Validated URL:
 
-## Rendered Page
+- `/creatives`
+
+Observed DOM result:
+
+| Check | Result |
+| --- | --- |
+| Authenticated session | yes |
+| Business count | 1 |
+| Active business present | yes |
+| v1 Creative page visible | yes |
+| `[data-testid="creative-v2-preview-surface"]` count | 0 |
+| Forbidden button/action language visible | 0 |
+| Internal artifact terms visible | 0 |
+| App write requests during no-flag page check | 0 |
+
+## With-Flag Page Check
 
 Validated URL:
 
@@ -55,23 +66,36 @@ Observed DOM result:
 | Diagnose section collapsed by default | yes |
 | Inactive Review section present | yes |
 | Inactive Review collapsed by default | yes |
+| Ready for Buyer Confirmation visible | no |
 | Forbidden button/action language visible | 0 |
 | Internal artifact terms visible | 0 |
 | Safe read-only action buttons visible | 6 |
-| v2 detail/open interaction app writes | 0 |
+| App write requests before detail/open interaction | 0 |
+| App write requests during v2 detail/open interaction | 0 |
+
+Preview payload summary:
+
+| Check | Result |
+| --- | --- |
+| Preview endpoint status | 200 |
+| Preview row count | 8 |
+| Direct actionability row count | 0 |
+| Today Priority row count | 3 |
+| Ready for Buyer Confirmation row count | 0 |
 
 ## Evidence Points
 
 Above the fold showed the separate v2 preview surface while the v1 Creative page
 remained present.
 
-Today Priority rendered and surfaced Scale, Cut, and Refresh buyer work before
-confidence-only direct rows.
+Today Priority rendered and surfaced Scale, Cut, and Refresh buyer work.
 
-The authenticated demo snapshot did not contain a visible Ready for Buyer
-Confirmation row. Ordering of review-only Scale and high-spend Cut above direct
-Protect or Test More remains covered by the live-audit fixture bucket-mapping
-test.
+The authenticated demo snapshot did not contain a direct-actionability row, so
+visual proof of review-only Scale and high-spend Cut ranking above direct
+Protect or Test More is not available from this workspace. Ordering remains
+covered by the live-audit fixture bucket-mapping and sorting tests. This is a
+non-blocking observation for limited read-only preview and a tracking item for
+merge/product-readiness evidence.
 
 Diagnose rows were grouped under a collapsed `Diagnose First` section.
 

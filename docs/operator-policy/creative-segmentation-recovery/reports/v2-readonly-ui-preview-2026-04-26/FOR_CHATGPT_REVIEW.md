@@ -49,6 +49,7 @@ The contract JSON forbidden button language includes the required parity terms:
 - `src/services/data-service-ai.ts`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/PR_REVIEW_CLEANUP_AUDIT.md`
 
 # Feature gate
 
@@ -273,6 +274,12 @@ npx vitest run \
 ```
 - `node --import tsx scripts/creative-decision-os-v2-gold-eval.ts`
 - `git diff --check`
+- GitHub connector review-thread/comment/review inspection for PR #78, #79,
+  #80, and #81
+- GitHub PR files API plus raw blob hidden/bidi/control scan for PR #79 and
+  PR #81
+- GitHub PR `.diff` and `.patch` hidden/bidi/control scan for PR #79 and
+  PR #81
 - Hidden/bidi/control scan:
 
 ```bash
@@ -363,11 +370,13 @@ active file contents scanned here.
 
 # Preview validation
 
-Authenticated local/dev preview validation completed.
+Authenticated local/dev preview validation completed again on
+2026-04-26T21:11:23Z.
 
 Artifact:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/PR_REVIEW_CLEANUP_AUDIT.md`
 
 Validation environment:
 
@@ -377,13 +386,24 @@ Validation environment:
   omitted from committed artifacts.
 - Authenticated demo workspace session.
 
-The authenticated demo workspace initially had no latest v1 Creative Decision
-OS snapshot, so the v2 preview endpoint correctly returned no payload. The
-existing v1 Creative Decision OS analysis endpoint was run once for that
-authenticated demo workspace to create the prerequisite v1 snapshot.
+The authenticated demo workspace had a latest v1 Creative Decision OS snapshot
+available from prior validation, so the v2 preview rendered from that existing
+snapshot.
 
 This did not add a v2 write path. The v2 preview endpoint remained read-only,
 and the v2 preview detail/open interaction captured zero app write requests.
+
+No-flag result:
+
+```json
+{
+  "previewCount": 0,
+  "v1Visible": true,
+  "forbiddenVisible": 0,
+  "internalVisible": 0,
+  "writeRequests": []
+}
+```
 
 Sanitized DOM validation result:
 
@@ -405,7 +425,11 @@ Sanitized DOM validation result:
   "forbiddenVisible": 0,
   "internalVisible": 0,
   "safeActionButtonsVisible": 6,
-  "writesDuringDetailClick": 0
+  "writesDuringDetailClick": 0,
+  "previewRowCount": 8,
+  "directActionabilityRowCount": 0,
+  "todayPriorityRowCount": 3,
+  "readyConfirmationRowCount": 0
 }
 ```
 
@@ -422,9 +446,17 @@ Required preview checks:
 | Forbidden action language visible | 0 |
 | Internal artifact terms visible | 0 |
 | Safe detail/open interaction app writes | 0 |
+| No-flag v2 preview rendered | 0 |
+| With-flag v2 preview rendered | 1 |
 
 Screenshots were not committed because the validation artifact is a sanitized
 screen-note report with DOM assertions and no raw private visual data.
+
+The authenticated demo workspace still has no direct-actionability row, so
+visual proof of review-only Scale and high-spend Cut ranking above direct
+Protect or Test More is not available from this workspace. The fixture-backed
+sort test remains the supporting evidence. This is tracked in
+`PR_REVIEW_CLEANUP_AUDIT.md` as a non-blocking observation for limited preview.
 
 # Known risks
 
