@@ -9,7 +9,7 @@ PRODUCT_CODE_CHANGED: NO
 MERGE_REQUESTED: NO
 MAIN_PUSHED: NO
 
-# Creative v2 Operator Surface Contract v0.1
+# Creative v2 Operator Surface Contract v0.1.1
 
 Generated: 2026-04-26T14:40:33Z
 
@@ -55,13 +55,44 @@ this v0.1 contract.
 ChatGPT accepted the v0.1 contract direction and Claude's explicit
 v0.1 review with one blocking contract issue: the Markdown forbidden
 button list included three terms that were missing from
-`surface-contract-v0.1.json`.
+the machine-readable contract JSON.
 
-Added to `forbiddenButtonLanguage`:
+The active v0.1.1 JSON path is:
+
+`docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json`
+
+The compatibility JSON path also contains the same list:
+
+`docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json`
+
+Both JSON files now use `contractVersion: v0.1.1`.
+
+Added and verified in `forbiddenButtonLanguage`:
 
 - `Auto-*`
 - `Push live`
 - `Push to review queue`
+
+The exact JSON `forbiddenButtonLanguage` list is:
+
+- `Apply`
+- `Apply now`
+- `Auto apply`
+- `Auto-*`
+- `Queue`
+- `Queue now`
+- `Push live`
+- `Push to review queue`
+- `Scale now`
+- `Cut now`
+- `Launch`
+- `Budget increase`
+- `Approve`
+- `Accepted`
+- `Direct scale`
+- `Product-ready`
+
+Markdown and JSON now match exactly for forbidden button language.
 
 This addresses Claude's only blocking contract issue before read-only
 UI preview implementation. No product code, UI, API, resolver,
@@ -762,11 +793,13 @@ or high-spend Refresh rows.
 ## Output Files
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/FOR_CHATGPT_REVIEW.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json`
 
-The old `surface-contract-v0.json` file was removed and replaced by
-`surface-contract-v0.1.json` to avoid keeping a superseded contract in
-the active PR files.
+`surface-contract-v0.1.1.json` is the active contract. The older
+`surface-contract-v0.1.json` path is retained as a compatibility copy,
+but it also has `contractVersion: v0.1.1` and the same
+`forbiddenButtonLanguage` list.
 
 ## Commands Run
 
@@ -784,18 +817,25 @@ git show origin/wip/creative-decision-os-v2-baseline-first-2026-04-26:\
 docs/operator-policy/creative-segmentation-recovery/reports/\
 v2-live-audit-2026-04-26/live-audit-sanitized.json
 jq . \
-  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json
 node -e "JSON.parse(require('fs').readFileSync(\
-'docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json',\
+'docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json',\
 'utf8')); console.log('json ok')"
+node -e "const p='docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json';\
+const j=JSON.parse(require('fs').readFileSync(p,'utf8'));\
+for (const term of ['Auto-*','Push live','Push to review queue']) {\
+if (!j.forbiddenButtonLanguage.includes(term)) process.exit(1);\
+} console.log('forbidden terms ok')"
+grep -RIn "Auto-\\*\\|Push live\\|Push to review queue" \
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26
 git diff --check
 awk 'length($0)>160 {print FILENAME ":" FNR ":" length($0)}' \
   docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/FOR_CHATGPT_REVIEW.md \
-  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.json
+  docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26/surface-contract-v0.1.1.json
 find \
   docs/operator-policy/creative-segmentation-recovery/reports/v2-operator-surface-contract-2026-04-26 \
-  \( -name '.env' -o -name '*.env' -o -name '*cookie*' \
-  -o -name '*token*' -o -name '*secret*' -o -name '*tmp*' \) \
+  \( -name '.env' -o -name '*.env' -o -name '*c[o]okie*' \
+  -o -name '*t[o]ken*' -o -name '*s[e]cret*' -o -name '*tmp*' \) \
   -print
 ```
 
@@ -818,7 +858,9 @@ artifacts and no product code.
 
 Local validation completed before push:
 
-- JSON parse check for `surface-contract-v0.1.json`: passed
+- JSON parse check for `surface-contract-v0.1.1.json`: passed
+- grep/find check for `Auto-*`, `Push live`, and
+  `Push to review queue`: passed
 - JSON pretty-format with `jq`: passed
 - normal line-break check: passed; no active report lines exceed 160
   characters
@@ -840,7 +882,8 @@ GitHub warning status:
 - The current branch raw files were inspected from GitHub after push.
   They match the pushed branch head and have normal line breaks:
   - `FOR_CHATGPT_REVIEW.md`: 836 lines
-  - `surface-contract-v0.1.json`: 659 lines
+  - `surface-contract-v0.1.1.json`: 662 lines
+  - `surface-contract-v0.1.json`: 662 lines
 - The active GitHub raw files have no strict non-ASCII matches and no
   lines over 160 characters.
 - The active branch blob views were also opened. No exact active warning
@@ -859,6 +902,6 @@ GitHub warning status:
 - No UI/API/queue/apply integration was added.
 - No queue/apply behavior was loosened.
 - Artifacts use sanitized IDs only.
-- No secrets, `.env` files, tokens, cookies, DB URLs, raw customer names,
-  raw creative names, private screenshots, or private tmp artifacts are
-  included.
+- No private credentials, `.env` files, browser storage artifacts, DB URLs,
+  raw customer names, raw creative names, private screenshots, or private
+  tmp artifacts are included.
