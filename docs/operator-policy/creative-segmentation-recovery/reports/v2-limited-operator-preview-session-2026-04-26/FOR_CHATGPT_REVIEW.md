@@ -9,212 +9,219 @@ PRODUCT_CODE_CHANGED: NO
 MERGE_REQUESTED: NO
 MAIN_PUSHED: NO
 
-# Executive Summary
+# Limited Operator Preview Result
 
-This folder is the limited read-only operator preview session packet for PR #81.
-It is report-only. It does not change resolver logic, v1 behavior, UI behavior,
-queue/apply behavior, Command Center wiring, database writes, or Meta/platform
-writes.
+This is the sanitized report for the supervised limited read-only operator
+preview session for PR #81. It is report-only. No product code, resolver logic,
+v1 behavior, UI behavior, queue/apply behavior, Command Center wiring, database
+write path, or Meta/platform write path was changed by this session update.
 
-The packet is prepared for a supervised authenticated session in the
-self-hosted internal/dev workspace. The previous authenticated technical
-preview validation reached the Creative page, rendered the v2 preview behind
-the off-by-default query-param gate, kept v1 visible/default, showed Today
-Priority, kept Diagnose and Inactive Review collapsed by default, rendered zero
-forbidden action terms, rendered zero internal artifact terms, and captured zero
-app writes from v2 detail/open interactions.
+Session actually conducted: YES.
 
-No live supervisor/operator interview answers were provided to Codex during this
-report update. This file therefore separates verified technical preview evidence
-from pending human operator observations. No buyer feedback is fabricated.
+Session environment type: self-hosted authenticated internal/dev workspace.
 
-# Session Environment Type
+Runtime confirmation:
 
-- Environment class: authenticated self-hosted internal/dev workspace.
-- Site runtime: self-hosted server.
-- Database runtime: self-hosted PostgreSQL database.
-- Raw account names, raw creative names, browser session state, cookies,
-  credentials, server details, and database connection values are omitted.
-- No Vercel or Neon dependency is treated as active runtime infrastructure.
+- Site runtime: local app session pointed at the self-hosted runtime path.
+- Database runtime: self-hosted PostgreSQL reached through the approved local
+  tunnel path.
+- Connection strings, cookies, tokens, raw account names, raw creative names,
+  browser session state, server details, and credentials are omitted.
+- Vercel and Neon are deprecated infrastructure and are not treated as active
+  blockers.
+- Active runtime validation refers to the self-hosted server and self-hosted
+  PostgreSQL database only.
 
-# Feature Flag / Query Param
+# URLs Used
 
-The v2 preview must remain off by default.
+Normal no-flag page:
 
-Allowed preview URLs:
+- `http://localhost:3000/creatives`
 
-- `/creatives?creativeDecisionOsV2Preview=1`
-- `/creatives?v2Preview=1`
+V2 preview page:
 
-No-flag URL:
+- `http://localhost:3000/creatives?creativeDecisionOsV2Preview=1`
 
-- `/creatives`
+The local worktree environment file was restored without printing secret values.
+The local DB tunnel and app server were verified before the session continued.
 
-# No-Flag Result
+# Normal No-Flag Result
 
-Current evidence source:
-
-- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
-
-Observed technical result from the authenticated validation:
-
-| Check | Result |
+| Field | Sanitized result |
 | --- | --- |
-| Authenticated session | yes |
-| v1 Creative page visible | yes |
-| v2 preview visible without flag | no |
-| Forbidden button/action language visible | 0 |
-| Internal artifact terms visible | 0 |
-| App write requests during no-flag check | 0 |
+| no_flag_v2_preview_visible | false |
+| no_flag_v1_normal | true |
+| no_flag_notes | No v2 preview visible; no abnormal normal-page behavior reported. |
 
-# With-Flag Result
+Result: PASS for the off-by-default gate.
 
-Current evidence source:
+# V2 Flag Result
 
-- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/authenticated-preview-screen-notes.md`
-
-Observed technical result from the authenticated validation:
-
-| Check | Result |
+| Field | Sanitized result |
 | --- | --- |
-| v2 preview surface visible | yes |
-| v1 Creative page still visible/default | yes |
-| Today Priority visible | yes |
-| Scale/Cut/Refresh work visible when present | yes |
-| Diagnose collapsed by default | yes |
-| Inactive Review collapsed by default | yes |
-| Forbidden button/action language visible | 0 |
-| Internal artifact terms visible | 0 |
-| Safe read-only action buttons visible | 6 |
-| V2 detail/open interaction app writes | 0 |
+| with_flag_v2_preview_visible | true |
+| with_flag_v1_still_visible | not explicitly re-confirmed by operator |
+| today_priority_visible | supported by technical baseline; not separately asked as a raw checklist item |
+| diagnose_collapsed_by_default | supported by technical baseline; live operator interacted with Diagnose |
+| inactive_review_collapsed_or_muted | supported by technical baseline; operator said inactive rows were clear |
+| with_flag_notes | Preview visible and understandable; buyer UX hesitations recorded below. |
 
-# Operator 5-Second Answer Summary
+Result: PASS for preview visibility, with buyer UX issues recorded below.
 
-Human operator response status: pending.
+Additional operator notes:
 
-The required operator question is:
+- `Scale-worthy` showing zero caused interpretation hesitation.
+- Diagnose may be interpreted as a confirmation/review area.
 
-> Within 5 seconds, do you know what needs attention today?
+# Operator 5-Second Answer
 
-No answer is recorded yet because Codex did not receive a live supervisor/user
-response during this report-only update. Record the sanitized answer in
-`SESSION_OBSERVATIONS.md` during the supervised limited preview session.
+Sanitized operator answer: mostly yes.
 
-# Top Rows The Operator Noticed First
+The supervisor estimated first-glance clarity at about 85%. This means the page
+communicates today's focus, but still carries some interpretation friction.
 
-Human operator response status: pending.
+# Top Rows Noticed First
 
-During the supervised session, record only sanitized row aliases. Do not record
-raw customer names, account names, creative names, campaign names, screenshots,
-cookies, session values, database URLs, or server credentials.
+Sanitized answer: spend-heavy loss-making rows.
+
+The operator would inspect rows that appear to be burning spend or losing money
+first. No raw creative, account, campaign, or ad set names were recorded.
 
 # Rows Causing Hesitation
 
-Human operator response status: pending.
+No row-level hesitation was reported.
 
-If any row makes the operator hesitate, record:
+Hesitations recorded:
 
-- sanitized row alias
-- visible v2 decision
-- visible actionability
-- why the operator hesitated
-- whether hesitation is copy, ranking, evidence, Diagnose dominance, inactive
-  handling, or buyer judgment
+- `Scale-worthy` shows zero even though the supervisor believes at least one
+  creative appears scale-worthy.
+- Diagnose `Investigate` was visible but did not perform an observable action.
+- Direct-actionability / confirmation meaning was not clearly distinguished
+  from Diagnose.
 
-Do not patch or tune resolver behavior from these observations unless ChatGPT
-explicitly opens a new fix cycle.
+# Scale Candidate Clarity
 
-# Button / Copy Safety Result
+Scale clarity is not sufficient yet.
 
-Current technical validation:
+The supervisor believes a scale candidate exists, but the panel summary shows
+`Scale-worthy` as zero. This is a buyer UX mismatch and should be treated as a
+UI/copy/resolver-explanation iteration item. It is not a product-ready result.
 
-| Check | Result |
-| --- | --- |
-| Forbidden action language visible | 0 |
-| Internal artifact language visible | 0 |
-| Safe read-only controls visible | 6 |
-| Apply/Queue/Push/Auto/Scale now/Cut now/Approve visible | 0 |
+# Cut Candidate Clarity
 
-Allowed read-only controls remain:
+Cut candidate clarity: positive.
 
-- Open detail
-- View diagnosis
-- Investigate
-- See blocker
-- Compare evidence
+The supervisor saw at least one cut candidate. No raw creative name was
+recorded.
 
-# Diagnose Usefulness Result
+# Refresh Candidate Clarity
 
-Human operator response status: pending.
+Refresh candidate clarity: positive.
 
-Current technical validation:
+The supervisor saw at least one refresh candidate. No raw creative name was
+recorded.
 
-- Diagnose section renders.
-- Diagnose is collapsed by default.
-- Diagnose rows are grouped instead of displayed as a flat wall.
-- No Diagnose action button writes to the app database, Meta, or another
-  platform.
+# Diagnose Usefulness / Dominance
 
-# Inactive Review Usefulness Result
+Diagnose needs UI iteration.
 
-Human operator response status: pending.
+The operator reported that the `Investigate` control inside Diagnose appeared
+but did not work in an observable way. This was recorded as a usability issue,
+not as unsafe write behavior.
 
-Current technical validation:
+# Inactive Review Clarity
 
-- Inactive Review section renders.
-- Inactive Review is collapsed by default.
-- Inactive rows do not dominate the default surface.
+Inactive Review clarity: positive.
 
-# Write-Safety Result
+The supervisor reported inactive/passive creatives are separated clearly.
 
-Current technical validation:
+# Button / Copy Safety
+
+Supervisor reported no unsafe action language.
+
+Forbidden action language not seen:
+
+- Apply
+- Queue
+- Push
+- Auto
+- Scale now
+- Cut now
+- Approve
+
+Prior technical validation also found zero forbidden action terms and zero
+internal artifact terms in the rendered preview.
+
+# Write-Safety
 
 | Write surface | Result |
 | --- | --- |
-| V2 preview DB writes | 0 observed |
-| V2 preview Meta/platform writes | 0 observed |
-| Command Center/work-item writes | 0 observed |
-| Queue/apply writes | 0 observed |
+| V2 preview DB writes | 0 observed in prior technical validation; not directly observable by supervisor |
+| V2 preview Meta/platform writes | 0 observed in prior technical validation; not directly observable by supervisor |
+| Command Center/work-item writes | 0 observed in prior technical validation |
+| Queue/apply writes | 0 observed in prior technical validation |
 
-The v2 preview must remain read-only during the limited operator preview.
+The supervisor did not see any control that felt like a live write, queue,
+apply, push, approval, or platform mutation.
 
 # Direct-Actionability Row Presence
 
-Current authenticated demo workspace result:
+Direct-actionability row present in this workspace: NO.
 
-- Direct-actionability rows present: 0.
+The authenticated technical baseline had zero direct-actionability rows. During
+the live session, a separate direct-actionability / buyer-confirmation row was
+not clearly observed. The supervisor interpreted Diagnose as possibly serving a
+similar purpose, which is a section-meaning clarity issue rather than ranking
+evidence.
 
-This means visual proof that review-only Scale and high-spend Cut rank above
-direct Protect/Test More is still fixture-backed, not workspace-rendered. This
-is acceptable for limited read-only preview evidence but remains a tracking item
-for merge/product-readiness evidence.
+Visual proof that review-only Scale or high-spend Cut ranks above direct
+Protect/Test More is therefore still fixture-backed, not workspace-rendered.
+Keep this as a merge/product-readiness tracking item.
 
-If a direct-actionability row appears during the supervised operator session,
-record whether review-only Scale and high-spend Cut still rank above direct
-Protect/Test More.
+# Blocking Hesitations
 
-# Whether Limited Preview Should Continue
+Blocking for product readiness:
 
-Continue only as a limited read-only operator preview session.
+- Scale candidate mismatch: operator sees a possible scale candidate while
+  `Scale-worthy` shows zero.
+- Diagnose `Investigate` control appears interactive but does not perform an
+  observable action.
+- Direct-actionability / confirmation meaning is not clearly separated from
+  Diagnose in the operator's mental model.
+
+These are not blockers for continuing the limited read-only preview, but they
+are blockers for product-ready, accepted, approved, or merge-ready claims.
+
+# Continue Limited Preview?
+
+Limited preview should continue: YES, only as supervised read-only preview
+evidence gathering.
 
 Do not merge. Do not replace v1. Do not enable queue/apply. Do not wire Command
-Center. Do not add DB writes, Meta writes, or platform writes. Do not treat this
-as product-ready or merge-ready.
+Center. Do not add DB writes, Meta writes, or platform writes. Do not describe
+the preview as product-ready, accepted, approved, or merge-ready.
 
-# Known Risks
+# UI Iteration Needed?
 
-| Risk | Status |
-| --- | --- |
-| No human operator 5-second answer recorded yet | pending session |
-| No direct-actionability row in authenticated demo workspace | tracked |
-| GitHub hidden/bidi UI warning banners | tracked in PR review cleanup audit |
-| Codex/GitHub review warnings before merge | tracked as pre-merge hard gate |
-| Merge readiness | not reached |
+UI iteration needed: YES.
+
+Required follow-up themes:
+
+- Explain or relabel `Scale-worthy = 0` so a media buyer understands why a
+  perceived scale candidate is not counted.
+- Make Diagnose `Investigate` either open useful read-only context or remove
+  the interactive affordance.
+- Clarify Diagnose versus buyer confirmation / direct-actionability meaning.
 
 # Product-Code Confirmation
 
-This session packet update changes report files only. No product code was
-changed by this update.
+No product code changed in this session update.
+
+Changed report/session files only:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/FOR_CHATGPT_REVIEW.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/OPERATOR_SESSION_CHECKLIST.md`
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/SESSION_OBSERVATIONS.md`
 
 # Draft / Merge Confirmation
 
@@ -237,4 +244,3 @@ changed by this update.
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/FOR_CHATGPT_REVIEW.md`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/OPERATOR_SESSION_CHECKLIST.md`
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-limited-operator-preview-session-2026-04-26/SESSION_OBSERVATIONS.md`
-

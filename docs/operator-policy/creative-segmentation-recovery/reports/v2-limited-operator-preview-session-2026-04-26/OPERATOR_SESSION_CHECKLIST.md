@@ -16,6 +16,39 @@ Do not record raw customer names, raw account names, raw creative names, browser
 session values, cookies, environment variables, database URLs, server
 credentials, private screenshots, or platform tokens.
 
+## Moderator-Facing Screen Cues
+
+Use these cues to tell the supervisor what to expect without turning the session
+into a technical audit checklist.
+
+Current local URLs, when the dev server is running on the default port:
+
+- Normal Creative page: `http://localhost:3000/creatives`
+- V2 preview Creative page:
+  `http://localhost:3000/creatives?creativeDecisionOsV2Preview=1`
+
+Normal page expectation:
+
+- The usual Creative workspace should load.
+- The new v2 preview panel should not appear.
+- Do not ask the supervisor to inspect DOM markers or test IDs.
+
+V2 preview page expectation:
+
+- The usual Creative workspace should still be present.
+- A separate preview panel should appear with:
+  - `Read-only buyer preview`
+  - `Decision OS v2 operator surface`
+  - `Today Priority / Buyer Command Strip`
+  - `Buyer Review`
+  - collapsed `Diagnose First`
+  - collapsed or muted `Inactive Review`
+- The top summary may show buyer-language counters such as `Bleeding spend`,
+  `Scale-worthy`, `Fatiguing on budget`, `Leave alone`, and `Needs diagnosis`.
+- Safe row controls may include `Open detail`, `View diagnosis`, `Investigate`,
+  `See blocker`, or `Compare evidence`.
+- `Ready for Buyer Confirmation` may be absent if there are no rows in that lane.
+
 ## Hard Safety Rules
 
 - [ ] PR remains Draft.
