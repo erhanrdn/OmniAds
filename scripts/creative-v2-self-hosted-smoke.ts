@@ -99,8 +99,10 @@ async function main() {
     waitUntil: "networkidle",
   });
   await expect(page.getByTestId(previewSurfaceTestId)).toBeVisible();
+  const aboveFold = page.getByTestId("creative-v2-above-fold");
+  await expect(aboveFold).toBeVisible();
   await expect(page.getByTestId("creative-v2-today-priority")).toBeVisible();
-  await expect(page.getByText("Scale-ready")).toBeVisible();
+  await expect(aboveFold.getByText("Scale-ready", { exact: true })).toBeVisible();
   await expect(
     page.getByTestId("creative-v2-ready-confirmation"),
   ).toBeVisible();
