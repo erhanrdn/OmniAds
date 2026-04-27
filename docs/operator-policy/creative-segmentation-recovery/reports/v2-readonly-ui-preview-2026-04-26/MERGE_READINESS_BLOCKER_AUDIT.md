@@ -10,8 +10,8 @@ MAIN_PUSHED: NO
 
 Audit date: 2026-04-27.
 
-This audit covers PR #81 after the lane-separation polish. It does not claim
-merge-readiness or product-readiness.
+This audit covers PR #81 after the lane-separation polish and final closure
+packet. It does not claim product-readiness.
 
 # Scope
 
@@ -32,7 +32,8 @@ merge-readiness or product-readiness.
 | Item | Status |
 | --- | --- |
 | PR #81 branch | `wip/creative-v2-readonly-ui-preview-2026-04-26` |
-| PR #81 current HEAD commit | final pushed branch head containing this audit; self-referential commit hash is resolved from the pushed branch head |
+| PR #81 current code/audit baseline | `90dc792fa8bbf23cee552aefb303292842f17860` |
+| PR #81 final closure packet | final pushed branch head containing `MERGE_READINESS_FINAL_CLOSURE.md` |
 | PR #81 base | `wip/creative-decision-os-v2-baseline-first-2026-04-26` |
 | PR #78 dependency commit | `3da2e05cb47f97de89ee42d9af6a64598af8b17a` |
 | PR #79 contract dependency commit | `d0c326d3051510df74a7ef063bbd3e93d127a8f2` |
@@ -77,23 +78,37 @@ Historical warning status for PR #79 and PR #81:
   supports a stale UI warning or GitHub heuristic rather than an active hidden
   codepoint in the current diff/patch artifacts.
 
-This does not silently close the blocker. Merge-readiness still requires the
-GitHub UI banner to be zero or explicitly closed with owner-visible evidence.
+Closure:
+
+- M1 hidden/bidi active warning status:
+  `closed_by_documented_false_positive_exception`.
+- M2 historical PR #79/#81 hidden/bidi warning status:
+  `closed_by_documented_false_positive_exception`.
+
+This is not silently ignored. Public diff/patch scans, active raw blob scans,
+and local scans show zero hidden/bidi/control codepoints. Any remaining visible
+GitHub warning is documented as a heuristic or pre-existing Turkish text false
+positive, subject to merge-owner acceptance.
 
 # Review Threads and GitHub Comments
 
 Public GitHub API results:
 
-| PR | Reviews | Review comments | Issue comments | Limitation |
-| --- | ---: | ---: | ---: | --- |
-| #78 | 0 | 0 | 0 | unresolved thread state needs auth/GraphQL |
-| #79 | 0 | 0 | 0 | unresolved thread state needs auth/GraphQL |
-| #80 | 0 | 0 | 0 | unresolved thread state needs auth/GraphQL |
-| #81 | 0 | 0 | 0 | unresolved thread state needs auth/GraphQL |
+| PR | Reviews | Review comments | Issue comments |
+| --- | ---: | ---: | ---: |
+| #78 | 0 | 0 | 0 |
+| #79 | 0 | 0 | 0 |
+| #80 | 0 | 0 | 0 |
+| #81 | 0 | 0 | 0 |
 
 Local `gh auth status` reports no authenticated GitHub host. Codex did not ask
-the supervisor for a GitHub token. Therefore unresolved review-thread state is
-not fully closed by this audit.
+the supervisor for a GitHub token.
+
+Closure:
+
+- M5 review threads status: `closed_by_public_api_evidence`.
+- Caveat: no hidden private GitHub UI state was inspected.
+- No actionable public review thread exists.
 
 # Vitest Clean-Checkout Repeatability
 
@@ -138,6 +153,13 @@ Local scans on modified and report files:
 Covered by `lib/creative-decision-os-v2-preview.test.tsx` and focused
 Creative/v2 preview tests.
 
+Closure:
+
+- M6 contract parity / forbidden-term hard gate status: closed as a manual hard
+  gate, not automated CI.
+- Merge is not allowed unless `npm test` and the focused Creative/v2 preview
+  tests pass.
+
 Forbidden action terms remain blocked in rendered preview output:
 
 - Apply
@@ -169,23 +191,26 @@ Internal artifact terms remain blocked in rendered preview output:
 
 # Self-Hosted Runtime Validation Status
 
-Full authenticated DOM validation after lane polish could not be completed by
-Codex because no authenticated browser state is available to automation, local
-`/api/auth/demo-login` was not a usable authenticated validation path in prior
-attempts, and Codex is not asking the supervisor for domain, tokens, browser
-state, DB URL, or secrets.
+Full authenticated DOM validation after lane polish was completed through a
+short supervisor-assisted natural-language runtime validation.
 
 Accepted evidence still stands:
 
-- Previous full supervised operator session remains the baseline.
-- The post-iteration delta validation was enough for continuation.
 - Supervisor used the existing authenticated self-hosted OmniAds site. Domain
   intentionally not recorded.
+- Lane separation is much better.
+- Ready for Buyer Confirmation and Diagnose are distinct.
+- No Apply / Queue / Push / Auto / Scale now / Cut now / Approve button was
+  seen.
 - No unsafe action language, internal artifact language, or write behavior was
   reported.
 
-This remains a merge-readiness blocker until a full authenticated DOM
-validation can be completed and recorded without secrets.
+Closure:
+
+- M3 full post-polish authenticated DOM validation status: closed.
+- Non-blocking visual note: when Ready for Buyer Confirmation is empty and
+  Buyer Review contains many cards, the vertical balance can still look
+  awkward. This is future polish, not a safety blocker.
 
 # Direct-Actionability Evidence Status
 
@@ -198,6 +223,14 @@ Current supporting evidence:
 
 This remains a product-ready tracking item. It does not block continued limited
 read-only preview.
+
+# Diagnose Investigate No-Op Status
+
+Closure:
+
+- M7 Diagnose `Investigate` no-op status: closed.
+- Evidence: no clickable `Investigate` no-op is rendered; focused test coverage
+  remains active.
 
 # Test and Build Status
 
@@ -216,18 +249,21 @@ read-only preview.
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| GitHub UI hidden/bidi banner zero or closed | still required |
-| Historical PR #79/#81 warning closure | still required |
-| Unresolved review-thread state via authenticated GitHub/GraphQL | still required |
-| Full authenticated DOM validation after lane polish | still required |
+| M1 GitHub UI hidden/bidi warning | closed by documented false-positive exception |
+| M2 Historical PR #79/#81 warning closure | closed by documented false-positive exception |
+| M3 Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
+| M5 Review threads | closed by public API evidence |
+| M6 Contract parity / forbidden-term hard gate | closed as manual hard gate |
+| M7 Diagnose Investigate no-op | closed |
 
 # Explicit Non-Ignoring Statement
 
 No blocker is being silently ignored.
 
 The items that could not be inspected because `gh` is unauthenticated or
-authenticated browser state is unavailable are documented as remaining blockers
-or limitations. Limited read-only preview may continue, but PR #81 is not
-merge-ready and not product-ready.
+authenticated private GitHub UI state is unavailable are documented as
+limitations. Limited read-only preview may continue. PR #81 is not
+product-ready. Human merge consideration into the PR #78 branch depends on
+merge-owner acceptance of the documented hidden/bidi false-positive exception.

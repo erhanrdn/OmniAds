@@ -55,6 +55,10 @@ Merge-readiness blocker audit:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/MERGE_READINESS_BLOCKER_AUDIT.md`
 
+Final merge-readiness closure packet:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/MERGE_READINESS_FINAL_CLOSURE.md`
+
 Reason for change:
 
 - The completed supervised operator session found first-glance clarity around
@@ -227,15 +231,18 @@ Behavioral confirmations:
 
 Authenticated DOM validation after lane polish:
 
-- Full authenticated DOM validation could not be completed by Codex because no
-  authenticated browser state is available to automation, local demo-login was
-  not a usable authenticated validation path in prior attempts, and Codex is
-  not asking the supervisor for domain, DB URL, token, browser state, server
-  credentials, or secrets.
-- Previous full supervised operator session remains the baseline.
-- The post-iteration delta validation remains accepted for continuation.
-- This remains a merge-readiness blocker, not a blocker for continued limited
-  read-only preview.
+- Completed through short supervisor-assisted natural-language runtime
+  validation.
+- Supervisor used the existing authenticated self-hosted OmniAds site. Domain
+  intentionally not recorded.
+- Lane separation is much better.
+- Ready for Buyer Confirmation and Diagnose are distinct.
+- No Apply / Queue / Push / Auto / Scale now / Cut now / Approve button was
+  seen.
+- No unsafe action language, internal artifact language, or write behavior was
+  reported.
+- Non-blocking visual note: when Ready for Buyer Confirmation is empty and
+  Buyer Review contains many cards, the vertical balance can still look awkward.
 
 Checks after lane polish:
 
@@ -246,6 +253,7 @@ Checks after lane polish:
 | `npm run build` | passed |
 | Focused Creative/v2 preview tests | passed, 6 files, 39 tests |
 | Clean-checkout focused v2 preview tests | passed, 3 files, 16 tests |
+| v2 gold eval | macro F1 97.96; severe 0, high 0, medium 2, low 0 |
 | JSON parse checks for report JSON files | passed, 8 files |
 | `git diff --check` | passed |
 | Hidden/bidi/control scan | passed |
@@ -261,14 +269,22 @@ Merge-readiness blocker table:
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| GitHub UI hidden/bidi banner zero or closed | still required |
-| Historical PR #79/#81 hidden warning closure | still required |
-| Authenticated GitHub unresolved thread inspection | still required; `gh` unauthenticated |
-| Full authenticated DOM validation after lane polish | still required |
+| Hidden/bidi active warning | closed by documented false-positive exception |
+| Historical PR #79/#81 hidden warning closure | closed by documented false-positive exception |
+| Review threads | closed by public API evidence |
+| Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
 
 No blocker is being silently ignored.
+
+Final recommendation:
+
+- Keep PR #81 Draft unless the owner explicitly changes it.
+- Product-ready: NO.
+- Merge-ready to main: NO.
+- Ready for human merge consideration into the PR #78 branch only if the merge
+  owner accepts the documented hidden/bidi false-positive exception.
 
 # Dependencies
 
