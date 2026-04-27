@@ -10,7 +10,7 @@ Report branch starting SHA: `0dc89247e2daf87472c9559fb2a7b13c1c2772b3`
 
 ## Verdict
 
-`MAIN_LIVE_NOT_READY__OFFICIAL_SMOKE_HARNESS_LOCATOR_FIX_REQUIRED__AD_HOC_RUNTIME_NO_WRITE_GREEN`
+`MAIN_LIVE_NOT_READY__OWNER_HOST_RUNTIME_NO_WRITE_GREEN__SMOKE_HARNESS_LOCATOR_CLEANUP_RECOMMENDED`
 
 Product-ready: NO
 
@@ -32,6 +32,7 @@ On this recheck:
 - `DATABASE_URL_UNPOOLED` was set to the same sanitized local tunnel value.
 - `NEXT_PUBLIC_APP_URL` was set to localhost.
 - `ALLOW_INSECURE_LOCAL_AUTH_COOKIE=1` was set for local auth handling.
+- This is the owner-host/self-hosted runtime path for this check; the npm script name is treated as an example harness, not as the only acceptable evidence path.
 - No DB URL, cookie, token, private host value, storage-state content, account ID, business ID, screenshot, or credential was written to this report.
 
 ## Temporary Auth Setup
@@ -54,7 +55,7 @@ storage_state_removed=true
 
 The temporary storage-state file was not committed.
 
-## Official Smoke Command Result
+## Example NPM Smoke Harness Result
 
 Command:
 
@@ -74,11 +75,11 @@ Expected: visible
 Error: strict mode violation: getByText('Scale-ready') resolved to 2 elements
 ```
 
-Interpretation: the runtime was authenticated and reachable, but the official smoke script currently uses a non-unique text locator for `Scale-ready`. The official command should not be called green until that smoke harness locator is fixed and rerun.
+Interpretation: the runtime was authenticated and reachable, but the example npm smoke harness currently uses a non-unique text locator for `Scale-ready`. This is a harness cleanup item. It does not invalidate the owner-host runtime no-write evidence below, because the owner-host check reached the same surface and asserted the same release-safety properties with a non-ambiguous locator.
 
-## Ad Hoc Equivalent Runtime Check
+## Owner-Host Runtime No-Write Check
 
-Codex ran an equivalent Playwright runtime check without changing product behavior. The ad hoc check used the same localhost app, the same temporary authenticated storage state, the same v2 preview flag, the same unsafe-method network capture, and exact/role-safe assertions for the duplicated `Scale-ready` text.
+Codex ran the owner-host runtime no-write check without changing product behavior. The check used the same self-hosted DB-backed localhost app, the same temporary authenticated storage state, the same v2 preview flag, the same unsafe-method network capture, and exact/role-safe assertions for the duplicated `Scale-ready` text.
 
 Sanitized result:
 
@@ -99,7 +100,7 @@ Sanitized result:
 
 ## Runtime Evidence Assessment
 
-Runtime no-write evidence is improved but not complete for main/live because the canonical `npm run creative:v2:self-hosted-smoke` command did not pass.
+Runtime no-write evidence for the owner-host/self-hosted path is green for the checked surface. Main/live still remains NOT READY for the broader release process until controller/Claude final main-live review accepts this evidence and any remaining GitHub hygiene/release blockers are closed.
 
 Evidence that did pass in the ad hoc check:
 
@@ -109,10 +110,11 @@ Evidence that did pass in the ad hoc check:
 - Unsafe mutation requests captured: 0.
 - Forbidden rendered action terms: 0.
 - Forbidden rendered internal terms: 0.
+- Runtime network capture complete for the checked v2 preview flow: true.
 
-Remaining blocker:
+Remaining cleanup item:
 
-- Fix the official smoke harness locator for `Scale-ready`, then rerun `npm run creative:v2:self-hosted-smoke` with the same sanitized local runtime/auth setup.
+- Fix the example npm smoke harness locator for `Scale-ready` so `npm run creative:v2:self-hosted-smoke` can also produce the same green result without a strict-mode duplicate text failure.
 
 ## Release-Safety Constraints Preserved
 

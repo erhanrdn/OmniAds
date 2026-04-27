@@ -2,6 +2,12 @@
 
 Date: 2026-04-28
 
+Status: SUPERSEDED_BY_RECHECK
+
+Superseding report: `CODEX_AUTHORIZED_RUNTIME_SMOKE_RECHECK.md`
+
+Superseding finding: owner-host runtime no-write check completed with temporary authenticated local storage state after owner authorization. The initial access-gap finding below is retained as historical evidence for the first unauthenticated attempt, but it is no longer the current runtime-smoke status.
+
 Verdict: `SELF_HOSTED_SMOKE_BLOCKED_BY_AUTHENTICATED_SESSION_GAP`
 
 Product-ready: NO
