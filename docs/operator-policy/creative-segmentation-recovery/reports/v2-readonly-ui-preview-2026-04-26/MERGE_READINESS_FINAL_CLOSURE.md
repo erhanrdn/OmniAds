@@ -93,6 +93,112 @@ correction in this update.
 | Meta/platform writes | none added |
 | Unsafe action copy | none rendered in tests or reported by supervisor |
 
+
+# Targeted Hidden/Bidi Exception Proof After ChatGPT Rejection
+
+This is not a generic closure report and does not claim merge-readiness. It is
+a targeted file-by-file exception packet for the active GitHub warning banners
+reported on PR #81.
+
+Active PR evidence used:
+
+- Active PR #81 branch: `wip/creative-v2-readonly-ui-preview-2026-04-26`.
+- PR #81 public API head before this report-only commit:
+  `029a612bdd9bde6b7315e33cac6aa10bebe75828`.
+- PR #81 commits page showed the formatting commit
+  `0ab332ee739e14c00b5c07abb1728741b5e520a0` with message
+  `chore: format creative v2 active source files`.
+- PR #81 commits page showed the raw-verification commit
+  `029a612bdd9bde6b7315e33cac6aa10bebe75828` with message
+  `docs: record creative v2 raw url verification`.
+- Public GitHub files HTML still contained hidden/bidirectional warning template
+  sections for:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `app/(dashboard)/creatives/page.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+- ChatGPT also reported `app/api/creatives/decision-os-v2/preview/route.ts`;
+  the targeted raw scan below includes that file too.
+
+Exact scan commands used for each public raw file:
+
+```bash
+curl -LfsS "$RAW_URL" -o /tmp/pr81-warning-file.txt
+wc -l < /tmp/pr81-warning-file.txt
+awk 'length($0)>220 {print FNR ":" length($0)}'   /tmp/pr81-warning-file.txt
+perl -ne 'print "$ARGV:$.:$_" if   /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x{202A}-\x{202E}\x{2066}-\x{2069}]/'   /tmp/pr81-warning-file.txt
+node <non-ascii-codepoint-counter> /tmp/pr81-warning-file.txt
+git diff -U0 origin/wip/creative-decision-os-v2-baseline-first-2026-04-26...HEAD --   "$FILE" | perl -ne 'print if /^[+-](?![+-])/' |   perl -ne 'print if /[^\x00-\x7F]/'
+```
+
+File-by-file results:
+
+`app/(dashboard)/creatives/page.test.tsx`:
+
+- Public raw lines: 297.
+- Lines greater than 220 characters: none.
+- Hidden/bidi/control scan result: 0 matches.
+- Non-ASCII result: none.
+- PR #81 introduced non-ASCII: no.
+- GitHub files warning status: warning template still present in public files
+  HTML.
+
+`app/(dashboard)/creatives/page.tsx`:
+
+- Public raw lines: 1267.
+- Lines greater than 220 characters: none.
+- Hidden/bidi/control scan result: 0 matches.
+- Non-ASCII result: normal Turkish UI punctuation/codepoints only:
+  - U+00F6 (\u00F6)
+  - U+00FC (\u00FC)
+  - U+0131 (\u0131)
+  - U+011F (\u011F)
+  - U+00E7 (\u00E7)
+  - U+015F (\u015F)
+  - U+00D6 (\u00D6)
+  - U+00B7 (\u00B7)
+- PR #81 introduced non-ASCII: no. Base comparison and zero-context non-ASCII
+  diff produced no output.
+- GitHub files warning status: warning template still present in public files
+  HTML.
+
+`app/api/creatives/decision-os-v2/preview/route.test.ts`:
+
+- Public raw lines: 66.
+- Lines greater than 220 characters: none.
+- Hidden/bidi/control scan result: 0 matches.
+- Non-ASCII result: none.
+- PR #81 introduced non-ASCII: no. The file is new in PR #81 but contains no
+  non-ASCII and no hidden/bidi/control codepoints.
+- GitHub files warning status: warning template still present in public files
+  HTML.
+
+`app/api/creatives/decision-os-v2/preview/route.ts`:
+
+- Public raw lines: 120.
+- Lines greater than 220 characters: none.
+- Hidden/bidi/control scan result: 0 matches.
+- Non-ASCII result: none.
+- PR #81 introduced non-ASCII: no. The file is new in PR #81 but contains no
+  non-ASCII and no hidden/bidi/control codepoints.
+- GitHub files warning status: not found in the public files HTML
+  warning-template list during this verification, but included because ChatGPT
+  reported it.
+
+For the normal Turkish UI characters in `app/(dashboard)/creatives/page.tsx`,
+base-branch comparison found the same non-ASCII character set and the exact
+zero-context diff command above produced no non-ASCII added or removed lines.
+These characters are visible letters/punctuation, not zero-width, bidi, or
+control codepoints.
+
+Conclusion:
+
+- Product-ready: NO.
+- Merge-ready: NO.
+- Human merge consideration into PR #78: NO until ChatGPT accepts this exact
+  file-level exception evidence or the GitHub files-view warning banners
+  disappear.
+- No false-positive closure is claimed here.
+
 # Active source formatting correction after ChatGPT rejection
 
 ChatGPT rejected the previous PR #81 state because the active branch still
