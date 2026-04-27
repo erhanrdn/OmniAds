@@ -78,7 +78,8 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
 }));
 
 vi.mock("@/components/states/empty-state", () => ({
-  EmptyState: (props: { title: string }) => React.createElement("div", null, `empty:${props.title}`),
+  EmptyState: (props: { title: string }) =>
+    React.createElement("div", null, `empty:${props.title}`),
 }));
 
 vi.mock("@/components/states/IntegrationEmptyState", () => ({
@@ -92,16 +93,22 @@ vi.mock("@/components/states/LockedFeatureCard", () => ({
 }));
 
 vi.mock("@/components/states/error-state", () => ({
-  ErrorState: (props: { title: string }) => React.createElement("div", null, `error:${props.title}`),
+  ErrorState: (props: { title: string }) =>
+    React.createElement("div", null, `error:${props.title}`),
 }));
 
 vi.mock("@/components/states/loading-skeleton", () => ({
-  LoadingSkeleton: (props: { title: string }) => React.createElement("div", null, `loading:${props.title}`),
+  LoadingSkeleton: (props: { title: string }) =>
+    React.createElement("div", null, `loading:${props.title}`),
 }));
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) =>
-    React.createElement("button", { disabled: props.disabled, onClick: props.onClick }, props.children),
+    React.createElement(
+      "button",
+      { disabled: props.disabled, onClick: props.onClick },
+      props.children,
+    ),
 }));
 
 vi.mock("@/components/creatives/CreativesTableSection", () => ({
@@ -113,8 +120,10 @@ vi.mock("@/components/creatives/CreativeBenchmarkScopeControl", () => ({
 }));
 
 vi.mock("@/components/creatives/CreativesTopSection", () => ({
-  CreativesTopSection: (props: { actionsPrefix?: React.ReactNode; belowToolbar?: React.ReactNode }) =>
-    React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
+  CreativesTopSection: (props: {
+    actionsPrefix?: React.ReactNode;
+    belowToolbar?: React.ReactNode;
+  }) => React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
   applyCreativeFilters: (rows: unknown[]) => rows,
   formatCreativeDateLabel: () => "Last 14 days",
   mapCreativeGroupByToApi: () => "creative",
@@ -247,12 +256,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
     const firstSnapshotKey = observedQueryKeys["creative-decision-os-snapshot"];
 
     expect(observedQueryOptions["creative-decision-os-snapshot"]?.enabled).toBe(true);
-    expect(firstSnapshotKey).toEqual([
-      "creative-decision-os-snapshot",
-      "biz",
-      "account",
-      null,
-    ]);
+    expect(firstSnapshotKey).toEqual(["creative-decision-os-snapshot", "biz", "account", null]);
     expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
     expect(html).not.toContain("Decision OS v2 operator surface");

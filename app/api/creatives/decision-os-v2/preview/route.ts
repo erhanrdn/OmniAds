@@ -17,7 +17,9 @@ function normalizeString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function parseBenchmarkScope(searchParams: URLSearchParams): CreativeDecisionBenchmarkScopeInput | null {
+function parseBenchmarkScope(
+  searchParams: URLSearchParams,
+): CreativeDecisionBenchmarkScopeInput | null {
   const scope = searchParams.get("benchmarkScope");
   if (scope !== "account" && scope !== "campaign") return null;
 

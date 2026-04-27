@@ -26,8 +26,7 @@ type CreativeDecisionOsV2PreviewSurfaceProps = {
   className?: string;
 };
 
-const compactPillClasses =
-  "rounded-full border px-2.5 py-1 text-[11px] font-semibold";
+const compactPillClasses = "rounded-full border px-2.5 py-1 text-[11px] font-semibold";
 const mutedTinyPillClasses =
   "rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700";
 const inactiveTinyPillClasses =
@@ -38,15 +37,11 @@ const whiteCountBadgeClasses =
   "rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700";
 
 function formatNumber(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString()
-    : "n/a";
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "n/a";
 }
 
 function formatMetric(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value.toFixed(2)
-    : "n/a";
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "n/a";
 }
 
 function formatSpend(value: number | null | undefined) {
@@ -149,11 +144,7 @@ function LaneBadge({
     diagnose: "border-amber-200 bg-amber-50 text-amber-800",
     inactive: "border-slate-200 bg-slate-100 text-slate-700",
   }[tone];
-  return (
-    <span className={cn(compactPillClasses, toneClass)}>
-      {children}
-    </span>
-  );
+  return <span className={cn(compactPillClasses, toneClass)}>{children}</span>;
 }
 
 function SummaryMetric({
@@ -208,24 +199,15 @@ function RowCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                compactPillClasses,
-                decisionClasses(row.primaryDecision),
-              )}
-            >
+            <span className={cn(compactPillClasses, decisionClasses(row.primaryDecision))}>
               {row.primaryDecision}
             </span>
-            <span className={mutedTinyPillClasses}>
-              {row.actionabilityLabel}
-            </span>
+            <span className={mutedTinyPillClasses}>{row.actionabilityLabel}</span>
             <span className={cn(compactPillClasses, riskClasses(row.riskLevel))}>
               {humanizeTag(row.riskLevel)} risk
             </span>
             {row.activeStatus === false ? (
-              <span className={inactiveTinyPillClasses}>
-                Inactive
-              </span>
+              <span className={inactiveTinyPillClasses}>Inactive</span>
             ) : null}
           </div>
           <h4 className="mt-2 truncate text-sm font-semibold text-slate-950">
@@ -247,7 +229,12 @@ function RowCard({
         </button>
       </div>
 
-      <div className={cn("mt-3 grid gap-2 text-xs text-slate-700", compact ? "grid-cols-2" : "sm:grid-cols-5")}>
+      <div
+        className={cn(
+          "mt-3 grid gap-2 text-xs text-slate-700",
+          compact ? "grid-cols-2" : "sm:grid-cols-5",
+        )}
+      >
         <span>Spend {formatSpend(row.metrics.spend)}</span>
         <span>ROAS {formatMetric(row.metrics.roas)}</span>
         <span>Recent {formatMetric(row.metrics.recentRoas)}</span>
@@ -339,7 +326,9 @@ export function CreativeDecisionOsV2PreviewSurface({
     return (
       <section className={cn("rounded-lg border border-slate-200 bg-white p-4", className)}>
         <p className="text-sm font-semibold text-slate-900">Decision OS v2 preview loading</p>
-        <p className="mt-1 text-sm text-slate-600">Preparing read-only buyer lanes for this scope.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Preparing read-only buyer lanes for this scope.
+        </p>
       </section>
     );
   }
@@ -355,7 +344,12 @@ export function CreativeDecisionOsV2PreviewSurface({
 
   if (!preview) {
     return (
-      <section className={cn("rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4", className)}>
+      <section
+        className={cn(
+          "rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4",
+          className,
+        )}
+      >
         <p className="text-sm font-semibold text-slate-900">Decision OS v2 preview is enabled</p>
         <p className="mt-1 text-sm text-slate-600">
           Run the current Decision OS analysis first to prepare read-only buyer lanes.
@@ -366,7 +360,9 @@ export function CreativeDecisionOsV2PreviewSurface({
 
   const surface = preview.surface;
   const todayPriority = surface.buckets.find((bucket) => bucket.id === "today_priority");
-  const readyForConfirmation = surface.buckets.find((bucket) => bucket.id === "ready_for_buyer_confirmation");
+  const readyForConfirmation = surface.buckets.find(
+    (bucket) => bucket.id === "ready_for_buyer_confirmation",
+  );
   const diagnoseFirst = surface.buckets.find((bucket) => bucket.id === "diagnose_first");
   const inactiveReview = surface.buckets.find((bucket) => bucket.id === "inactive_review");
   const scaleReadyDetail =
@@ -389,10 +385,12 @@ export function CreativeDecisionOsV2PreviewSurface({
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Read-only buyer preview
           </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">Decision OS v2 operator surface</h2>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">
+            Decision OS v2 operator surface
+          </h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-700">
-            Buyer urgency is separated from confidence. This panel helps review the highest spend and highest risk
-            decisions without changing platform state.
+            Buyer urgency is separated from confidence. This panel helps review the highest spend
+            and highest risk decisions without changing platform state.
           </p>
         </div>
         <span
@@ -407,16 +405,32 @@ export function CreativeDecisionOsV2PreviewSurface({
       </div>
 
       <div className="grid gap-3 md:grid-cols-5" data-testid="creative-v2-above-fold">
-        <SummaryMetric label="Bleeding spend" value={surface.aboveTheFold.bleedingSpendCount} tone="danger" />
+        <SummaryMetric
+          label="Bleeding spend"
+          value={surface.aboveTheFold.bleedingSpendCount}
+          tone="danger"
+        />
         <SummaryMetric
           label="Scale-ready"
           value={surface.aboveTheFold.scaleWorthyCount}
           tone="success"
           detail={scaleReadyDetail}
         />
-        <SummaryMetric label="Fatiguing on budget" value={surface.aboveTheFold.fatigueOnBudgetCount} tone="refresh" />
-        <SummaryMetric label="Leave alone" value={surface.aboveTheFold.protectCount} tone="protect" />
-        <SummaryMetric label="Needs diagnosis" value={surface.aboveTheFold.diagnoseCount} tone="diagnose" />
+        <SummaryMetric
+          label="Fatiguing on budget"
+          value={surface.aboveTheFold.fatigueOnBudgetCount}
+          tone="refresh"
+        />
+        <SummaryMetric
+          label="Leave alone"
+          value={surface.aboveTheFold.protectCount}
+          tone="protect"
+        />
+        <SummaryMetric
+          label="Needs diagnosis"
+          value={surface.aboveTheFold.diagnoseCount}
+          tone="diagnose"
+        />
       </div>
 
       {todayPriority ? (
@@ -429,7 +443,8 @@ export function CreativeDecisionOsV2PreviewSurface({
                 Today Priority / Buyer Command Strip
               </h3>
               <p className="mt-1 text-xs text-slate-600">
-                Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes appear here first.
+                Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes
+                appear here first.
               </p>
             </div>
             <span className={countBadgeClasses}>{todayPriority.rowIds.length}</span>
@@ -464,8 +479,8 @@ export function CreativeDecisionOsV2PreviewSurface({
                   Ready for Buyer Confirmation
                 </h3>
                 <p className="mt-1 text-xs text-slate-600">
-                  Separate from Diagnose. These rows have enough evidence for buyer confirmation but still make no
-                  live changes.
+                  Separate from Diagnose. These rows have enough evidence for buyer confirmation but
+                  still make no live changes.
                 </p>
               </div>
               <span className={countBadgeClasses}>{readyForConfirmation.rowIds.length}</span>
@@ -474,7 +489,9 @@ export function CreativeDecisionOsV2PreviewSurface({
               {readyForConfirmation.rowIds.length > 0 ? (
                 readyForConfirmation.rowIds.slice(0, 4).map((rowId) => {
                   const row = rowsById.get(rowId);
-                  return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
+                  return row ? (
+                    <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} />
+                  ) : null;
                 })
               ) : (
                 <p
@@ -497,19 +514,25 @@ export function CreativeDecisionOsV2PreviewSurface({
               <Sparkles className="h-4 w-4 text-cyan-600" aria-hidden="true" />
               Buyer Review
             </h3>
-            <p className="mt-1 text-xs text-slate-600">Review required rows are split by buyer decision.</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Review required rows are split by buyer decision.
+            </p>
           </div>
           <div className="space-y-3">
             {surface.reviewGroups.map((group) => (
               <div key={group.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-semibold text-slate-800">{group.label}</p>
-                  <span className="text-xs font-semibold tabular-nums text-slate-600">{group.rowIds.length}</span>
+                  <span className="text-xs font-semibold tabular-nums text-slate-600">
+                    {group.rowIds.length}
+                  </span>
                 </div>
                 <div className="mt-2 space-y-2">
                   {group.rowIds.slice(0, 2).map((rowId) => {
                     const row = rowsById.get(rowId);
-                    return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
+                    return row ? (
+                      <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} />
+                    ) : null;
                   })}
                 </div>
               </div>
@@ -535,9 +558,14 @@ export function CreativeDecisionOsV2PreviewSurface({
           </summary>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {surface.diagnoseGroups.slice(0, 8).map((group) => (
-              <div key={group.key} className="rounded-lg border border-amber-100 bg-amber-50/70 p-3">
+              <div
+                key={group.key}
+                className="rounded-lg border border-amber-100 bg-amber-50/70 p-3"
+              >
                 <p className="text-xs font-semibold text-amber-900">{group.label}</p>
-                <p className="mt-1 text-xs text-amber-800">{group.rowIds.length} rows need investigation.</p>
+                <p className="mt-1 text-xs text-amber-800">
+                  {group.rowIds.length} rows need investigation.
+                </p>
                 <div
                   className={cn(
                     "mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border",
@@ -571,7 +599,9 @@ export function CreativeDecisionOsV2PreviewSurface({
           <div className="mt-4 grid gap-3 xl:grid-cols-2">
             {inactiveReview.rowIds.slice(0, 6).map((rowId) => {
               const row = rowsById.get(rowId);
-              return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
+              return row ? (
+                <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} />
+              ) : null;
             })}
           </div>
         </details>

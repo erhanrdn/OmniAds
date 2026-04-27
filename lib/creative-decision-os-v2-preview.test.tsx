@@ -49,9 +49,7 @@ const readablePreviewFiles = [
   "src/services/data-service-ai.ts",
 ];
 
-const activePreviewCodeFiles = readablePreviewFiles.filter((file) =>
-  /\.(tsx?|jsx?)$/.test(file),
-);
+const activePreviewCodeFiles = readablePreviewFiles.filter((file) => /\.(tsx?|jsx?)$/.test(file));
 
 function bucket(id: string) {
   const found = surface.buckets.find((item) => item.id === id);
@@ -99,7 +97,9 @@ function sourceRow(
   };
 }
 
-function previewFromRows(rows: CreativeDecisionOsV2PreviewSourceRow[]): CreativeDecisionOsV2PreviewPayload {
+function previewFromRows(
+  rows: CreativeDecisionOsV2PreviewSourceRow[],
+): CreativeDecisionOsV2PreviewPayload {
   const customSurface = buildCreativeDecisionOsV2PreviewSurfaceModel(rows);
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
@@ -138,11 +138,11 @@ describe("Creative Decision OS v2 preview surface model", () => {
   });
 
   it("sorts buyer urgency above confidence-only direct rows", () => {
-    const todayPriorityRows = bucket("today_priority").rowIds
-      .map((rowId) => surface.rows.find((row) => row.rowId === rowId))
+    const todayPriorityRows = bucket("today_priority")
+      .rowIds.map((rowId) => surface.rows.find((row) => row.rowId === rowId))
       .filter((row): row is CreativeDecisionOsV2PreviewRow => Boolean(row));
-    const directRows = bucket("ready_for_buyer_confirmation").rowIds
-      .map((rowId) => surface.rows.find((row) => row.rowId === rowId))
+    const directRows = bucket("ready_for_buyer_confirmation")
+      .rowIds.map((rowId) => surface.rows.find((row) => row.rowId === rowId))
       .filter((row): row is CreativeDecisionOsV2PreviewRow => Boolean(row));
     const scaleIndex = todayPriorityRows.findIndex((row) => row.primaryDecision === "Scale");
     const cutIndex = todayPriorityRows.findIndex((row) => row.primaryDecision === "Cut");
@@ -190,19 +190,28 @@ describe("Creative Decision OS v2 preview surface model", () => {
       }),
     ]);
 
-    expect(deterministicSurface.buckets.find((item) => item.id === "today_priority")?.rowIds)
-      .toEqual(["high-spend-cut", "review-scale"]);
-    expect(deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")?.rowIds)
-      .toEqual(["direct-test-more", "direct-protect"]);
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "today_priority")?.rowIds,
+    ).toEqual(["high-spend-cut", "review-scale"]);
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")
+        ?.rowIds,
+    ).toEqual(["direct-test-more", "direct-protect"]);
   });
 
   it("keeps v2 safety invariants visible in the preview model", () => {
     expect(surface.rows.some((row) => row.primaryDecision === ("Watch" as never))).toBe(false);
-    expect(surface.rows.some((row) => row.primaryDecision === ("Scale Review" as never))).toBe(false);
+    expect(surface.rows.some((row) => row.primaryDecision === ("Scale Review" as never))).toBe(
+      false,
+    );
     expect(surface.rows.some((row) => row.queueEligible)).toBe(false);
     expect(surface.rows.some((row) => row.applyEligible)).toBe(false);
-    expect(surface.rows.some((row) => row.primaryDecision === "Scale" && row.actionability === "direct")).toBe(false);
-    expect(surface.rows.some((row) => row.primaryDecision === "Scale" && row.activeStatus === false)).toBe(false);
+    expect(
+      surface.rows.some((row) => row.primaryDecision === "Scale" && row.actionability === "direct"),
+    ).toBe(false);
+    expect(
+      surface.rows.some((row) => row.primaryDecision === "Scale" && row.activeStatus === false),
+    ).toBe(false);
   });
 });
 
@@ -252,12 +261,16 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
         v2Actionability: "review_only",
       }),
     ]);
-    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={noScalePreview} />);
+    const html = renderToStaticMarkup(
+      <CreativeDecisionOsV2PreviewSurface preview={noScalePreview} />,
+    );
 
     expect(html).toContain("Scale-ready");
     expect(html).not.toContain("Scale-worthy");
     expect(html).toContain("No scale-ready creative cleared the evidence bar yet.");
-    expect(html).toContain("Promising creatives may still appear under Protect, Test More, or Today Priority");
+    expect(html).toContain(
+      "Promising creatives may still appear under Protect, Test More, or Today Priority",
+    );
   });
 
   it("keeps Diagnose separate from buyer confirmation and avoids a no-op aggregate action", () => {
@@ -270,11 +283,15 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
         v2BlockerReasons: ["missing_source_evidence"],
       }),
     ]);
-    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={diagnosePreview} />);
+    const html = renderToStaticMarkup(
+      <CreativeDecisionOsV2PreviewSurface preview={diagnosePreview} />,
+    );
 
     expect(html).toContain("Ready for Buyer Confirmation");
     expect(html).toContain("No direct confirmation candidates in this workspace.");
-    expect(html).toContain("Needs investigation before buyer action. This is not buyer confirmation.");
+    expect(html).toContain(
+      "Needs investigation before buyer action. This is not buyer confirmation.",
+    );
     expect(html).toContain("Needs investigation before buyer action");
     expect(html).not.toMatch(/<button[^>]*>\s*<svg[\s\S]*?Investigate\s*<\/button>/);
   });
@@ -328,7 +345,10 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
   });
 
   it("keeps the preview component read-only without DB, Meta, or Command Center wiring", () => {
-    const source = readFileSync("components/creatives/CreativeDecisionOsV2PreviewSurface.tsx", "utf8");
+    const source = readFileSync(
+      "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx",
+      "utf8",
+    );
 
     expect(source).not.toMatch(/@\/lib\/db|@\/lib\/meta|command-center/i);
     expect(source).not.toMatch(/\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i);
@@ -352,11 +372,19 @@ describe("Creative Decision OS v2 preview file hygiene", () => {
       const text = readFileSync(file, "utf8");
       const lines = text.split(/\r?\n/);
       const maxLineLength = Math.max(...lines.map((line) => line.length));
-      const isCompressed = text.length > 4000 && lines.length < 80;
-      const hasHugeLine = maxLineLength > 220;
+      const minExpectedLines = Math.ceil(text.length / 350);
+      const isCompressed = text.length > 4000 && lines.length < Math.max(40, minExpectedLines);
+      const hasHugeLine = maxLineLength > 200;
 
       return isCompressed || hasHugeLine
-        ? [{ file, lineCount: lines.length, maxLineLength }]
+        ? [
+            {
+              file,
+              lineCount: lines.length,
+              maxLineLength,
+              minExpectedLines,
+            },
+          ]
         : [];
     });
 

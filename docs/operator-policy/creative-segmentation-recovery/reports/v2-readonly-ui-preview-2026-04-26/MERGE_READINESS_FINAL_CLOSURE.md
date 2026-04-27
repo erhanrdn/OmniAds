@@ -93,7 +93,62 @@ correction in this update.
 | Meta/platform writes | none added |
 | Unsafe action copy | none rendered in tests or reported by supervisor |
 
-# Active GitHub evidence correction after ChatGPT review
+# Active source formatting correction after ChatGPT rejection
+
+ChatGPT rejected the previous PR #81 state because the active branch still
+appeared to have a single-line `app/(dashboard)/creatives/page.test.tsx`, dense
+generated-looking TSX in
+`components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`, and an active
+GitHub files-view hidden/bidirectional warning.
+
+Formatting correction applied in this update:
+
+- Ran a Prettier formatting pass with LF line endings and retained changes on:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.ts`
+  - `lib/creative-decision-os-v2-preview.ts`
+  - `lib/creative-decision-os-v2-preview.test.tsx`
+  - `src/services/data-service-ai.ts`
+- Inspected `app/(dashboard)/creatives/page.tsx`; it was left unchanged
+  because formatting existing Turkish UI text would create non-ASCII churn in
+  this file-hygiene patch.
+- Inspected `app/api/creatives/decision-os-v2/preview/route.test.ts`; the
+  formatter left it unchanged.
+- Strengthened the readability test so active preview TS/TSX/JS/JSX files fail
+  if they have suspiciously low line count for their byte size or any line
+  exceeds 200 characters.
+- No resolver thresholds, gold labels, v1 behavior, queue/apply behavior,
+  Command Center wiring, DB writes, Meta/platform writes, or product semantics
+  changed.
+
+Local raw file readability after the formatting correction:
+
+| File | Lines | Max line |
+| --- | ---: | ---: |
+| `app/(dashboard)/creatives/page.test.tsx` | 298 | 99 |
+| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 625 | 111 |
+| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/api/creatives/decision-os-v2/preview/route.ts` | 121 | 100 |
+| `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
+| `lib/creative-decision-os-v2-preview.ts` | 663 | 100 |
+| `lib/creative-decision-os-v2-preview.test.tsx` | 394 | 137 |
+| `src/services/data-service-ai.ts` | 446 | 100 |
+
+Current validation before push:
+
+| Check | Result |
+| --- | --- |
+| Focused Creative/v2 preview tests | passed, 6 files, 40 tests |
+| `npm test` | passed, 305 files, 2193 tests |
+| `npx tsc --noEmit` | passed |
+| `npm run build` | passed |
+
+Post-push GitHub raw/files-view status for this correction is recorded below
+after push. Product-ready: NO. Merge-ready: NO unless the active formatting and
+warning blockers are truly closed.
+
+# Superseded prior GitHub evidence correction after ChatGPT review
 
 ChatGPT review found that the prior closure claims conflicted with active
 GitHub evidence:
@@ -172,9 +227,7 @@ Post-push public GitHub evidence for formatting correction commit
 - Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
   codepoints.
 
-Conclusion: active raw file readability is corrected, but hidden/bidi
-files-view closure remains open because the public GitHub warning banners are
-still visible.
+Conclusion: this prior evidence is superseded by the latest active source formatting correction above. Hidden/bidi files-view closure remains open.
 
 # Review-Thread Public Evidence Closure
 

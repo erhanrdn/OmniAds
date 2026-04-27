@@ -19,8 +19,7 @@ import type {
 export const CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION =
   "creative-decision-os-v2-preview.v0.1.1";
 
-export const CREATIVE_DECISION_OS_V2_PREVIEW_QUERY_PARAM =
-  "creativeDecisionOsV2Preview";
+export const CREATIVE_DECISION_OS_V2_PREVIEW_QUERY_PARAM = "creativeDecisionOsV2Preview";
 
 export const CREATIVE_DECISION_OS_V2_PREVIEW_FORBIDDEN_BUTTON_TEXT = [
   /Apply/i,
@@ -275,7 +274,10 @@ function trustFlagsFromCreative(creative: CreativeDecisionOsCreative) {
 function campaignFlagsFromCreative(creative: CreativeDecisionOsCreative) {
   const flags: string[] = [];
   if (creative.deliveryContext?.activeDelivery === false) flags.push("inactive_creative");
-  if (creative.deliveryContext?.campaignStatus && creative.deliveryContext.campaignStatus !== "ACTIVE") {
+  if (
+    creative.deliveryContext?.campaignStatus &&
+    creative.deliveryContext.campaignStatus !== "ACTIVE"
+  ) {
     flags.push(`campaign_status_${creative.deliveryContext.campaignStatus.toLowerCase()}`);
   }
   if (creative.deliveryContext?.adSetStatus && creative.deliveryContext.adSetStatus !== "ACTIVE") {
@@ -335,7 +337,9 @@ function actionabilityLabel(actionability: CreativeDecisionOsV2Actionability) {
   return "Diagnose first";
 }
 
-function normalizeSourceRow(row: CreativeDecisionOsV2PreviewSourceRow): CreativeDecisionOsV2PreviewRow | null {
+function normalizeSourceRow(
+  row: CreativeDecisionOsV2PreviewSourceRow,
+): CreativeDecisionOsV2PreviewRow | null {
   const output = row.v2Output;
   const primaryDecision = output?.primaryDecision ?? row.v2PrimaryDecision ?? null;
   const actionability = output?.actionability ?? row.v2Actionability ?? null;
@@ -418,7 +422,8 @@ function hasSevereOrFatigueSignal(row: CreativeDecisionOsV2PreviewRow) {
 
 function belongsInTodayPriority(row: CreativeDecisionOsV2PreviewRow) {
   if (row.primaryDecision === "Scale") return true;
-  if (row.primaryDecision === "Cut" && (isHighSpend(row) || riskWeight(row.riskLevel) >= 3)) return true;
+  if (row.primaryDecision === "Cut" && (isHighSpend(row) || riskWeight(row.riskLevel) >= 3))
+    return true;
   if (
     row.primaryDecision === "Refresh" &&
     row.activeStatus !== false &&
@@ -437,7 +442,8 @@ function priorityScore(row: CreativeDecisionOsV2PreviewRow) {
   let score = spendScore + riskWeight(row.riskLevel) * 10;
   if (row.primaryDecision === "Scale") score += 70;
   if (row.primaryDecision === "Cut" && isHighSpend(row)) score += 60;
-  if (row.primaryDecision === "Refresh" && row.activeStatus !== false && isHighSpend(row)) score += 45;
+  if (row.primaryDecision === "Refresh" && row.activeStatus !== false && isHighSpend(row))
+    score += 45;
   if (row.changedFromCurrent) score += 12;
   if (row.actionability === "direct") score += 2;
   if (row.activeStatus === false) score -= 25;
@@ -455,7 +461,9 @@ function rowIds(rows: CreativeDecisionOsV2PreviewRow[]) {
   return rows.map((row) => row.rowId);
 }
 
-function reviewGroupId(decision: CreativeDecisionOsV2PrimaryDecision): CreativeDecisionOsV2PreviewReviewGroupId | null {
+function reviewGroupId(
+  decision: CreativeDecisionOsV2PrimaryDecision,
+): CreativeDecisionOsV2PreviewReviewGroupId | null {
   if (decision === "Scale") return "scale_review_required";
   if (decision === "Cut") return "cut_review_required";
   if (decision === "Refresh") return "refresh_review";
@@ -486,7 +494,11 @@ function humanizeKey(value: string) {
 export function buildCreativeDecisionOsV2PreviewSurfaceModel(
   rows: CreativeDecisionOsV2PreviewSourceRow[],
 ): CreativeDecisionOsV2PreviewSurfaceModel {
-  const normalizedRows = sortRows(rows.map(normalizeSourceRow).filter((row): row is CreativeDecisionOsV2PreviewRow => Boolean(row)));
+  const normalizedRows = sortRows(
+    rows
+      .map(normalizeSourceRow)
+      .filter((row): row is CreativeDecisionOsV2PreviewRow => Boolean(row)),
+  );
   const todayPriorityRows = normalizedRows.filter(belongsInTodayPriority);
   const readyRows = normalizedRows.filter((row) => row.actionability === "direct");
   const buyerReviewRows = normalizedRows.filter((row) => row.actionability === "review_only");
@@ -546,7 +558,8 @@ export function buildCreativeDecisionOsV2PreviewSurfaceModel(
       {
         id: "today_priority",
         label: "Today Priority / Buyer Command Strip",
-        summary: "Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes.",
+        summary:
+          "Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes.",
         collapsedByDefault: false,
         rowIds: rowIds(todayPriorityRows),
       },
@@ -586,7 +599,8 @@ export function buildCreativeDecisionOsV2PreviewSurfaceModel(
     aboveTheFold: {
       bleedingSpendCount: todayPriorityRows.filter((row) => row.primaryDecision === "Cut").length,
       scaleWorthyCount: normalizedRows.filter((row) => row.primaryDecision === "Scale").length,
-      fatigueOnBudgetCount: todayPriorityRows.filter((row) => row.primaryDecision === "Refresh").length,
+      fatigueOnBudgetCount: todayPriorityRows.filter((row) => row.primaryDecision === "Refresh")
+        .length,
       protectCount: normalizedRows.filter((row) => row.primaryDecision === "Protect").length,
       diagnoseCount: diagnoseRows.length,
     },
@@ -639,9 +653,7 @@ export function buildCreativeDecisionOsV2PreviewPayloadFromDecisionOs(
   };
 }
 
-export function isCreativeDecisionOsV2PreviewEnabledForSearchParams(
-  searchParams: URLSearchParams,
-) {
+export function isCreativeDecisionOsV2PreviewEnabledForSearchParams(searchParams: URLSearchParams) {
   const value =
     searchParams.get(CREATIVE_DECISION_OS_V2_PREVIEW_QUERY_PARAM) ??
     searchParams.get("v2Preview") ??
