@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 
 const previewRouteFile = "app/api/creatives/decision-os-v2/preview/route.ts";
 const previewModelFile = "lib/creative-decision-os-v2-preview.ts";
-const previewComponentFile = "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx";
+const previewComponentFile =
+  "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx";
 const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
 const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
@@ -34,13 +35,19 @@ function functionBody(file: string, functionName: string) {
 function callbackBody(file: string, declaration: string) {
   const text = source(file);
   const start = text.indexOf(declaration);
-  if (start < 0) throw new Error(`Missing declaration ${declaration} in ${file}`);
+  if (start < 0)
+    throw new Error(`Missing declaration ${declaration} in ${file}`);
   const end = text.indexOf("}, []);", start);
-  if (end < 0) throw new Error(`Could not parse callback ${declaration} in ${file}`);
+  if (end < 0)
+    throw new Error(`Could not parse callback ${declaration} in ${file}`);
   return text.slice(start, end + "}, []);".length);
 }
 
-function sourceSliceBetween(text: string, startMarker: string, endMarker: string) {
+function sourceSliceBetween(
+  text: string,
+  startMarker: string,
+  endMarker: string,
+) {
   const start = text.indexOf(startMarker);
   if (start < 0) throw new Error(`Missing start marker ${startMarker}`);
 
@@ -57,14 +64,23 @@ describe("Creative v2 no-write enforcement", () => {
     expect(text).toMatch(/export async function GET/);
     expect(text).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)\b/);
     expect(text).not.toMatch(/command-center|execution\/apply|work[-_ ]?item/i);
-    expect(text).not.toMatch(/\b(enqueue|upsert|insert|update|delete|applyCommandCenter)\b/i);
-    expect(text).not.toMatch(/@\/lib\/meta|@\/lib\/api\/meta|MetaApi|facebook/i);
+    expect(text).not.toMatch(
+      /\b(enqueue|upsert|insert|update|delete|applyCommandCenter)\b/i,
+    );
+    expect(text).not.toMatch(
+      /@\/lib\/meta|@\/lib\/api\/meta|MetaApi|facebook/i,
+    );
   });
 
   it("keeps the preview route clean in the transitive GET side-effect scanner", () => {
     const result = spawnSync(
       process.execPath,
-      ["--import", "tsx", "scripts/check-request-path-side-effects.ts", "--json"],
+      [
+        "--import",
+        "tsx",
+        "scripts/check-request-path-side-effects.ts",
+        "--json",
+      ],
       {
         cwd: process.cwd(),
         encoding: "utf8",
@@ -84,17 +100,28 @@ describe("Creative v2 no-write enforcement", () => {
   });
 
   it("keeps preview model and component detached from DB, platform, and Command Center writes", () => {
-    const combined = [previewModelFile, previewComponentFile].map(source).join("\n");
+    const combined = [previewModelFile, previewComponentFile]
+      .map(source)
+      .join("\n");
 
     expect(combined).not.toMatch(/@\/lib\/db|@\/lib\/meta|@\/lib\/api\/meta/i);
-    expect(combined).not.toMatch(/command-center|execution\/apply|work[-_ ]?item/i);
-    expect(combined).not.toMatch(/\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i);
-    expect(combined).not.toMatch(/\b(enqueue|upsert|insert|delete|applyCommandCenter)\b/i);
+    expect(combined).not.toMatch(
+      /command-center|execution\/apply|work[-_ ]?item/i,
+    );
+    expect(combined).not.toMatch(
+      /\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i,
+    );
+    expect(combined).not.toMatch(
+      /\b(enqueue|upsert|insert|delete|applyCommandCenter)\b/i,
+    );
   });
 
   it("keeps v2 row detail/open interactions local to the existing read-only drawer", () => {
     const pageSource = source(creativesPageFile);
-    const openDrawer = callbackBody(creativesPageFile, "const openCreativeDrawer = useCallback");
+    const openDrawer = callbackBody(
+      creativesPageFile,
+      "const openCreativeDrawer = useCallback",
+    );
     const v2SurfaceUsage = sourceSliceBetween(
       pageSource,
       previewSurfaceMarker,
@@ -106,14 +133,21 @@ describe("Creative v2 no-write enforcement", () => {
     expect(openDrawer).not.toMatch(
       /\bfetch\s*\(|runCreativeDecisionOsAnalysis|mutate\(|command-center/i,
     );
-    expect(v2SurfaceUsage).toContain("onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}");
-    expect(v2SurfaceUsage).not.toMatch(/runCreativeDecisionOsAnalysis|CommandCenter|queue|apply/i);
+    expect(v2SurfaceUsage).toContain(
+      "onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}",
+    );
+    expect(v2SurfaceUsage).not.toMatch(
+      /runCreativeDecisionOsAnalysis|CommandCenter|queue|apply/i,
+    );
   });
 
   it("keeps the client preview fetch path GET-only with no request body", () => {
-    const body = functionBody(dataServiceFile, "getCreativeDecisionOsV2Preview");
+    const body = functionBody(
+      dataServiceFile,
+      "getCreativeDecisionOsV2Preview",
+    );
 
-    expect(body).toContain('/api/creatives/decision-os-v2/preview');
+    expect(body).toContain("/api/creatives/decision-os-v2/preview");
     expect(body).toContain('method: "GET"');
     expect(body).toContain('cache: "no-store"');
     expect(body).not.toMatch(/method:\s*"(POST|PUT|PATCH|DELETE)"/);

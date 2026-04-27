@@ -45,7 +45,9 @@ function pathOnly(url: string) {
 }
 
 function hasForbidden(text: string, patterns: RegExp[]) {
-  return patterns.filter((pattern) => pattern.test(text)).map((pattern) => pattern.source);
+  return patterns
+    .filter((pattern) => pattern.test(text))
+    .map((pattern) => pattern.source);
 }
 
 function assertEmpty(label: string, values: unknown[]) {
@@ -61,7 +63,11 @@ async function main() {
     ...(storageState ? { storageState } : {}),
   });
   const page = await context.newPage();
-  const mutationRequests: Array<{ method: string; path: string; phase: string }> = [];
+  const mutationRequests: Array<{
+    method: string;
+    path: string;
+    phase: string;
+  }> = [];
   let phase = "setup";
 
   page.on("request", (request) => {
@@ -85,7 +91,9 @@ async function main() {
   await expect(page.getByTestId("creative-v2-preview-surface")).toBeVisible();
   await expect(page.getByTestId("creative-v2-today-priority")).toBeVisible();
   await expect(page.getByText("Scale-ready")).toBeVisible();
-  await expect(page.getByTestId("creative-v2-ready-confirmation")).toBeVisible();
+  await expect(
+    page.getByTestId("creative-v2-ready-confirmation"),
+  ).toBeVisible();
   await expect(page.getByTestId("creative-v2-diagnose-first")).toBeVisible();
   await expect(page.getByTestId("creative-v2-inactive-review")).toBeVisible();
 

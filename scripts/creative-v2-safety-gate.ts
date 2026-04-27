@@ -24,15 +24,13 @@ function run(command: string, args: string[]) {
   });
 
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}`);
+    throw new Error(
+      `${command} ${args.join(" ")} failed with status ${result.status}`,
+    );
   }
 }
 
-run("npx", [
-  "vitest",
-  "run",
-  ...focusedTestFiles,
-]);
+run("npx", ["vitest", "run", ...focusedTestFiles]);
 
 const evaluation = evaluateCreativeDecisionOsV2Gold(readGoldLabelsV0());
 const failures: string[] = [];
@@ -52,11 +50,17 @@ requireZero("high mismatches", evaluation.mismatchCounts.high);
 
 const safetyCounters = evaluation.queueApplySafety;
 requireZero("Watch primary outputs", safetyCounters.watchPrimaryCount);
-requireZero("Scale Review primary outputs", safetyCounters.scaleReviewPrimaryCount);
+requireZero(
+  "Scale Review primary outputs",
+  safetyCounters.scaleReviewPrimaryCount,
+);
 requireZero("queue eligible outputs", safetyCounters.queueEligibleCount);
 requireZero("apply eligible outputs", safetyCounters.applyEligibleCount);
 requireZero("direct Scale outputs", safetyCounters.directScaleCount);
-requireZero("inactive direct Scale outputs", safetyCounters.inactiveDirectScaleCount);
+requireZero(
+  "inactive direct Scale outputs",
+  safetyCounters.inactiveDirectScaleCount,
+);
 
 if (failures.length > 0) {
   throw new Error(`Creative v2 safety gate failed:\n${failures.join("\n")}`);
