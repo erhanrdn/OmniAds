@@ -1,91 +1,77 @@
 CHATGPT_REVIEW_READY: YES
 ROLE: CODEX_RAW_FORMATTING_RECONCILIATION
-BRANCH: wip/creative-decision-os-v2-integration-candidate-2026-04-27
-PR: #82
-PRIMARY_REPORT_PATH: docs/operator-policy/creative-segmentation-recovery/reports/v2-release-hardening-2026-04-27/FOR_CHATGPT_REVIEW.md
 SANITIZED: YES
 MERGE_REQUESTED: NO
 MAIN_PUSHED: NO
 
-# Executive Summary
+# PR #82 Raw Formatting Reconciliation
 
-Draft PR #82 remains the canonical WIP integration candidate. PR #81 is
-superseded as the merge surface and remains available for audit/history. PR #78
-remains the resolver base. Main remains untouched.
+Active PR: #82
 
-This pass fixes the release-hardening Raw-file evidence problem by running
-Prettier on the active source files and verifying the exact public Raw URLs
-after push.
+Title: `[CHATGPT-REVIEW] WIP Creative Decision OS v2 integration candidate`
 
-Current PR #82 source-formatting head:
-`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
+Branch:
+`wip/creative-decision-os-v2-integration-candidate-2026-04-27`
 
-New formatting commit:
-`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
+Current PR #82 head at public Raw verification:
+`ca76bf5ff0931d94f3a3ef68eebae2690ef22179`
 
-Commit visibility:
+New newline-normalization commit:
+`ca76bf5ff0931d94f3a3ef68eebae2690ef22179`
 
-```text
-commit_exists 73bdee0806a703886d1b98b29b9a4eb9e3d42896
-pr_commits_count 29
-contains_73bdee0 true
-last 73bdee0806a703886d1b98b29b9a4eb9e3d42896
-```
-
-PR #82 ready for PR #78 branch merge consideration: NO, pending ChatGPT
-acceptance of corrected Raw evidence.
-
-Product-ready: NO.
-
-Merge-ready to main: NO.
-
-Queue/apply: disabled.
-
-Command Center: disconnected.
-
-v1: default.
-
-v2 preview: off by default.
-
-Self-hosted site/DB: active infra.
-
-Vercel/Neon: deprecated.
-
-PR #82 remains Draft.
-
-No main push.
-
-# What Changed
-
-- Ran Prettier on the four release-hardening target files.
-- Pushed a visible formatting commit to PR #82.
-- Re-verified public Raw output with real `refs/heads/...` URLs.
-- Replaced placeholder Raw-command language in reports with exact command
-  outputs.
-
-# What Did Not Change
-
-- No resolver threshold changed.
-- No gold labels changed.
-- No v1 behavior changed.
-- No queue/apply path was enabled.
-- No Command Center path was wired.
-- No DB write path was added.
-- No Meta/platform write path was added.
-- No production deployment was triggered.
-- No main branch was touched.
-
-# Formatter Result
+Commit status:
 
 ```text
-$ npx prettier --write scripts/creative-v2-safety-gate.ts lib/creative-v2-no-write-enforcement.test.ts scripts/creative-v2-self-hosted-smoke.ts .github/workflows/ci.yml
-scripts/creative-v2-safety-gate.ts 31ms
-lib/creative-v2-no-write-enforcement.test.ts 12ms
-scripts/creative-v2-self-hosted-smoke.ts 9ms
-.github/workflows/ci.yml 18ms (unchanged)
+commit_exists ca76bf5ff0931d94f3a3ef68eebae2690ef22179
+pr_commits_count 31
+last ca76bf5ff0931d94f3a3ef68eebae2690ef22179
+contains_ca76bf5 True
 ```
 
-# Local Formatting Evidence
+PR API status:
+
+```text
+head_ref wip/creative-decision-os-v2-integration-candidate-2026-04-27
+head_sha ca76bf5ff0931d94f3a3ef68eebae2690ef22179
+draft True
+state open
+```
+
+Important correction: the active public branch already returned multi-line Raw
+files at the start of this run. Prettier and LF normalization made no content
+changes. The new commit is an intentional empty audit commit because local and
+public Raw verification were already good.
+
+# Formatter Output
+
+```text
+scripts/creative-v2-safety-gate.ts 29ms (unchanged)
+lib/creative-v2-no-write-enforcement.test.ts 33ms (unchanged)
+scripts/creative-v2-self-hosted-smoke.ts 32ms (unchanged)
+.github/workflows/ci.yml 19ms (unchanged)
+```
+
+# Byte-Level Diagnosis
+
+Before edit:
+
+```text
+scripts/creative-v2-safety-gate.ts bytes 2578 LF 82 CR 0 U+2028 0 U+2029 0 NEL 0
+lib/creative-v2-no-write-enforcement.test.ts bytes 5430 LF 156 CR 0 U+2028 0 U+2029 0 NEL 0
+scripts/creative-v2-self-hosted-smoke.ts bytes 4135 LF 141 CR 0 U+2028 0 U+2029 0 NEL 0
+.github/workflows/ci.yml bytes 10318 LF 336 CR 0 U+2028 0 U+2029 0 NEL 0
+```
+
+After edit:
+
+```text
+scripts/creative-v2-safety-gate.ts bytes 2578 LF 82 CR 0 U+2028 0 U+2029 0 NEL 0
+lib/creative-v2-no-write-enforcement.test.ts bytes 5430 LF 156 CR 0 U+2028 0 U+2029 0 NEL 0
+scripts/creative-v2-self-hosted-smoke.ts bytes 4135 LF 141 CR 0 U+2028 0 U+2029 0 NEL 0
+.github/workflows/ci.yml bytes 10318 LF 336 CR 0 U+2028 0 U+2029 0 NEL 0
+```
+
+# Local Line Counts
 
 ```text
 $ wc -l scripts/creative-v2-safety-gate.ts
@@ -105,137 +91,112 @@ $ wc -l .github/workflows/ci.yml
 $ awk 'length($0)>220 {print FNR ":" length($0)}' .github/workflows/ci.yml
 ```
 
-The local `awk` checks produced no output.
+All local max-line `awk` commands produced no output.
 
-# Byte-Level LF/CR Diagnosis
+# Public Raw Outputs
 
-```text
-scripts/creative-v2-safety-gate.ts LF 82 CR 0 bytes 2578
-lib/creative-v2-no-write-enforcement.test.ts LF 156 CR 0 bytes 5430
-scripts/creative-v2-self-hosted-smoke.ts LF 141 CR 0 bytes 4135
-.github/workflows/ci.yml LF 336 CR 0 bytes 10318
-```
-
-# Public Raw URL Evidence
+Exact public Raw line-count commands after the push:
 
 ```text
 $ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | wc -l
       82
-$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | awk 'length($0)>220 {print FNR ":" length($0)}'
-
 $ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts | wc -l
      156
-$ curl -fsSL \
-  https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts \
-  | awk 'length($0)>220 {print FNR ":" length($0)}'
-
 $ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts | wc -l
      141
-$ curl -fsSL \
-  https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts \
-  | awk 'length($0)>220 {print FNR ":" length($0)}'
-
 $ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml | wc -l
      336
-$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml | awk 'length($0)>220 {print FNR ":" length($0)}'
 ```
 
-The public Raw `awk` checks produced no output.
-
-# Network No-Write Test Result
-
-Result: passed locally through `npm run creative:v2:safety`.
-
-Covered assertions:
-
-- Preview route exports GET only and has no POST/PUT/PATCH/DELETE handler.
-- Preview client uses GET only, no request body, and `cache: "no-store"`.
-- Transitive GET side-effect scanner reports zero findings for the v2 preview
-  route.
-- Preview model/component code does not import DB, Meta, Command Center, or
-  execution/apply boundaries.
-- Row detail/open interactions route only to the existing local drawer state
-  and do not call fetch, mutation, Command Center, queue/apply, DB, or Meta
-  paths.
-
-# Safety Gate Command Result
-
-Command: `npm run creative:v2:safety`.
-
-Local result:
+Exact public Raw max-line commands were run for all four files with:
 
 ```text
-Test Files  9 passed (9)
-Tests       51 passed (51)
-creativeV2SafetyGate: passed
-artifactVersion: gold-v0.1
-rowCount: 78
-macroF1: 97.96
-severe: 0
-high: 0
-queueEligibleCount: 0
-applyEligibleCount: 0
-directScaleCount: 0
-inactiveDirectScaleCount: 0
-watchPrimaryCount: 0
-scaleReviewPrimaryCount: 0
+awk 'length($0)>220 {print FNR ":" length($0)}'
 ```
 
-# Test/Typecheck/Build Results
+Outputs:
 
-| Command/check | Result |
-| --- | --- |
-| `git diff --check` | passed |
-| `npm test` | passed, 307 files, 2203 tests |
-| `npx tsc --noEmit` | passed |
-| `npm run build` | passed |
-| focused Creative/v2 Vitest run | passed, 9 files, 51 tests |
-| `npm run creative:v2:safety` | passed, 9 files, 51 tests plus gold counters |
-| v2 gold eval | passed, macro F1 97.96, severe 0, high 0 |
-| CI YAML parse check | passed |
-| hidden/bidi/control scan | passed, 13 targeted paths checked |
-| strict non-ASCII scan | passed, 13 targeted paths checked |
-| restricted filename scan | passed, 13 targeted paths checked |
-| secret/raw-ID scan | passed, 13 targeted paths checked |
-| line-length/readability check | passed, 13 targeted paths checked, max 220 |
-| JSON parse checks | passed, 24 tracked JSON files |
+```text
+scripts/creative-v2-safety-gate.ts: no output
+lib/creative-v2-no-write-enforcement.test.ts: no output
+scripts/creative-v2-self-hosted-smoke.ts: no output
+.github/workflows/ci.yml: no output
+```
 
-Forbidden rendered button/text scan, forbidden internal artifact scan, contract
-parity check, and no-write enforcement tests passed through
-`npm run creative:v2:safety`.
+# Checks
 
-# Runtime Smoke Result
+```text
+git diff --check: passed
+npm test: passed, 307 files, 2203 tests
+npx tsc --noEmit: passed
+npm run build: passed
+npm run creative:v2:safety: passed, 9 files, 51 tests
+focused resolver test: passed, 1 file, 15 tests
+focused preview tests: passed, 5 files, 28 tests
+no-write enforcement tests: passed, 2 files, 6 tests
+forbidden rendered button/text scan: passed
+forbidden internal artifact scan: passed
+contract parity check: passed
+hidden/bidi/control scan: passed, 13 targeted paths
+strict non-ASCII scan: passed, 13 targeted paths
+restricted filename scan: passed, 13 targeted paths
+secret/raw-ID scan: passed, 13 targeted paths
+line-length/readability check: passed, 13 targeted paths, max 220
+JSON parse checks: passed, 24 tracked JSON files
+```
 
-Not executed by Codex.
+Safety-gate result:
 
-Exact blocker: this shell does not have an authenticated self-hosted browser
-state and Codex did not ask for a domain, DB URL, token, cookie, server
-credential, browser session value, or secret.
+```text
+artifactVersion gold-v0.1
+rowCount 78
+macroF1 97.96
+severe 0
+high 0
+medium 2
+low 0
+queueEligibleCount 0
+applyEligibleCount 0
+directScaleCount 0
+inactiveDirectScaleCount 0
+watchPrimaryCount 0
+scaleReviewPrimaryCount 0
+```
 
-Running the command without authorized local smoke configuration returned:
+# Self-Hosted Runtime Smoke
+
+Status: not executed against self-hosted runtime.
+
+Actual local command result:
 
 ```text
 CREATIVE_V2_SMOKE_BASE_URL is required locally to run the self-hosted smoke.
 Do not paste or commit domains, tokens, cookies, DB URLs, or credentials.
 ```
 
-# Hidden/Bidi Exception Scope
+Codex did not ask for domain, DB URL, cookie, token, session, server
+credential, or secret.
 
-The existing hidden/bidi exception remains scoped only to PR #78-branch WIP
-consideration. It is not product-ready clearance and not main-merge clearance.
-No new hidden/bidi/control codepoints were introduced by this formatting pass.
+# Readiness
 
-# Canonical WIP Status
+Product-ready: NO.
 
-PR #82 may remain canonical WIP: YES.
+Merge-ready to main: NO.
 
-PR #82 may be considered for merge into PR #78 branch: NO, pending ChatGPT
-acceptance of corrected Raw evidence and owner decision on remaining WIP gates.
+PR #82 ready for PR #78 branch merge consideration: NO.
 
-# Remaining Blockers
+Queue/apply disabled.
 
-See `RELEASE_HARDENING_BLOCKERS.md` for split blockers:
+Command Center disconnected.
 
-- blocks PR #82 to PR #78 merge
-- blocks main merge
-- blocks product-ready
+v1 default.
+
+v2 preview off by default.
+
+Self-hosted site/DB active infra.
+
+Vercel/Neon deprecated.
+
+PR remains Draft.
+
+No main push.

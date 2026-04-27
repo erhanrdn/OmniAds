@@ -2,6 +2,8 @@
 
 CHATGPT_REVIEW_READY: YES
 SANITIZED: YES
+MERGE_REQUESTED: NO
+MAIN_PUSHED: NO
 
 # Command
 
@@ -11,108 +13,164 @@ npm run creative:v2:safety
 
 Implementation:
 
-- `package.json`
-- `scripts/creative-v2-safety-gate.ts`
-
-# Included Tests And Checks
-
-The command runs focused Vitest coverage for:
-
-- `lib/creative-decision-os-v2.test.ts`
-- `lib/creative-decision-os-v2-preview.test.tsx`
-- `lib/creative-v2-no-write-enforcement.test.ts`
-- `lib/get-route-side-effect-guard.test.ts`
-- `src/services/data-service-ai.test.ts`
-- `components/creatives/CreativeDecisionSupportSurface.test.tsx`
-- `components/creatives/CreativesTableSection.test.tsx`
-- `app/(dashboard)/creatives/page.test.tsx`
-- `app/api/creatives/decision-os-v2/preview/route.test.ts`
-
-It then evaluates the v2 gold artifact in-process and fails if:
-
-- macro F1 drops below 90.
-- severe mismatch count is non-zero.
-- high mismatch count is non-zero.
-- Watch primary output count is non-zero.
-- Scale Review primary output count is non-zero.
-- queue eligibility count is non-zero.
-- apply eligibility count is non-zero.
-- direct Scale count is non-zero.
-- inactive direct Scale count is non-zero.
-
-# Contract Parity
-
-`lib/creative-decision-os-v2-preview.test.tsx` encodes the PR #79 v0.1.1
-contract expectations for:
-
-- lane labels
-- forbidden button/action language
-- queue/apply disabled invariant
-- Command Center work item prohibition
-- v1 replacement prohibition
-
-# CI Status
-
-CI wiring exists. `.github/workflows/ci.yml` now runs:
-
-```bash
-npm run test
-npm run creative:v2:safety
+```text
+package.json -> node --import tsx scripts/creative-v2-safety-gate.ts
 ```
 
-The CI update is pull-request test-only. It does not deploy, does not require
-Vercel or Neon, and does not add secrets.
+Current PR #82 head at public Raw verification:
+`ca76bf5ff0931d94f3a3ef68eebae2690ef22179`
 
-# Successful Local Run
+New newline-normalization commit:
+`ca76bf5ff0931d94f3a3ef68eebae2690ef22179`
 
-Local command result after the Prettier formatting correction:
+GitHub confirmed the commit exists and PR #82 commit list contains it.
+
+# Public Raw Formatting Gate
+
+Public Raw line counts after push:
+
+```text
+scripts/creative-v2-safety-gate.ts: 82
+lib/creative-v2-no-write-enforcement.test.ts: 156
+scripts/creative-v2-self-hosted-smoke.ts: 141
+.github/workflows/ci.yml: 336
+```
+
+Public Raw max-line checks:
+
+```text
+scripts/creative-v2-safety-gate.ts: no output
+lib/creative-v2-no-write-enforcement.test.ts: no output
+scripts/creative-v2-self-hosted-smoke.ts: no output
+.github/workflows/ci.yml: no output
+```
+
+Byte-level diagnosis before and after normalization:
+
+```text
+scripts/creative-v2-safety-gate.ts bytes 2578 LF 82 CR 0 U+2028 0 U+2029 0 NEL 0
+lib/creative-v2-no-write-enforcement.test.ts bytes 5430 LF 156 CR 0 U+2028 0 U+2029 0 NEL 0
+scripts/creative-v2-self-hosted-smoke.ts bytes 4135 LF 141 CR 0 U+2028 0 U+2029 0 NEL 0
+.github/workflows/ci.yml bytes 10318 LF 336 CR 0 U+2028 0 U+2029 0 NEL 0
+```
+
+# Safety Gate Scope
+
+The gate runs these focused Vitest files:
+
+```text
+lib/creative-decision-os-v2.test.ts
+lib/creative-decision-os-v2-preview.test.tsx
+lib/creative-v2-no-write-enforcement.test.ts
+lib/get-route-side-effect-guard.test.ts
+src/services/data-service-ai.test.ts
+components/creatives/CreativeDecisionSupportSurface.test.tsx
+components/creatives/CreativesTableSection.test.tsx
+app/(dashboard)/creatives/page.test.tsx
+app/api/creatives/decision-os-v2/preview/route.test.ts
+```
+
+The gate then evaluates the v2 gold artifact and fails on:
+
+```text
+macroF1 below 90
+severe mismatches above 0
+high mismatches above 0
+Watch primary outputs above 0
+Scale Review primary outputs above 0
+queue eligible outputs above 0
+apply eligible outputs above 0
+direct Scale outputs above 0
+inactive direct Scale outputs above 0
+```
+
+# Latest Result
+
+`npm run creative:v2:safety` passed:
 
 ```text
 Test Files  9 passed (9)
-Tests       51 passed (51)
-creativeV2SafetyGate: passed
-artifactVersion: gold-v0.1
-rowCount: 78
-macroF1: 97.96
-severe: 0
-high: 0
-queueEligibleCount: 0
-applyEligibleCount: 0
-directScaleCount: 0
-inactiveDirectScaleCount: 0
-watchPrimaryCount: 0
-scaleReviewPrimaryCount: 0
+Tests  51 passed (51)
 ```
 
-# Raw Formatting Correction
+Safety output:
 
-The safety gate script was reformatted with Prettier in commit
-`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
+```json
+{
+  "creativeV2SafetyGate": "passed",
+  "artifactVersion": "gold-v0.1",
+  "rowCount": 78,
+  "macroF1": 97.96,
+  "mismatchCounts": {
+    "severe": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 0,
+    "none": 76
+  },
+  "queueApplySafety": {
+    "queueEligibleCount": 0,
+    "applyEligibleCount": 0,
+    "directScaleCount": 0,
+    "inactiveDirectScaleCount": 0,
+    "watchPrimaryCount": 0,
+    "scaleReviewPrimaryCount": 0
+  }
+}
+```
 
-Local evidence:
+# Additional Checks
 
 ```text
-$ wc -l scripts/creative-v2-safety-gate.ts
-      82 scripts/creative-v2-safety-gate.ts
-$ awk 'length($0)>220 {print FNR ":" length($0)}' scripts/creative-v2-safety-gate.ts
-
-$ python3 -c '...'
-scripts/creative-v2-safety-gate.ts LF 82 CR 0 bytes 2578
+git diff --check: passed
+npm test: passed, 307 files, 2203 tests
+npx tsc --noEmit: passed
+npm run build: passed
+focused resolver test: passed, 1 file, 15 tests
+focused preview tests: passed, 5 files, 28 tests
+no-write enforcement tests: passed, 2 files, 6 tests
+forbidden rendered button/text scan: passed
+forbidden internal artifact scan: passed
+contract parity check: passed
+hidden/bidi/control scan: passed, 13 targeted paths
+strict non-ASCII scan: passed, 13 targeted paths
+restricted filename scan: passed, 13 targeted paths
+secret/raw-ID scan: passed, 13 targeted paths
+line-length/readability check: passed, 13 targeted paths, max 220
+JSON parse checks: passed, 24 tracked JSON files
 ```
 
-Public Raw evidence:
+# Self-Hosted Runtime Smoke
+
+Status: not executed against self-hosted runtime.
+
+Local command output:
 
 ```text
-$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | wc -l
-      82
-$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | awk 'length($0)>220 {print FNR ":" length($0)}'
+CREATIVE_V2_SMOKE_BASE_URL is required locally to run the self-hosted smoke.
+Do not paste or commit domains, tokens, cookies, DB URLs, or credentials.
 ```
 
-The public Raw `awk` check produced no output. The file is readable multi-line
-TypeScript with real LF newlines.
+# Readiness
 
-# Gate Status
+Product-ready: NO.
 
-This is a repeatable hard gate command and a CI pull-request check. Main merge
-remains blocked until ChatGPT/owner accepts CI evidence and remaining
-runtime/product gates.
+Merge-ready to main: NO.
+
+PR #82 ready for PR #78 branch merge consideration: NO.
+
+Queue/apply disabled.
+
+Command Center disconnected.
+
+v1 default.
+
+v2 preview off by default.
+
+Self-hosted site/DB active infra.
+
+Vercel/Neon deprecated.
+
+PR remains Draft.
+
+No main push.
