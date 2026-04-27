@@ -19,10 +19,13 @@ This is not product-ready work and not main-merge work.
 
 Active formatting correction after ChatGPT review:
 
-- Verified PR #82 head at reconciliation:
-  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`
+- Verified PR #82 head at latest newline reconciliation start:
+  `93606354793479d4136d9899238ec95a1fbdf718`
 - Formatting commit:
   `5cf72894e175cd050948e4bf881fc738b1358caa`
+- New source newline-normalization commit: not required. Byte-level diagnosis
+  showed the target files already contained real LF bytes and zero CR-only,
+  U+2028, U+2029, or NEL separators.
 - Final WIP merge-consideration report:
   `docs/operator-policy/creative-segmentation-recovery/reports/v2-release-hardening-2026-04-27/FINAL_WIP_MERGE_CONSIDERATION.md`
 - Public raw verification confirmed the active hardening source/YAML files are
@@ -43,6 +46,19 @@ Public raw formatting evidence:
 | `.github/workflows/ci.yml` | 336 | none |
 
 Local line counts match the public raw line counts above.
+
+Raw LF newline correction after ChatGPT rejection:
+
+```text
+scripts/creative-v2-safety-gate.ts: bytes 2560, LF 78, CR 0, U+2028 0, U+2029 0, NEL 0
+lib/creative-v2-no-write-enforcement.test.ts: bytes 5227, LF 122, CR 0, U+2028 0, U+2029 0, NEL 0
+scripts/creative-v2-self-hosted-smoke.ts: bytes 4101, LF 133, CR 0, U+2028 0, U+2029 0, NEL 0
+.github/workflows/ci.yml: bytes 10318, LF 336, CR 0, U+2028 0, U+2029 0, NEL 0
+```
+
+The same diagnosis was true after correction because no source newline rewrite
+was needed. The reports were updated to record the exact `refs/heads/...`
+public Raw verification requested by ChatGPT.
 
 PR #82 ready for PR #78 branch merge consideration: NO, pending ChatGPT
 acceptance of the corrected raw-file evidence.

@@ -29,7 +29,8 @@ No main push.
 
 | Blocker | Status |
 | --- | --- |
-| Release-hardening raw formatting | corrected by commit `5cf72894e175cd050948e4bf881fc738b1358caa`; exact public raw URLs return 78/122/133/336 lines with no lines over 220 |
+| Release-hardening raw formatting | corrected by commit `5cf72894e175cd050948e4bf881fc738b1358caa`; exact `refs/heads/...` public Raw URLs return 78/122/133/336 lines with no lines over 220 |
+| Raw LF newline correction after ChatGPT rejection | reconciled from head `93606354793479d4136d9899238ec95a1fbdf718`; see byte-level table below |
 | Fresh authenticated self-hosted runtime smoke after this hardening pass | open; not executable by Codex without prohibited credentials or session data |
 | Static/prior-evidence substitute for WIP runtime smoke | available only if ChatGPT/owner accepts WIP scope |
 | Owner-side authenticated GitHub UI warnings | open if visible to owner; public API counts are zero |
@@ -96,6 +97,21 @@ Local command results after formatting correction:
 The self-hosted runtime smoke remains open because Codex did not have an
 authenticated self-hosted browser state and did not ask for domain, token,
 cookie, DB URL, server credential, browser session value, or secret.
+
+# Raw LF Newline Correction After ChatGPT Rejection
+
+The four active release-hardening target files were diagnosed at byte level:
+
+| File | Bytes | LF | CR | U+2028 | U+2029 | NEL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `scripts/creative-v2-safety-gate.ts` | 2560 | 78 | 0 | 0 | 0 | 0 |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 5227 | 122 | 0 | 0 | 0 | 0 |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 4101 | 133 | 0 | 0 | 0 | 0 |
+| `.github/workflows/ci.yml` | 10318 | 336 | 0 | 0 | 0 | 0 |
+
+No Unicode line separator, CR-only separator, or NEL workaround was present.
+Public Raw verification used `refs/heads/...` URLs and returned normal
+multi-line counts.
 
 # No-Silent-Ignore Statement
 

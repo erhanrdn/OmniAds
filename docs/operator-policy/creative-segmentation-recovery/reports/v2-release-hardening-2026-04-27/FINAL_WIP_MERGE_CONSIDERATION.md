@@ -27,6 +27,19 @@ This report corrects the rejected formatting evidence. The release-hardening
 files were reformatted again and pushed in commit
 `5cf72894e175cd050948e4bf881fc738b1358caa`.
 
+Raw LF newline correction after ChatGPT rejection was reconciled again on
+April 27, 2026:
+
+- Branch identity confirmed:
+  `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
+- Reconciliation starting head:
+  `93606354793479d4136d9899238ec95a1fbdf718`
+- New source newline-normalization commit: not required. Byte-level diagnosis
+  showed the four target files already contain real LF bytes, with no CR-only,
+  U+2028, U+2029, or NEL separators.
+- This report update records the corrected `refs/heads/...` public Raw
+  verification and does not change product behavior.
+
 PR #82 is not claimed ready for PR #78 branch merge consideration until
 ChatGPT accepts the corrected public raw evidence.
 
@@ -61,9 +74,59 @@ The release-hardening Markdown reports were inspected as targeted files and
 passed line-count/readability checks. No giant one-line report files remain in
 the release-hardening packet.
 
+# Raw LF Newline Correction After ChatGPT Rejection
+
+Byte-level diagnosis before correction:
+
+```text
+scripts/creative-v2-safety-gate.ts
+bytes: 2560
+LF: 78
+CR: 0
+U+2028: 0
+U+2029: 0
+NEL C2 85: 0
+
+lib/creative-v2-no-write-enforcement.test.ts
+bytes: 5227
+LF: 122
+CR: 0
+U+2028: 0
+U+2029: 0
+NEL C2 85: 0
+
+scripts/creative-v2-self-hosted-smoke.ts
+bytes: 4101
+LF: 133
+CR: 0
+U+2028: 0
+U+2029: 0
+NEL C2 85: 0
+
+.github/workflows/ci.yml
+bytes: 10318
+LF: 336
+CR: 0
+U+2028: 0
+U+2029: 0
+NEL C2 85: 0
+```
+
+Correction action: no source rewrite was needed because the active files
+already used real LF bytes. The post-correction diagnosis is therefore the same
+as the pre-correction diagnosis:
+
+```text
+scripts/creative-v2-safety-gate.ts: LF 78, CR 0, U+2028 0, U+2029 0, NEL 0
+lib/creative-v2-no-write-enforcement.test.ts: LF 122, CR 0, U+2028 0, U+2029 0, NEL 0
+scripts/creative-v2-self-hosted-smoke.ts: LF 133, CR 0, U+2028 0, U+2029 0, NEL 0
+.github/workflows/ci.yml: LF 336, CR 0, U+2028 0, U+2029 0, NEL 0
+```
+
 # Public Raw Formatting Evidence
 
-Branch checked with the exact raw URL form requested by ChatGPT:
+Branch checked with the exact `refs/heads/...` Raw URL form requested by
+ChatGPT:
 
 `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
 
@@ -85,10 +148,10 @@ curl -fsSL "<public raw URL from prompt>" \
 The checked URLs were:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml
 ```
 
 # Local Formatting Evidence
@@ -102,6 +165,8 @@ https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-i
 
 # GitHub Commit Evidence
 
+- Reconciliation starting head
+  `93606354793479d4136d9899238ec95a1fbdf718` exists on the public branch.
 - `74cd2810f764220f0dd32abf7ddcf0d177f3635b` exists through the public GitHub
   commit API.
 - PR #82 public commits API returned 26 commits at reconciliation time.

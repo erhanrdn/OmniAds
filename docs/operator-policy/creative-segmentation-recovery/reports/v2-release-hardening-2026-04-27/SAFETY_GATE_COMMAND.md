@@ -95,6 +95,14 @@ runtime/product gates.
 The safety gate script was reformatted in commit
 `5cf72894e175cd050948e4bf881fc738b1358caa`.
 
+Raw LF newline correction after ChatGPT rejection:
+
+- Reconciliation starting head:
+  `93606354793479d4136d9899238ec95a1fbdf718`
+- Byte-level diagnosis:
+  `bytes 2560`, `LF 78`, `CR 0`, `U+2028 0`, `U+2029 0`, `NEL 0`
+- Source newline rewrite: not required.
+
 Public raw verification:
 
 | File | Line count | Lines over 220 chars |
@@ -106,5 +114,5 @@ The file is readable multi-line TypeScript.
 Exact public raw URL verified:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
 ```
