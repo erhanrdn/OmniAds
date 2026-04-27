@@ -117,10 +117,12 @@ function SummaryMetric({
   label,
   value,
   tone,
+  detail,
 }: {
   label: string;
   value: number;
   tone: "danger" | "success" | "refresh" | "protect" | "diagnose";
+  detail?: string;
 }) {
   const toneClass = {
     danger: "border-rose-200 bg-rose-50 text-rose-900",
@@ -133,6 +135,7 @@ function SummaryMetric({
     <div className={cn("rounded-lg border px-3 py-2", toneClass)}>
       <p className="text-[11px] font-semibold uppercase tracking-wide">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+      {detail ? <p className="mt-1 text-[11px] leading-snug opacity-85">{detail}</p> : null}
     </div>
   );
 }
@@ -321,6 +324,10 @@ export function CreativeDecisionOsV2PreviewSurface({
   const readyForConfirmation = surface.buckets.find((bucket) => bucket.id === "ready_for_buyer_confirmation");
   const diagnoseFirst = surface.buckets.find((bucket) => bucket.id === "diagnose_first");
   const inactiveReview = surface.buckets.find((bucket) => bucket.id === "inactive_review");
+  const scaleReadyDetail =
+    surface.aboveTheFold.scaleWorthyCount === 0
+      ? "No scale-ready creative cleared the evidence bar yet. Promising creatives may still appear under Protect, Test More, or Today Priority until recent evidence is strong enough."
+      : "Only creatives that clear the stricter evidence bar count as scale-ready.";
 
   return (
     <section
@@ -346,7 +353,12 @@ export function CreativeDecisionOsV2PreviewSurface({
 
       <div className="grid gap-3 md:grid-cols-5" data-testid="creative-v2-above-fold">
         <SummaryMetric label="Bleeding spend" value={surface.aboveTheFold.bleedingSpendCount} tone="danger" />
-        <SummaryMetric label="Scale-worthy" value={surface.aboveTheFold.scaleWorthyCount} tone="success" />
+        <SummaryMetric
+          label="Scale-ready"
+          value={surface.aboveTheFold.scaleWorthyCount}
+          tone="success"
+          detail={scaleReadyDetail}
+        />
         <SummaryMetric label="Fatiguing on budget" value={surface.aboveTheFold.fatigueOnBudgetCount} tone="refresh" />
         <SummaryMetric label="Leave alone" value={surface.aboveTheFold.protectCount} tone="protect" />
         <SummaryMetric label="Needs diagnosis" value={surface.aboveTheFold.diagnoseCount} tone="diagnose" />
@@ -390,7 +402,8 @@ export function CreativeDecisionOsV2PreviewSurface({
                   Ready for Buyer Confirmation
                 </h3>
                 <p className="mt-1 text-xs text-slate-600">
-                  Confidence signal only; urgency still follows spend, risk, and buyer action.
+                  Separate from Diagnose. These rows have enough evidence for buyer confirmation but still make no
+                  live changes.
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -398,10 +411,16 @@ export function CreativeDecisionOsV2PreviewSurface({
               </span>
             </div>
             <div className="space-y-3">
-              {readyForConfirmation.rowIds.slice(0, 4).map((rowId) => {
-                const row = rowsById.get(rowId);
-                return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
-              })}
+              {readyForConfirmation.rowIds.length > 0 ? (
+                readyForConfirmation.rowIds.slice(0, 4).map((rowId) => {
+                  const row = rowsById.get(rowId);
+                  return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
+                })
+              ) : (
+                <p className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900">
+                  No direct confirmation candidates in this workspace.
+                </p>
+              )}
             </div>
           </section>
         ) : null}
@@ -442,7 +461,7 @@ export function CreativeDecisionOsV2PreviewSurface({
                 Diagnose First
               </span>
               <span className="mt-1 block text-xs text-slate-600">
-                Collapsed by default and grouped by blocker or problem class.
+                Needs investigation before buyer action. This is not buyer confirmation.
               </span>
             </span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -454,13 +473,10 @@ export function CreativeDecisionOsV2PreviewSurface({
               <div key={group.key} className="rounded-lg border border-amber-100 bg-amber-50/70 p-3">
                 <p className="text-xs font-semibold text-amber-900">{group.label}</p>
                 <p className="mt-1 text-xs text-amber-800">{group.rowIds.length} rows need investigation.</p>
-                <button
-                  type="button"
-                  className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2.5 text-xs font-semibold text-amber-900 hover:bg-amber-50"
-                >
+                <div className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-900">
                   <Search className="h-3.5 w-3.5" aria-hidden="true" />
-                  Investigate
-                </button>
+                  Needs investigation before buyer action
+                </div>
               </div>
             ))}
           </div>

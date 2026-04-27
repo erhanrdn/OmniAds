@@ -14,6 +14,11 @@ MAIN_PUSHED: NO
 Implemented a read-only Creative Decision OS v2 preview surface behind an
 off-by-default query-param gate.
 
+UI iteration after the completed supervised operator session is now included.
+The update targets only the observed buyer UX issues: strict scale semantics,
+honest Diagnose interaction affordance, and separation between Diagnose and
+buyer confirmation.
+
 This is stacked on PR #78 resolver branch and depends on PR #79 contract
 v0.1.1. It does not replace v1 Creative Decision OS, does not feed Command
 Center, does not create work items, and does not enable any platform write
@@ -23,6 +28,140 @@ Infrastructure update applied: the active runtime is the self-hosted server and
 self-hosted PostgreSQL database. Deprecated provider-specific deploy/check
 references are not treated as active blockers for this limited read-only
 preview. Generic DB connection requirements still apply.
+
+# UI iteration after completed operator session
+
+Date: 2026-04-27
+
+Reason for change:
+
+- The completed supervised operator session found first-glance clarity around
+  85 percent, but the operator expected at least one promising creative while
+  the preview showed `Scale-worthy = 0`.
+- The Diagnose group showed an `Investigate` affordance that appeared
+  interactive but had no observable behavior.
+- Diagnose did not feel clearly separated from buyer confirmation or direct
+  actionability.
+
+What changed:
+
+- The above-the-fold scale summary now says `Scale-ready` instead of
+  `Scale-worthy`.
+- The zero or low scale-ready state explains that the count is stricter than a
+  buyer's personal sense that a creative may be promising.
+- The Diagnose aggregate no longer renders a clickable-looking `Investigate`
+  no-op. It renders non-clickable status copy instead.
+- `Ready for Buyer Confirmation` is always rendered as a separate lane when the
+  preview renders. If empty, it explicitly says there are no direct confirmation
+  candidates in this workspace.
+- Diagnose copy now frames the lane as investigation before buyer action, not
+  as a confirmation or action queue.
+
+Before/after copy:
+
+| Area | Before | After |
+| --- | --- | --- |
+| Scale summary label | `Scale-worthy` | `Scale-ready` |
+| Scale empty/strict-state copy | none | `No scale-ready creative cleared the evidence bar yet. Promising creatives may still appear under Protect, Test More, or Today Priority until recent evidence is strong enough.` |
+| Diagnose aggregate affordance | clickable-looking `Investigate` | non-clickable `Needs investigation before buyer action` |
+| Diagnose lane explanation | `Collapsed by default and grouped by blocker or problem class.` | `Needs investigation before buyer action. This is not buyer confirmation.` |
+| Buyer confirmation empty state | omitted when empty | `No direct confirmation candidates in this workspace.` |
+
+Tests run after the UI iteration:
+
+- `npx vitest run lib/creative-decision-os-v2-preview.test.tsx app/'(dashboard)'/creatives/page.test.tsx app/api/creatives/decision-os-v2/preview/route.test.ts`
+  - Result: passed, 3 files, 15 tests.
+- `npm test`
+  - Result: passed, 305 files, 2191 tests.
+- `npm run build`
+  - Result: passed.
+- `npx tsc --noEmit`
+  - Result: passed when rerun sequentially after build. The first attempt was
+    invalid because it ran concurrently with build while `.next/types` was
+    changing.
+- Focused Creative/v2 preview command:
+  ```bash
+  npx vitest run \
+    lib/creative-decision-os-v2.test.ts \
+    lib/creative-decision-os-v2-preview.test.tsx \
+    components/creatives/CreativeDecisionSupportSurface.test.tsx \
+    components/creatives/CreativesTableSection.test.tsx \
+    'app/(dashboard)/creatives/page.test.tsx' \
+    app/api/creatives/decision-os-v2/preview/route.test.ts
+  ```
+  - Result: passed, 6 files, 38 tests.
+
+New or updated test coverage:
+
+- v2 preview remains off by default and only enables with the query flag.
+- v1 remains visible/default when the v2 preview flag is enabled.
+- Forbidden rendered button/text scan remains active.
+- Forbidden internal artifact scan remains active.
+- `Scale-ready` strict-state copy is rendered and `Scale-worthy` is not.
+- Diagnose and `Ready for Buyer Confirmation` render as distinct concepts.
+- Empty buyer-confirmation state is explicit.
+- The Diagnose aggregate `Investigate` no-op button is not rendered.
+- The preview component has no DB, Meta, Command Center, fetch, insert, update,
+  delete, or SQL wiring.
+- Deterministic ordering coverage now verifies that review-only Scale and
+  high-spend Cut rank above direct Protect/Test More rows.
+
+Authenticated preview validation after the UI iteration:
+
+- Local dev server started on `http://localhost:3000`.
+- The server loaded `.env.local`; environment values were not printed.
+- Runtime target remains local app plus self-hosted PostgreSQL DB connection.
+- Automated authenticated DOM validation could not be completed by Codex in
+  this pass because the local automation session did not have existing
+  authenticated browser state, `/api/auth/demo-login` redirected to login
+  without returning a local auth credential, and macOS Computer Use access
+  returned an Apple Events permission error.
+- No screenshots, raw account names, creative names, auth credentials, tokens,
+  DB URLs, or server details were committed.
+- Because authenticated DOM validation was blocked after the UI iteration,
+  self-hosted runtime validation must be repeated with the supervisor's
+  already-authenticated local browser session before any merge-readiness claim.
+
+Remaining risks:
+
+- Product-ready remains NO.
+- Merge-ready remains NO.
+- The completed operator session can continue as limited read-only preview
+  evidence, but the post-iteration authenticated runtime check is still open.
+- The authenticated workspace did not contain a direct-actionability row during
+  the completed operator session. The new deterministic test is supporting
+  evidence, not a replacement for production buyer evidence.
+- The UI now clarifies scale semantics, but a senior buyer review should still
+  confirm whether `Scale-ready` removes the operator's previous confusion.
+
+Merge-readiness blockers still open:
+
+- GitHub hidden/bidi warning banners must be zero or explicitly closed with
+  evidence.
+- Historical hidden/bidi warnings on PR #79 and PR #81 must be documented or
+  closed.
+- Self-hosted runtime validation must be repeated after this UI iteration.
+- The vitest clean-checkout repeatability issue must be fixed.
+- Open Codex/GitHub review threads on PR #78, #79, #80, and #81 must be zero or
+  explicitly resolved.
+- Forbidden-term scan must remain a hard merge gate.
+- Claude/senior buyer review after this Codex update is still required.
+
+Confirmations:
+
+- PR #81 remains Draft.
+- Product-ready: NO.
+- Merge-ready: NO.
+- No merge was requested.
+- No push to main was performed.
+- v1 remains default.
+- Queue/apply remains disabled.
+- Command Center remains disconnected.
+- No DB writes from v2 preview interactions were added.
+- No Meta/platform writes were added.
+- Deprecated Vercel/Neon checks are not treated as active blockers.
+- Active runtime validation refers only to local/self-hosted app plus
+  self-hosted PostgreSQL DB.
 
 # Dependencies
 
@@ -155,7 +294,7 @@ Above-the-fold model:
 | Question | Count |
 | --- | ---: |
 | Bleeding spend | 15 |
-| Scale-worthy | 1 |
+| Scale-ready | 1 |
 | Fatiguing on budget | 13 |
 | Leave alone | 17 |
 | Needs diagnosis | 193 |
@@ -216,9 +355,11 @@ Rendered preview uses only non-writing button/link labels:
 
 - Open detail
 - View diagnosis
-- Investigate
 - See blocker
 - Compare evidence
+
+The Diagnose aggregate now renders non-clickable status copy instead of a
+clickable-looking `Investigate` no-op.
 
 No platform-write button language is rendered by the v2 preview.
 
@@ -336,10 +477,10 @@ Results:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | passed, 305 files, 2186 tests |
+| `npm test` | passed, 305 files, 2191 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 33 tests |
+| Focused Creative/v2 preview tests | passed, 6 files, 38 tests |
 | v2 gold eval | macro F1 97.96, severe 0, high 0, medium 2, low 0 |
 | `git diff --check` | passed |
 | Hidden/bidi/control scan | passed |
@@ -358,11 +499,11 @@ Active PR #81 file scan:
 | File class | Result |
 | --- | --- |
 | Hidden/bidi/control codepoints | none found |
-| Local `FOR_CHATGPT_REVIEW.md` line count | 446 |
-| Local `authenticated-preview-screen-notes.md` line count | 92 |
+| Local `FOR_CHATGPT_REVIEW.md` line count | 634 |
+| Local `authenticated-preview-screen-notes.md` line count | 117 |
 | Local `lib/creative-decision-os-v2-preview.ts` line count | 650 |
-| Local `lib/creative-decision-os-v2-preview.test.tsx` line count | 155 |
-| Local `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` line count | 509 |
+| Local `lib/creative-decision-os-v2-preview.test.tsx` line count | 297 |
+| Local `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` line count | 525 |
 
 `app/(dashboard)/creatives/page.tsx` has existing non-ASCII UI text outside this
 patch's added lines. The strict non-ASCII scan on added/removed diff lines
@@ -375,10 +516,17 @@ If GitHub still shows a hidden/bidirectional Unicode warning in the PR
 conversation after these active blob checks, it is not explained by the current
 active file contents scanned here.
 
-# Preview validation
+# Previous preview validation before UI iteration
 
 Authenticated local/dev preview validation completed again on
 2026-04-26T21:11:23Z.
+
+This section records the authenticated validation from the original PR #81
+preview implementation. The 2026-04-27 UI iteration attempted a fresh
+authenticated browser validation, but local automation did not have an
+authenticated browser state and demo login did not return a local auth
+credential. That post-iteration runtime check remains open and is documented in
+the UI iteration section above.
 
 Artifact:
 

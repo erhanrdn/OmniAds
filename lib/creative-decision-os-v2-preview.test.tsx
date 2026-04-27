@@ -55,6 +55,58 @@ function bucket(id: string) {
   return found;
 }
 
+function sourceRow(
+  overrides: Partial<CreativeDecisionOsV2PreviewSourceRow>,
+): CreativeDecisionOsV2PreviewSourceRow {
+  const rowId = overrides.rowId ?? "row";
+  return {
+    rowId,
+    creativeId: overrides.creativeId ?? rowId,
+    campaignId: null,
+    adSetId: null,
+    currentDecision: null,
+    v2PrimaryDecision: overrides.v2PrimaryDecision ?? "Protect",
+    v2Actionability: overrides.v2Actionability ?? "review_only",
+    v2Confidence: overrides.v2Confidence ?? 65,
+    v2ReasonTags: overrides.v2ReasonTags ?? ["stable_read"],
+    v2EvidenceSummary: overrides.v2EvidenceSummary ?? "Sanitized evidence summary.",
+    v2RiskLevel: overrides.v2RiskLevel ?? "low",
+    v2ProblemClass: overrides.v2ProblemClass ?? "creative",
+    v2QueueEligible: false,
+    v2ApplyEligible: false,
+    v2BlockerReasons: overrides.v2BlockerReasons ?? [],
+    spend: overrides.spend ?? 100,
+    purchases: overrides.purchases ?? 2,
+    impressions: overrides.impressions ?? 1000,
+    roas: overrides.roas ?? 1.5,
+    cpa: overrides.cpa ?? 20,
+    recentRoas: overrides.recentRoas ?? 1.4,
+    recentPurchases: overrides.recentPurchases ?? 1,
+    longWindowRoas: overrides.longWindowRoas ?? 1.3,
+    activeBenchmarkRoas: overrides.activeBenchmarkRoas ?? 1.2,
+    activeBenchmarkCpa: overrides.activeBenchmarkCpa ?? 25,
+    peerMedianSpend: overrides.peerMedianSpend ?? 200,
+    activeStatus: overrides.activeStatus ?? true,
+    campaignStatus: overrides.campaignStatus ?? "ACTIVE",
+    adSetStatus: overrides.adSetStatus ?? "ACTIVE",
+    campaignAdsetBlockerFlags: overrides.campaignAdsetBlockerFlags ?? [],
+    trustSourceProvenanceFlags: overrides.trustSourceProvenanceFlags ?? [],
+    changedFromCurrent: overrides.changedFromCurrent ?? false,
+  };
+}
+
+function previewFromRows(rows: CreativeDecisionOsV2PreviewSourceRow[]): CreativeDecisionOsV2PreviewPayload {
+  const customSurface = buildCreativeDecisionOsV2PreviewSurfaceModel(rows);
+  return {
+    contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
+    generatedAt: "2026-04-27T12:00:00.000Z",
+    sourceDecisionOsGeneratedAt: "2026-04-27T11:00:00.000Z",
+    businessId: "sanitized-business",
+    rowCount: customSurface.rows.length,
+    surface: customSurface,
+  };
+}
+
 describe("Creative Decision OS v2 preview surface model", () => {
   it("routes Scale, high-spend Cut, and active Refresh rows into Today Priority", () => {
     const todayPriority = bucket("today_priority");
@@ -98,6 +150,48 @@ describe("Creative Decision OS v2 preview surface model", () => {
     expect(todayPriorityRows[0]?.primaryDecision).not.toBe("Test More");
   });
 
+  it("keeps review-only Scale and high-spend Cut above direct confirmation rows", () => {
+    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+      sourceRow({
+        rowId: "review-scale",
+        v2PrimaryDecision: "Scale",
+        v2Actionability: "review_only",
+        v2RiskLevel: "medium",
+        spend: 900,
+        peerMedianSpend: 300,
+      }),
+      sourceRow({
+        rowId: "high-spend-cut",
+        v2PrimaryDecision: "Cut",
+        v2Actionability: "review_only",
+        v2RiskLevel: "high",
+        spend: 4000,
+        peerMedianSpend: 500,
+      }),
+      sourceRow({
+        rowId: "direct-protect",
+        v2PrimaryDecision: "Protect",
+        v2Actionability: "direct",
+        v2RiskLevel: "low",
+        spend: 250,
+        peerMedianSpend: 250,
+      }),
+      sourceRow({
+        rowId: "direct-test-more",
+        v2PrimaryDecision: "Test More",
+        v2Actionability: "direct",
+        v2RiskLevel: "low",
+        spend: 300,
+        peerMedianSpend: 250,
+      }),
+    ]);
+
+    expect(deterministicSurface.buckets.find((item) => item.id === "today_priority")?.rowIds)
+      .toEqual(["high-spend-cut", "review-scale"]);
+    expect(deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")?.rowIds)
+      .toEqual(["direct-test-more", "direct-protect"]);
+  });
+
   it("keeps v2 safety invariants visible in the preview model", () => {
     expect(surface.rows.some((row) => row.primaryDecision === ("Watch" as never))).toBe(false);
     expect(surface.rows.some((row) => row.primaryDecision === ("Scale Review" as never))).toBe(false);
@@ -138,6 +232,54 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
       /JSON labels/i,
     ].filter((term) => term.test(html));
     expect(violations).toEqual([]);
+  });
+
+  it("explains the strict scale-ready count when no Scale row clears the evidence bar", () => {
+    const noScalePreview = previewFromRows([
+      sourceRow({
+        rowId: "promising-protect",
+        v2PrimaryDecision: "Protect",
+        v2Actionability: "review_only",
+        v2EvidenceSummary: "Strong long-window read, but recent evidence is not strong enough.",
+      }),
+      sourceRow({
+        rowId: "test-more",
+        v2PrimaryDecision: "Test More",
+        v2Actionability: "review_only",
+      }),
+    ]);
+    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={noScalePreview} />);
+
+    expect(html).toContain("Scale-ready");
+    expect(html).not.toContain("Scale-worthy");
+    expect(html).toContain("No scale-ready creative cleared the evidence bar yet.");
+    expect(html).toContain("Promising creatives may still appear under Protect, Test More, or Today Priority");
+  });
+
+  it("keeps Diagnose separate from buyer confirmation and avoids a no-op aggregate action", () => {
+    const diagnosePreview = previewFromRows([
+      sourceRow({
+        rowId: "diagnose-row",
+        v2PrimaryDecision: "Diagnose",
+        v2Actionability: "diagnose",
+        v2ProblemClass: "data-quality",
+        v2BlockerReasons: ["missing_source_evidence"],
+      }),
+    ]);
+    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={diagnosePreview} />);
+
+    expect(html).toContain("Ready for Buyer Confirmation");
+    expect(html).toContain("No direct confirmation candidates in this workspace.");
+    expect(html).toContain("Needs investigation before buyer action. This is not buyer confirmation.");
+    expect(html).toContain("Needs investigation before buyer action");
+    expect(html).not.toMatch(/<button[^>]*>\s*<svg[\s\S]*?Investigate\s*<\/button>/);
+  });
+
+  it("keeps the preview component read-only without DB, Meta, or Command Center wiring", () => {
+    const source = readFileSync("components/creatives/CreativeDecisionOsV2PreviewSurface.tsx", "utf8");
+
+    expect(source).not.toMatch(/@\/lib\/db|@\/lib\/meta|command-center/i);
+    expect(source).not.toMatch(/\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i);
   });
 });
 

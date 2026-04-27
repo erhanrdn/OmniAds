@@ -270,4 +270,20 @@ describe("Creatives page Decision OS snapshot contract", () => {
     expect(observedQueryKeys["creative-decision-os-snapshot"]).toEqual(firstSnapshotKey);
     expect(observedQueryKeys["meta-creatives-creatives-metadata"]).toContain("2026-03-16");
   });
+
+  it("keeps the v2 preview off by default and enables it only with the query flag", () => {
+    let html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
+    expect(html).not.toContain("Decision OS v2 operator surface");
+    expect(html).not.toContain("Decision OS v2 preview is enabled");
+
+    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=1");
+    observedQueryOptions = {};
+    html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
+    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS");
+  });
 });
