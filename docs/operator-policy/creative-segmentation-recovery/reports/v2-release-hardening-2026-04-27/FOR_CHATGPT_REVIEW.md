@@ -20,20 +20,22 @@ This is not product-ready work and not main-merge work.
 Active formatting correction after ChatGPT review:
 
 - Formatting commit:
-  `4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`
+  `5cf72894e175cd050948e4bf881fc738b1358caa`
 - Final WIP merge-consideration report:
   `docs/operator-policy/creative-segmentation-recovery/reports/v2-release-hardening-2026-04-27/FINAL_WIP_MERGE_CONSIDERATION.md`
 - Public raw verification confirmed the active hardening source/YAML files are
   readable multi-line files with no lines over 220 characters.
+- Raw URLs for this slash-containing branch were verified with the explicit
+  `/refs/heads/` form to avoid stale or ambiguous raw URL resolution.
 
 Public raw formatting evidence:
 
 | File | Public raw line count | Lines over 220 chars |
 | --- | ---: | --- |
-| `scripts/creative-v2-safety-gate.ts` | 73 | none |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 120 | none |
-| `scripts/creative-v2-self-hosted-smoke.ts` | 131 | none |
-| `.github/workflows/ci.yml` | 333 | none |
+| `scripts/creative-v2-safety-gate.ts` | 78 | none |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none |
+| `.github/workflows/ci.yml` | 336 | none |
 
 Product-ready: NO.
 

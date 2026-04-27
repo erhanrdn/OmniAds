@@ -73,12 +73,12 @@ self-hosted environment.
 # Formatting Correction
 
 The smoke runner was reformatted in commit
-`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+`5cf72894e175cd050948e4bf881fc738b1358caa`.
 
 Public raw verification:
 
 | File | Line count | Lines over 220 chars |
 | --- | ---: | --- |
-| `scripts/creative-v2-self-hosted-smoke.ts` | 131 | none |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none |
 
 The file is readable multi-line TypeScript.

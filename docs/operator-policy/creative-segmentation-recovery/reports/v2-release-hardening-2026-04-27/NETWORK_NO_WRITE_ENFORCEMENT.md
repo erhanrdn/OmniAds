@@ -76,13 +76,13 @@ Local result:
 # Formatting Correction
 
 The no-write enforcement test was reformatted in commit
-`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+`5cf72894e175cd050948e4bf881fc738b1358caa`.
 
 Public raw verification:
 
 | File | Line count | Lines over 220 chars |
 | --- | ---: | --- |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 120 | none |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
 
 The file is readable multi-line TypeScript.
 

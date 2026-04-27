@@ -1,4 +1,4 @@
-# Final WIP Merge Consideration
+# Final WIP Formatting Correction
 
 CHATGPT_REVIEW_READY: YES
 SANITIZED: YES
@@ -11,9 +11,12 @@ PR #82 remains the canonical WIP integration candidate. PR #81 remains
 superseded as the merge surface and available for audit/history. PR #78 remains
 the resolver base. Main remains untouched.
 
-The release-hardening files rejected for generated-looking formatting were
-reformatted and pushed in commit
-`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+This report corrects the rejected formatting evidence. The release-hardening
+files were reformatted again and pushed in commit
+`5cf72894e175cd050948e4bf881fc738b1358caa`.
+
+PR #82 is not claimed ready for PR #78 branch merge consideration until
+ChatGPT accepts the corrected public raw evidence.
 
 Product-ready: NO.
 
@@ -54,16 +57,23 @@ Branch checked:
 
 | File | Public raw line count | Lines over 220 chars | Readable multi-line |
 | --- | ---: | --- | --- |
-| `scripts/creative-v2-safety-gate.ts` | 73 | none | YES |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 120 | none | YES |
-| `scripts/creative-v2-self-hosted-smoke.ts` | 131 | none | YES |
-| `.github/workflows/ci.yml` | 333 | none | YES |
+| `scripts/creative-v2-safety-gate.ts` | 78 | none | YES |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none | YES |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none | YES |
+| `.github/workflows/ci.yml` | 336 | none | YES |
 
 Public raw commands used:
 
 ```bash
-curl -fsSL "<public raw URL>" | wc -l
-curl -fsSL "<public raw URL>" | awk 'length($0)>220 {print FNR ":" length($0)}'
+curl -fsSL "<public raw refs/heads URL>" | wc -l
+curl -fsSL "<public raw refs/heads URL>" \
+  | awk 'length($0)>220 {print FNR ":" length($0)}'
+```
+
+The checked URLs use this form because the branch name contains slashes:
+
+```text
+https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/<path>
 ```
 
 # Test/Typecheck/Build Results
@@ -170,7 +180,7 @@ Blocks product-ready:
 # WIP Merge Consideration
 
 PR #82 may be considered for human merge consideration into the PR #78 branch:
-YES, for WIP branch consideration only.
+NO, pending ChatGPT acceptance of the corrected active raw-file evidence.
 
 Actual merge was not performed.
 

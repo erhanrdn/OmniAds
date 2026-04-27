@@ -29,7 +29,7 @@ No main push.
 
 | Blocker | Status |
 | --- | --- |
-| Release-hardening raw formatting | closed by commit `4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`; public raw files are multi-line and have no lines over 220 chars |
+| Release-hardening raw formatting | corrected by commit `5cf72894e175cd050948e4bf881fc738b1358caa`; awaiting ChatGPT acceptance of raw evidence |
 | Fresh authenticated self-hosted runtime smoke after this hardening pass | open; not executable by Codex without prohibited credentials or session data |
 | Static/prior-evidence substitute for WIP runtime smoke | available only if ChatGPT/owner accepts WIP scope |
 | Owner-side authenticated GitHub UI warnings | open if visible to owner; public API counts are zero |

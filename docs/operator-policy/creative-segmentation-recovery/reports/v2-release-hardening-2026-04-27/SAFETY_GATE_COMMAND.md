@@ -93,12 +93,12 @@ runtime/product gates.
 # Formatting Correction
 
 The safety gate script was reformatted in commit
-`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+`5cf72894e175cd050948e4bf881fc738b1358caa`.
 
 Public raw verification:
 
 | File | Line count | Lines over 220 chars |
 | --- | ---: | --- |
-| `scripts/creative-v2-safety-gate.ts` | 73 | none |
+| `scripts/creative-v2-safety-gate.ts` | 78 | none |
 
 The file is readable multi-line TypeScript.
