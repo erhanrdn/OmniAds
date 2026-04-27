@@ -6,9 +6,8 @@ import type {
   CreativeDecisionOsV1Response,
   CreativeRuleReportPayload,
 } from "@/lib/creative-decision-os";
-import type {
-  CreativeDecisionOsSnapshotApiResponse,
-} from "@/lib/creative-decision-os-snapshots";
+import type { CreativeDecisionOsSnapshotApiResponse } from "@/lib/creative-decision-os-snapshots";
+import type { CreativeDecisionOsV2PreviewApiResponse } from "@/lib/creative-decision-os-v2-preview";
 import {
   buildApiUrl,
   getApiErrorMessage,
@@ -16,7 +15,7 @@ import {
 } from "@/src/services/data-service-support";
 
 export async function getLatestAiInsight(
-  businessId: string
+  businessId: string,
 ): Promise<AiDailyInsightSnapshot | null> {
   const url = buildApiUrl("/api/ai/insights/latest");
   url.searchParams.set("businessId", businessId);
@@ -30,7 +29,7 @@ export async function getLatestAiInsight(
 
   if (!response.ok) {
     throw new Error(
-      getApiErrorMessage(payload, `AI insight request failed with status ${response.status}`)
+      getApiErrorMessage(payload, `AI insight request failed with status ${response.status}`),
     );
   }
 
@@ -60,10 +59,7 @@ export async function generateAiInsight(businessId: string): Promise<void> {
 
   if (!response.ok) {
     throw new Error(
-      getApiErrorMessage(
-        payload,
-        `AI insight generation failed with status ${response.status}`
-      )
+      getApiErrorMessage(payload, `AI insight generation failed with status ${response.status}`),
     );
   }
 }
@@ -193,7 +189,7 @@ export interface AiCreativeRuleCommentaryResponse {
 function getClientApiUrl(path: string) {
   return new URL(
     path,
-    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000",
   );
 }
 
@@ -201,7 +197,7 @@ export async function getCreativeDecisions(
   businessId: string,
   currency: string,
   creatives: CreativeDecisionInputRow[],
-  forceRefresh = false
+  forceRefresh = false,
 ): Promise<CreativeDecisionResponse> {
   const url = getClientApiUrl("/api/creatives/decisions");
 
@@ -219,12 +215,18 @@ export async function getCreativeDecisions(
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: string }).message ?? "Could not generate creative decisions.")
+        ? String(
+            (payload as { message?: string }).message ?? "Could not generate creative decisions.",
+          )
         : `Creative decisions request failed with status ${response.status}`;
     throw new Error(message);
   }
 
-  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { decisions?: unknown }).decisions)) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !Array.isArray((payload as { decisions?: unknown }).decisions)
+  ) {
     throw new Error("Creative decisions API returned an invalid payload.");
   }
 
@@ -273,6 +275,18 @@ function assertCreativeDecisionOsSnapshotResponse(payload: unknown) {
   return payload as CreativeDecisionOsSnapshotResponse;
 }
 
+function assertCreativeDecisionOsV2PreviewResponse(payload: unknown) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    (payload as { contractVersion?: unknown }).contractVersion !==
+      "creative-decision-os-v2-preview.v0.1.1"
+  ) {
+    throw new Error("Creative Decision OS v2 preview API returned an invalid payload.");
+  }
+  return payload as CreativeDecisionOsV2PreviewApiResponse;
+}
+
 export async function getCreativeDecisionOsSnapshot(
   businessId: string,
   options?: {
@@ -294,12 +308,51 @@ export async function getCreativeDecisionOsSnapshot(
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS snapshot.")
+        ? String(
+            (payload as { message?: string }).message ??
+              "Could not load Creative Decision OS snapshot.",
+          )
         : `Creative Decision OS snapshot request failed with status ${response.status}`;
     throw new Error(message);
   }
 
   return assertCreativeDecisionOsSnapshotResponse(payload);
+}
+
+export async function getCreativeDecisionOsV2Preview(
+  businessId: string,
+  options?: {
+    benchmarkScope?: CreativeDecisionBenchmarkScopeInput | null;
+    enabled?: boolean;
+  },
+): Promise<CreativeDecisionOsV2PreviewApiResponse> {
+  const url = getClientApiUrl("/api/creatives/decision-os-v2/preview");
+  url.searchParams.set("businessId", businessId);
+  if (options?.enabled) {
+    url.searchParams.set("creativeDecisionOsV2Preview", "1");
+  }
+  appendCreativeDecisionOsBenchmarkScope(url, options?.benchmarkScope);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String(
+            (payload as { message?: string }).message ??
+              "Could not load Creative Decision OS v2 preview.",
+          )
+        : `Creative Decision OS v2 preview request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return assertCreativeDecisionOsV2PreviewResponse(payload);
 }
 
 export async function runCreativeDecisionOsAnalysis(
@@ -334,7 +387,9 @@ export async function runCreativeDecisionOsAnalysis(
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS.")
+        ? String(
+            (payload as { message?: string }).message ?? "Could not load Creative Decision OS.",
+          )
         : `Creative Decision OS request failed with status ${response.status}`;
     throw new Error(message);
   }
@@ -347,7 +402,7 @@ export const getCreativeDecisionOs = runCreativeDecisionOsAnalysis;
 export async function getAiCreativeRuleCommentary(
   businessId: string,
   currency: string,
-  report: CreativeRuleReportPayload
+  report: CreativeRuleReportPayload,
 ): Promise<AiCreativeRuleCommentaryResponse> {
   const url = getClientApiUrl("/api/creatives/commentary");
 
@@ -365,7 +420,9 @@ export async function getAiCreativeRuleCommentary(
   if (!response.ok) {
     const message =
       payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message?: string }).message ?? "Could not generate AI rule commentary.")
+        ? String(
+            (payload as { message?: string }).message ?? "Could not generate AI rule commentary.",
+          )
         : `AI rule commentary request failed with status ${response.status}`;
     throw new Error(message);
   }
