@@ -9,6 +9,7 @@ let mockDateRange = {
   lastDays: 14,
   sinceDate: "",
 };
+let mockSearchParams = new URLSearchParams();
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
 const mutateRunAnalysis = vi.fn();
@@ -69,6 +70,7 @@ vi.mock("next/dynamic", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -76,7 +78,8 @@ vi.mock("@/components/business/BusinessEmptyState", () => ({
 }));
 
 vi.mock("@/components/states/empty-state", () => ({
-  EmptyState: (props: { title: string }) => React.createElement("div", null, `empty:${props.title}`),
+  EmptyState: (props: { title: string }) =>
+    React.createElement("div", null, `empty:${props.title}`),
 }));
 
 vi.mock("@/components/states/IntegrationEmptyState", () => ({
@@ -90,16 +93,22 @@ vi.mock("@/components/states/LockedFeatureCard", () => ({
 }));
 
 vi.mock("@/components/states/error-state", () => ({
-  ErrorState: (props: { title: string }) => React.createElement("div", null, `error:${props.title}`),
+  ErrorState: (props: { title: string }) =>
+    React.createElement("div", null, `error:${props.title}`),
 }));
 
 vi.mock("@/components/states/loading-skeleton", () => ({
-  LoadingSkeleton: (props: { title: string }) => React.createElement("div", null, `loading:${props.title}`),
+  LoadingSkeleton: (props: { title: string }) =>
+    React.createElement("div", null, `loading:${props.title}`),
 }));
 
 vi.mock("@/components/ui/button", () => ({
   Button: (props: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) =>
-    React.createElement("button", { disabled: props.disabled, onClick: props.onClick }, props.children),
+    React.createElement(
+      "button",
+      { disabled: props.disabled, onClick: props.onClick },
+      props.children,
+    ),
 }));
 
 vi.mock("@/components/creatives/CreativesTableSection", () => ({
@@ -111,8 +120,10 @@ vi.mock("@/components/creatives/CreativeBenchmarkScopeControl", () => ({
 }));
 
 vi.mock("@/components/creatives/CreativesTopSection", () => ({
-  CreativesTopSection: (props: { actionsPrefix?: React.ReactNode; belowToolbar?: React.ReactNode }) =>
-    React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
+  CreativesTopSection: (props: {
+    actionsPrefix?: React.ReactNode;
+    belowToolbar?: React.ReactNode;
+  }) => React.createElement("section", null, props.actionsPrefix, props.belowToolbar),
   applyCreativeFilters: (rows: unknown[]) => rows,
   formatCreativeDateLabel: () => "Last 14 days",
   mapCreativeGroupByToApi: () => "creative",
@@ -138,6 +149,7 @@ vi.mock("@/hooks/use-persistent-date-range", () => ({
 
 vi.mock("@/src/services", () => ({
   getCreativeDecisionOsSnapshot: vi.fn(),
+  getCreativeDecisionOsV2Preview: vi.fn(),
   runCreativeDecisionOsAnalysis: vi.fn(),
 }));
 
@@ -157,11 +169,15 @@ vi.mock("@/app/(dashboard)/creatives/page-support", () => ({
 }));
 
 vi.mock("@/hooks/use-business-integrations-bootstrap", () => ({
-  useBusinessIntegrationsBootstrap: () => ({ isBootstrapping: false, bootstrapStatus: "ready" }),
+  useBusinessIntegrationsBootstrap: () => ({
+    bootstrapStatus: "ready",
+    isBootstrapping: false,
+  }),
 }));
 
 vi.mock("@/components/pricing/PlanGate", () => ({
-  PlanGate: (props: { children: React.ReactNode }) => React.createElement(React.Fragment, null, props.children),
+  PlanGate: (props: { children: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, props.children),
 }));
 
 vi.mock("@/lib/pricing/usePlan", () => ({
@@ -232,6 +248,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
       lastDays: 14,
       sinceDate: "",
     };
+    mockSearchParams = new URLSearchParams();
   });
 
   it("loads snapshots without date range in the Decision OS query identity", () => {
@@ -239,13 +256,10 @@ describe("Creatives page Decision OS snapshot contract", () => {
     const firstSnapshotKey = observedQueryKeys["creative-decision-os-snapshot"];
 
     expect(observedQueryOptions["creative-decision-os-snapshot"]?.enabled).toBe(true);
-    expect(firstSnapshotKey).toEqual([
-      "creative-decision-os-snapshot",
-      "biz",
-      "account",
-      null,
-    ]);
+    expect(firstSnapshotKey).toEqual(["creative-decision-os-snapshot", "biz", "account", null]);
     expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
+    expect(html).not.toContain("Decision OS v2 operator surface");
     expect(html).toContain("Run Creative Analysis");
     expect(html).toContain("Decision OS");
     expect(mutateRunAnalysis).not.toHaveBeenCalled();
@@ -263,5 +277,21 @@ describe("Creatives page Decision OS snapshot contract", () => {
 
     expect(observedQueryKeys["creative-decision-os-snapshot"]).toEqual(firstSnapshotKey);
     expect(observedQueryKeys["meta-creatives-creatives-metadata"]).toContain("2026-03-16");
+  });
+
+  it("keeps the v2 preview off by default and enables it only with the query flag", () => {
+    let html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(false);
+    expect(html).not.toContain("Decision OS v2 operator surface");
+    expect(html).not.toContain("Decision OS v2 preview is enabled");
+
+    mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=1");
+    observedQueryOptions = {};
+    html = renderToStaticMarkup(React.createElement(CreativesPage));
+
+    expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
+    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS");
   });
 });
