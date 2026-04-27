@@ -156,7 +156,7 @@ inability to reproduce it must be recorded without claiming closure.
 Post-push public GitHub evidence for formatting correction commit
 `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`:
 
-- PR #81 public API head: `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`.
+- At capture time, PR #81 public API head was `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`.
 - PR #81 is still Draft.
 - Public GitHub files HTML still shows hidden/bidirectional warning banners.
 - Warning banner file sections:
