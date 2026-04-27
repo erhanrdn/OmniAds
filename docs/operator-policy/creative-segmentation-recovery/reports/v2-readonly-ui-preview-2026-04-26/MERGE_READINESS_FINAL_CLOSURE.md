@@ -147,36 +147,43 @@ Current validation before push:
 Post-push GitHub raw/files-view status for formatting correction commit
 `0ab332ee739e14c00b5c07abb1728741b5e520a0`:
 
-- PR #81 public API head: `0ab332ee739e14c00b5c07abb1728741b5e520a0`.
+- Active PR #81 branch: `wip/creative-v2-readonly-ui-preview-2026-04-26`.
+- PR #81 public API head at raw verification time before this report-only commit: `41a9d8030de6ef770f64088a98225791cdd5e51b`.
+- Formatting commit SHA: `0ab332ee739e14c00b5c07abb1728741b5e520a0`.
+- PR #81 commits page shows `0ab332e` with message
+  `chore: format creative v2 active source files`.
+- PR #81 commits page also shows `41a9d80` with message
+  `docs: record creative v2 formatting verification`.
 - PR #81 remains Draft.
-- Public raw file check confirms real line breaks:
-  - `app/(dashboard)/creatives/page.test.tsx`: 298 lines, max line 99.
-  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 625 lines,
-    max line 111.
-  - `app/(dashboard)/creatives/page.tsx`: 1268 lines, max line 196.
-  - `app/api/creatives/decision-os-v2/preview/route.ts`: 121 lines, max line
-    100.
-  - `app/api/creatives/decision-os-v2/preview/route.test.ts`: 67 lines, max
-    line 109.
-  - `lib/creative-decision-os-v2-preview.ts`: 663 lines, max line 100.
-  - `lib/creative-decision-os-v2-preview.test.tsx`: 394 lines, max line 137.
-  - `src/services/data-service-ai.ts`: 446 lines, max line 100.
+- Exact public raw URL check for `app/(dashboard)/creatives/page.test.tsx`:
+  - URL:
+    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/app/%28dashboard%29/creatives/page.test.tsx`.
+  - HTTP status: 200.
+  - `curl -L <url> | wc -l`: 297.
+  - `curl -L <url> | awk 'length($0)>220 {print FNR ":" length($0)}'`: no output.
+- Exact public raw URL check for
+  `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`:
+  - URL:
+    `https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-v2-readonly-ui-preview-2026-04-26/components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`.
+  - HTTP status: 200.
+  - `curl -L <url> | wc -l`: 624.
+  - `curl -L <url> | awk 'length($0)>220 {print FNR ":" length($0)}'`: no output.
 - Public raw targeted scan found zero hidden/bidi/control codepoints in the
   checked active files.
 - Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
   codepoints.
 - Public GitHub files HTML still contains hidden/bidirectional warning template
   sections for:
-  - `app/(dashboard)/creatives/page.test.tsx`
-  - `app/(dashboard)/creatives/page.tsx`
-  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+  - `app/(dashboard)/creatives/page.test.tsx`.
+  - `app/(dashboard)/creatives/page.tsx`.
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`.
 - No exact raw file line or codepoint was found for those warning template
   sections.
 
-Product-ready: NO. Merge-ready: NO. Active raw formatting is corrected, but
-hidden/bidi files-view closure remains open because GitHub files HTML still
-contains warning template sections and no exact line/codepoint can be
-documented from raw files.
+Product-ready: NO. Merge-ready: NO. Active raw formatting is corrected and the
+exact public raw URLs show real line breaks, but hidden/bidi files-view closure
+is not claimed because GitHub files HTML still contains warning template
+sections and no exact line/codepoint can be documented from raw files.
 
 # Superseded prior GitHub evidence correction after ChatGPT review
 
