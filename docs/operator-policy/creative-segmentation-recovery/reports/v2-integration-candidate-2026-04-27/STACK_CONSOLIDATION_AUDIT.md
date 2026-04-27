@@ -143,15 +143,25 @@ curl -fsSL https://api.github.com/repos/erhanrdn/OmniAds/issues/<PR>/comments
 `gh auth status` reported that the local GitHub CLI is not logged in. Codex did
 not ask the supervisor for a token and did not run `gh auth login`.
 
-Because authenticated GitHub write access was unavailable, Codex could not open
-the Draft PR or update PR #78/#81 bodies from this environment. The branch and
-repo reports are the handoff artifacts.
+The GitHub connector was available after the branch was pushed, so Codex opened
+Draft PR #82:
+
+`https://github.com/erhanrdn/OmniAds/pull/82`
+
+PR #82 targets:
+`wip/creative-decision-os-v2-baseline-first-2026-04-26`.
+
+PR #82 head:
+`wip/creative-decision-os-v2-integration-candidate-2026-04-27`.
+
+Codex did not update PR #78 or PR #81 bodies because no PR-body update connector
+tool was available and local `gh` was not authenticated.
 
 # GitHub Auth Limitation Status
 
 Public GitHub API reads were available and used for PR metadata and public
-comment/review counts. Authenticated private review-thread state was not
-inspected.
+comment/review counts. The GitHub connector was available for creating Draft PR
+#82. Authenticated private review-thread state was not inspected.
 
 If the merge owner sees unresolved threads in an authenticated GitHub UI, those
 threads remain active blockers.

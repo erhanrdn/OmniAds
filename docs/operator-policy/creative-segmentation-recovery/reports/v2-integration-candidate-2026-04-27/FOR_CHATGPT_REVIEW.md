@@ -56,8 +56,13 @@ Final integration branch name:
 Integration merge commit before this documentation packet:
 `6b37ab17b940aeab95e72a7e4ce3aced00facbf1`.
 
-Final pushed head after this documentation packet is the branch head on GitHub.
-The report cannot embed its own final commit hash without changing that hash.
+Initial pushed report-packet head:
+`bb021278504ec8d00f4d2ad423a05b8e90510457`.
+
+Draft integration candidate PR:
+`https://github.com/erhanrdn/OmniAds/pull/82`.
+
+The PR is Draft and targets the PR #78 branch, not main.
 
 # Consolidation Method
 
@@ -313,6 +318,5 @@ zero restricted filenames, and no secret values.
 # Recommendation
 
 Keep Draft. Continue limited read-only preview as supervised evidence gathering
-only. Request the next ChatGPT decision on whether to open or review this
-integration candidate branch as the replacement for direct PR #81 to PR #78
-merge consideration.
+only. Request the next ChatGPT decision on Draft PR #82 as the replacement
+candidate for direct PR #81 to PR #78 merge consideration.
