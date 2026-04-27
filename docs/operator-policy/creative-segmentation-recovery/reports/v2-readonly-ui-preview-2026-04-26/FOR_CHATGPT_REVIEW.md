@@ -33,6 +33,24 @@ preview. Generic DB connection requirements still apply.
 
 Date: 2026-04-27
 
+Claude UI iteration buyer review visibility:
+
+- Branch:
+  `review/creative-v2-ui-iteration-buyer-review-2026-04-27`
+- Head commit:
+  `b9f58468d1978a3b8ea3742899641db353d3dcd1`
+- Draft PR creation status: not created by Codex because local `gh` is not
+  authenticated. Codex did not ask for a GitHub token or secret.
+- Review result accepted by ChatGPT: buyer confidence improved to 80/100,
+  verdict `SECOND_OPERATOR_SESSION_REQUIRED`, product-ready NO, merge-ready NO.
+
+Post-iteration delta validation report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-second-operator-preview-session-2026-04-27/FOR_CHATGPT_REVIEW.md`
+- Scope: delta validation only, not a full repeated operator session.
+- Supervisor used the existing authenticated self-hosted OmniAds domain. Domain
+  intentionally not recorded.
+
 Reason for change:
 
 - The completed supervised operator session found first-glance clarity around
