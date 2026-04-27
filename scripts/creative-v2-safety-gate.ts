@@ -16,6 +16,11 @@ const focusedTestFiles = [
   "app/api/creatives/decision-os-v2/preview/route.test.ts",
 ];
 
+const focusedVitestArgs = ["vitest", "run", ...focusedTestFiles];
+const safetyThresholds = {
+  minimumMacroF1: 90,
+} as const;
+
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, {
     cwd: process.cwd(),
@@ -30,7 +35,7 @@ function run(command: string, args: string[]) {
   }
 }
 
-run("npx", ["vitest", "run", ...focusedTestFiles]);
+run("npx", focusedVitestArgs);
 
 const evaluation = evaluateCreativeDecisionOsV2Gold(readGoldLabelsV0());
 const failures: string[] = [];
@@ -43,8 +48,11 @@ function requireZero(label: string, actual: number) {
   if (actual !== 0) failures.push(`${label}: ${actual}`);
 }
 
-const minimumMacroF1 = 90;
-requireAtLeast("macroF1", evaluation.macroF1, minimumMacroF1);
+requireAtLeast(
+  "macroF1",
+  evaluation.macroF1,
+  safetyThresholds.minimumMacroF1,
+);
 requireZero("severe mismatches", evaluation.mismatchCounts.severe);
 requireZero("high mismatches", evaluation.mismatchCounts.high);
 

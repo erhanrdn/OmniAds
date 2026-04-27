@@ -10,6 +10,18 @@ const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
 const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
 const postPreviewMarker = "{creativesMetadataQuery.isLoading";
+const mutatingRouteHandlerPattern =
+  /export async function (POST|PUT|PATCH|DELETE)\b/;
+const commandCenterBoundaryPattern =
+  /command-center|execution\/apply|work[-_ ]?item/i;
+const writeVerbPattern =
+  /\b(enqueue|upsert|insert|update|delete|applyCommandCenter)\b/i;
+const metaWriteBoundaryPattern =
+  /@\/lib\/meta|@\/lib\/api\/meta|MetaApi|facebook/i;
+const dbPlatformWritePattern =
+  /@\/lib\/db|@\/lib\/meta|@\/lib\/api\/meta/i;
+const writeSideEffectPattern =
+  /\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i;
 
 function source(file: string) {
   return readFileSync(file, "utf8");
@@ -62,14 +74,10 @@ describe("Creative v2 no-write enforcement", () => {
     const text = source(previewRouteFile);
 
     expect(text).toMatch(/export async function GET/);
-    expect(text).not.toMatch(/export async function (POST|PUT|PATCH|DELETE)\b/);
-    expect(text).not.toMatch(/command-center|execution\/apply|work[-_ ]?item/i);
-    expect(text).not.toMatch(
-      /\b(enqueue|upsert|insert|update|delete|applyCommandCenter)\b/i,
-    );
-    expect(text).not.toMatch(
-      /@\/lib\/meta|@\/lib\/api\/meta|MetaApi|facebook/i,
-    );
+    expect(text).not.toMatch(mutatingRouteHandlerPattern);
+    expect(text).not.toMatch(commandCenterBoundaryPattern);
+    expect(text).not.toMatch(writeVerbPattern);
+    expect(text).not.toMatch(metaWriteBoundaryPattern);
   });
 
   it("keeps the preview route clean in the transitive GET side-effect scanner", () => {
@@ -104,13 +112,9 @@ describe("Creative v2 no-write enforcement", () => {
       .map(source)
       .join("\n");
 
-    expect(combined).not.toMatch(/@\/lib\/db|@\/lib\/meta|@\/lib\/api\/meta/i);
-    expect(combined).not.toMatch(
-      /command-center|execution\/apply|work[-_ ]?item/i,
-    );
-    expect(combined).not.toMatch(
-      /\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i,
-    );
+    expect(combined).not.toMatch(dbPlatformWritePattern);
+    expect(combined).not.toMatch(commandCenterBoundaryPattern);
+    expect(combined).not.toMatch(writeSideEffectPattern);
     expect(combined).not.toMatch(
       /\b(enqueue|upsert|insert|delete|applyCommandCenter)\b/i,
     );

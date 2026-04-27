@@ -28,10 +28,12 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: |
+          npx tsc --noEmit
 
       - name: Verify release authority preflight
-        run: node --import tsx scripts/verify-release-authority.ts --mode=preflight
+        run: >-
+          node --import tsx scripts/verify-release-authority.ts --mode=preflight
 
   test:
     runs-on: ubuntu-latest
@@ -50,10 +52,12 @@ jobs:
         run: npm ci
 
       - name: Test
-        run: npm run test
+        run: |
+          npm run test
 
       - name: Creative v2 safety gate
-        run: npm run creative:v2:safety
+        run: |
+          npm run creative:v2:safety
 
   build:
     if: github.event_name == 'pull_request'
@@ -73,7 +77,8 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build
+        run: |
+          npm run build
 
   detect-runtime-changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

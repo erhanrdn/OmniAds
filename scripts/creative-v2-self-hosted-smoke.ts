@@ -23,6 +23,12 @@ const forbiddenInternalTerms = [
 ];
 
 const writeMethods = ["POST", "PUT", "PATCH", "DELETE"];
+const previewFlagQuery = "creativeDecisionOsV2Preview=1";
+const previewSurfaceTestId = "creative-v2-preview-surface";
+const previewRoutes = {
+  withoutFlag: "/creatives",
+  withFlag: `/creatives?${previewFlagQuery}`,
+} as const;
 
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -81,14 +87,16 @@ async function main() {
   });
 
   phase = "no_flag";
-  await page.goto(`${baseUrl}/creatives`, { waitUntil: "networkidle" });
-  await expect(page.getByTestId("creative-v2-preview-surface")).toHaveCount(0);
-
-  phase = "with_flag";
-  await page.goto(`${baseUrl}/creatives?creativeDecisionOsV2Preview=1`, {
+  await page.goto(`${baseUrl}${previewRoutes.withoutFlag}`, {
     waitUntil: "networkidle",
   });
-  await expect(page.getByTestId("creative-v2-preview-surface")).toBeVisible();
+  await expect(page.getByTestId(previewSurfaceTestId)).toHaveCount(0);
+
+  phase = "with_flag";
+  await page.goto(`${baseUrl}${previewRoutes.withFlag}`, {
+    waitUntil: "networkidle",
+  });
+  await expect(page.getByTestId(previewSurfaceTestId)).toBeVisible();
   await expect(page.getByTestId("creative-v2-today-priority")).toBeVisible();
   await expect(page.getByText("Scale-ready")).toBeVisible();
   await expect(
@@ -103,7 +111,7 @@ async function main() {
 
   phase = "detail_open";
   const firstReadOnlyButton = page
-    .getByTestId("creative-v2-preview-surface")
+    .getByTestId(previewSurfaceTestId)
     .getByRole("button")
     .first();
   if ((await firstReadOnlyButton.count()) > 0) {
