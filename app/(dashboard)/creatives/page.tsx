@@ -3,7 +3,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -22,6 +22,7 @@ import {
 } from "@/components/creatives/metricConfig";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import { CreativeBenchmarkScopeControl } from "@/components/creatives/CreativeBenchmarkScopeControl";
+import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
 import {
   applyCreativeFilters,
   formatCreativeDateLabel,
@@ -42,6 +43,7 @@ import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-rang
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
 import {
   getCreativeDecisionOsSnapshot,
+  getCreativeDecisionOsV2Preview,
   runCreativeDecisionOsAnalysis,
 } from "@/src/services";
 import {
@@ -137,6 +139,7 @@ function formatSnapshotTimestamp(value: string | null | undefined) {
 
 export default function CreativesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
@@ -434,6 +437,26 @@ export default function CreativesPage() {
         benchmarkScope: activeBenchmarkScope,
       }),
   });
+  const creativeDecisionOsV2PreviewEnabled =
+    searchParams.get("creativeDecisionOsV2Preview") === "1" ||
+    searchParams.get("v2Preview") === "1";
+  const creativeDecisionOsV2PreviewQuery = useQuery({
+    queryKey: [
+      "creative-decision-os-v2-preview",
+      businessId,
+      activeBenchmarkScope.scope,
+      activeBenchmarkScope.scopeId ?? null,
+      creativeDecisionOsV2PreviewEnabled,
+    ],
+    enabled: canLoadCreatives && creativeDecisionOsV2PreviewEnabled,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      getCreativeDecisionOsV2Preview(businessId, {
+        benchmarkScope: activeBenchmarkScope,
+        enabled: creativeDecisionOsV2PreviewEnabled,
+      }),
+  });
   const creativeDecisionOsRunMutation = useMutation({
     mutationFn: () =>
       runCreativeDecisionOsAnalysis(businessId, drStart, drEnd, {
@@ -446,6 +469,8 @@ export default function CreativesPage() {
   const creativeDecisionSnapshotResponse = creativeDecisionOsSnapshotQuery.data ?? null;
   const creativeDecisionSnapshot = creativeDecisionSnapshotResponse?.snapshot ?? null;
   const creativeDecisionOs = creativeDecisionSnapshotResponse?.decisionOs ?? null;
+  const creativeDecisionOsV2Preview =
+    creativeDecisionOsV2PreviewQuery.data?.decisionOsV2Preview ?? null;
   const decisionSnapshotGeneratedAt = formatSnapshotTimestamp(
     creativeDecisionSnapshot?.generatedAt,
   );
@@ -1107,6 +1132,19 @@ export default function CreativesPage() {
                 </div>
               }
             />
+
+            {creativeDecisionOsV2PreviewEnabled ? (
+              <CreativeDecisionOsV2PreviewSurface
+                preview={creativeDecisionOsV2Preview}
+                isLoading={creativeDecisionOsV2PreviewQuery.isLoading}
+                error={
+                  creativeDecisionOsV2PreviewQuery.error instanceof Error
+                    ? creativeDecisionOsV2PreviewQuery.error.message
+                    : creativeDecisionOsV2PreviewQuery.data?.error?.message ?? null
+                }
+                onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
+              />
+            ) : null}
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 
