@@ -29,6 +29,51 @@ self-hosted PostgreSQL database. Deprecated provider-specific deploy/check
 references are not treated as active blockers for this limited read-only
 preview. Generic DB connection requirements still apply.
 
+# Active GitHub evidence correction after ChatGPT review
+
+ChatGPT reviewed the prior closure packet and found active GitHub evidence that
+contradicted the closure claims. The prior packet said hidden/bidi and
+line-length/readability concerns were closed, but the GitHub files view was
+reported to still warn on `app/(dashboard)/creatives/page.test.tsx`, and active
+raw files were reported as too dense or collapsed.
+
+Correction in this update:
+
+- `app/(dashboard)/creatives/page.test.tsx` was reformatted.
+- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was
+  reformatted.
+- `lib/creative-decision-os-v2-preview.test.tsx` now includes a hygiene test
+  that fails if active preview TS/TSX/JS/JSX files collapse into one or two
+  huge generated-looking lines.
+- The related files requested by ChatGPT were inspected for readability.
+- No behavior changed beyond formatting/readability test coverage.
+
+Readable source metrics after correction:
+
+| File | Lines | Max line |
+| --- | ---: | ---: |
+| `app/(dashboard)/creatives/page.test.tsx` | 294 | 108 |
+| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 595 | 118 |
+| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/api/creatives/decision-os-v2/preview/route.ts` | 119 | 105 |
+| `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
+| `lib/creative-decision-os-v2-preview.ts` | 651 | 133 |
+| `lib/creative-decision-os-v2-preview.test.tsx` | 366 | 137 |
+| `src/services/data-service-ai.ts` | 437 | 114 |
+
+Hidden/bidi closure status:
+
+- The previous false-positive exception is withdrawn until active GitHub files
+  are rechecked after this formatting correction is pushed.
+- If the GitHub warning is gone, M1/M2 can close normally.
+- If the GitHub warning remains, the exact active file and line context must be
+  documented, or the inability to reproduce it must be recorded without
+  claiming closure.
+
+PR #81 remains Draft. Product-ready: NO. Merge-ready: NO. It is not ready for
+human merge consideration into PR #78 until active warnings and file hygiene
+evidence are actually closed.
+
 # UI iteration after completed operator session
 
 Date: 2026-04-27
@@ -55,7 +100,7 @@ Merge-readiness blocker audit:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/MERGE_READINESS_BLOCKER_AUDIT.md`
 
-Final merge-readiness closure packet:
+Corrected merge-readiness closure packet:
 
 - `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/MERGE_READINESS_FINAL_CLOSURE.md`
 
@@ -96,9 +141,9 @@ Before/after copy:
 Tests run after the UI iteration:
 
 - `npx vitest run lib/creative-decision-os-v2-preview.test.tsx app/'(dashboard)'/creatives/page.test.tsx app/api/creatives/decision-os-v2/preview/route.test.ts`
-  - Result: passed, 3 files, 15 tests.
+  - Result: passed, 3 files, 17 tests.
 - `npm test`
-  - Result: passed, 305 files, 2191 tests.
+  - Result: passed, 305 files, 2193 tests.
 - `npm run build`
   - Result: passed.
 - `npx tsc --noEmit`
@@ -115,7 +160,7 @@ Tests run after the UI iteration:
     'app/(dashboard)/creatives/page.test.tsx' \
     app/api/creatives/decision-os-v2/preview/route.test.ts
   ```
-  - Result: passed, 6 files, 38 tests.
+  - Result: passed, 6 files, 40 tests.
 
 New or updated test coverage:
 
@@ -248,12 +293,12 @@ Checks after lane polish:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | passed, 305 files, 2192 tests |
+| `npm test` | passed, 305 files, 2193 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 39 tests |
+| Focused Creative/v2 preview tests | passed, 6 files, 40 tests |
 | Clean-checkout focused v2 preview tests | passed, 3 files, 16 tests |
-| v2 gold eval | macro F1 97.96; severe 0, high 0, medium 2, low 0 |
+| v2 gold eval | not rerun in this formatting correction; resolver logic unchanged from prior pass |
 | JSON parse checks for report JSON files | passed, 8 files |
 | `git diff --check` | passed |
 | Hidden/bidi/control scan | passed |
@@ -269,12 +314,13 @@ Merge-readiness blocker table:
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| Hidden/bidi active warning | closed by documented false-positive exception |
-| Historical PR #79/#81 hidden warning closure | closed by documented false-positive exception |
+| Hidden/bidi active warning | open pending post-format GitHub files-view verification |
+| Historical PR #79/#81 hidden warning closure | open pending post-format GitHub files-view verification |
 | Review threads | closed by public API evidence |
 | Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
+| Active source file readability | corrected by formatting update; must be confirmed after push |
 
 No blocker is being silently ignored.
 
@@ -283,8 +329,9 @@ Final recommendation:
 - Keep PR #81 Draft unless the owner explicitly changes it.
 - Product-ready: NO.
 - Merge-ready to main: NO.
-- Ready for human merge consideration into the PR #78 branch only if the merge
-  owner accepts the documented hidden/bidi false-positive exception.
+- Ready for human merge consideration into the PR #78 branch: NO until the
+  active GitHub warning/readability evidence is closed after this formatting
+  correction.
 
 # Dependencies
 
@@ -541,7 +588,8 @@ npx vitest run \
   'app/(dashboard)/creatives/page.test.tsx' \
   app/api/creatives/decision-os-v2/preview/route.test.ts
 ```
-- `node --import tsx scripts/creative-decision-os-v2-gold-eval.ts`
+- v2 gold eval was not rerun in this formatting correction because no resolver
+  logic changed; the prior pass remains historical evidence.
 - `git diff --check`
 - GitHub connector review-thread/comment/review inspection for PR #78, #79,
   #80, and #81
@@ -551,10 +599,10 @@ npx vitest run \
   PR #81
 - Infrastructure reference audit for deprecated provider-specific wording and
   generic DB connection requirements
-- Hidden/bidi/control scan:
+- Hidden/bidi/control scan on tracked text/source files:
 
 ```bash
-git ls-files -mo --exclude-standard -z |
+git ls-files -z -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.md' '*.json' '*.css' '*.mjs' '*.cjs' |
   xargs -0 perl -ne 'print "$ARGV:$.:$_" if /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x{202A}-\x{202E}\x{2066}-\x{2069}]/'
 ```
 
@@ -600,11 +648,11 @@ Results:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | passed, 305 files, 2191 tests |
+| `npm test` | passed, 305 files, 2193 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 38 tests |
-| v2 gold eval | macro F1 97.96, severe 0, high 0, medium 2, low 0 |
+| Focused Creative/v2 preview tests | passed, 6 files, 40 tests |
+| v2 gold eval | not rerun in this formatting correction; resolver logic unchanged from prior pass |
 | `git diff --check` | passed |
 | Hidden/bidi/control scan | passed |
 | Strict non-ASCII scan on added/removed diff lines | passed |
@@ -614,8 +662,12 @@ Results:
 
 # GitHub active file warning status
 
-After pushing the PR #81 update, active GitHub PR file blobs were fetched through
-the GitHub PR files API and raw blob URLs.
+The prior version of this section over-claimed closure. It is retained as
+historical context only and is superseded by the active GitHub evidence
+correction above.
+
+After the earlier PR #81 update, active GitHub PR file blobs were fetched
+through the GitHub PR files API and raw blob URLs.
 
 Active PR #81 file scan:
 
@@ -625,8 +677,8 @@ Active PR #81 file scan:
 | Local `FOR_CHATGPT_REVIEW.md` line count | 634 |
 | Local `authenticated-preview-screen-notes.md` line count | 117 |
 | Local `lib/creative-decision-os-v2-preview.ts` line count | 650 |
-| Local `lib/creative-decision-os-v2-preview.test.tsx` line count | 297 |
-| Local `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` line count | 525 |
+| Earlier local `lib/creative-decision-os-v2-preview.test.tsx` line count | 297 |
+| Earlier local `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` line count | 525 |
 
 `app/(dashboard)/creatives/page.tsx` has existing non-ASCII UI text outside this
 patch's added lines. The strict non-ASCII scan on added/removed diff lines
@@ -635,9 +687,10 @@ passed, so this update did not introduce new non-ASCII text.
 Active PR #79 file blobs were also checked after the v0.1.1 contract parity
 fix. Hidden/bidi/control codepoints were not found in active PR #79 files.
 
-If GitHub still shows a hidden/bidirectional Unicode warning in the PR
-conversation after these active blob checks, it is not explained by the current
-active file contents scanned here.
+ChatGPT later reported that active GitHub evidence still showed a warning and
+readability problems. Therefore this earlier scan is not treated as closure.
+This update reformats the active source files and requires another post-push
+GitHub files-view check before hidden/bidi or readability blockers can close.
 
 # Previous preview validation before UI iteration
 
@@ -743,6 +796,9 @@ sort test remains the supporting evidence. This is tracked in
   Decision OS snapshot, so the preview appears only after v1 analysis exists for
   the selected scope.
 - This branch is stacked on PR #78 and should be reviewed against that branch for an isolated UI diff.
+- Active GitHub files-view warning/readability evidence must be rechecked after
+  this formatting correction. PR #81 remains not merge-ready until that is
+  closed honestly.
 
 # Confirmations
 

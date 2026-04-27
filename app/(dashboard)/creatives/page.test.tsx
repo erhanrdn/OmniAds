@@ -160,11 +160,15 @@ vi.mock("@/app/(dashboard)/creatives/page-support", () => ({
 }));
 
 vi.mock("@/hooks/use-business-integrations-bootstrap", () => ({
-  useBusinessIntegrationsBootstrap: () => ({ isBootstrapping: false, bootstrapStatus: "ready" }),
+  useBusinessIntegrationsBootstrap: () => ({
+    bootstrapStatus: "ready",
+    isBootstrapping: false,
+  }),
 }));
 
 vi.mock("@/components/pricing/PlanGate", () => ({
-  PlanGate: (props: { children: React.ReactNode }) => React.createElement(React.Fragment, null, props.children),
+  PlanGate: (props: { children: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, props.children),
 }));
 
 vi.mock("@/lib/pricing/usePlan", () => ({

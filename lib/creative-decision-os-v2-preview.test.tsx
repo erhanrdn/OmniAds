@@ -49,6 +49,10 @@ const readablePreviewFiles = [
   "src/services/data-service-ai.ts",
 ];
 
+const activePreviewCodeFiles = readablePreviewFiles.filter((file) =>
+  /\.(tsx?|jsx?)$/.test(file),
+);
+
 function bucket(id: string) {
   const found = surface.buckets.find((item) => item.id === id);
   if (!found) throw new Error(`Missing bucket: ${id}`);
@@ -341,5 +345,21 @@ describe("Creative Decision OS v2 preview file hygiene", () => {
     });
 
     expect(compressedFiles).toEqual([]);
+  });
+
+  it("keeps active preview code files from collapsing into generated-looking single-line output", () => {
+    const unreadableFiles = activePreviewCodeFiles.flatMap((file) => {
+      const text = readFileSync(file, "utf8");
+      const lines = text.split(/\r?\n/);
+      const maxLineLength = Math.max(...lines.map((line) => line.length));
+      const isCompressed = text.length > 4000 && lines.length < 80;
+      const hasHugeLine = maxLineLength > 220;
+
+      return isCompressed || hasHugeLine
+        ? [{ file, lineCount: lines.length, maxLineLength }]
+        : [];
+    });
+
+    expect(unreadableFiles).toEqual([]);
   });
 });

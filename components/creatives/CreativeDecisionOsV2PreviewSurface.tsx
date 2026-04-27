@@ -26,6 +26,17 @@ type CreativeDecisionOsV2PreviewSurfaceProps = {
   className?: string;
 };
 
+const compactPillClasses =
+  "rounded-full border px-2.5 py-1 text-[11px] font-semibold";
+const mutedTinyPillClasses =
+  "rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700";
+const inactiveTinyPillClasses =
+  "rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700";
+const countBadgeClasses =
+  "rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700";
+const whiteCountBadgeClasses =
+  "rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700";
+
 function formatNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)
     ? value.toLocaleString()
@@ -139,7 +150,7 @@ function LaneBadge({
     inactive: "border-slate-200 bg-slate-100 text-slate-700",
   }[tone];
   return (
-    <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-semibold", toneClass)}>
+    <span className={cn(compactPillClasses, toneClass)}>
       {children}
     </span>
   );
@@ -199,20 +210,20 @@ function RowCard({
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                compactPillClasses,
                 decisionClasses(row.primaryDecision),
               )}
             >
               {row.primaryDecision}
             </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+            <span className={mutedTinyPillClasses}>
               {row.actionabilityLabel}
             </span>
-            <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-semibold", riskClasses(row.riskLevel))}>
+            <span className={cn(compactPillClasses, riskClasses(row.riskLevel))}>
               {humanizeTag(row.riskLevel)} risk
             </span>
             {row.activeStatus === false ? (
-              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+              <span className={inactiveTinyPillClasses}>
                 Inactive
               </span>
             ) : null}
@@ -225,7 +236,11 @@ function RowCard({
         <button
           type="button"
           onClick={() => onOpenRow?.(row.rowId)}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          className={cn(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border",
+            "border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700",
+            "hover:bg-slate-50",
+          )}
         >
           <Eye className="h-3.5 w-3.5" aria-hidden="true" />
           {actionButtonLabel(row)}
@@ -290,9 +305,7 @@ function BucketSection({
           <h3 className="text-sm font-semibold text-slate-950">{bucket.label}</h3>
           <p className="text-xs text-slate-600">{bucket.summary}</p>
         </div>
-        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-          {bucket.rowIds.length}
-        </span>
+        <span className={whiteCountBadgeClasses}>{bucket.rowIds.length}</span>
       </div>
       {rows.length > 0 ? (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -358,12 +371,17 @@ export function CreativeDecisionOsV2PreviewSurface({
   const inactiveReview = surface.buckets.find((bucket) => bucket.id === "inactive_review");
   const scaleReadyDetail =
     surface.aboveTheFold.scaleWorthyCount === 0
-      ? "No scale-ready creative cleared the evidence bar yet. Promising creatives may still appear under Protect, Test More, or Today Priority until recent evidence is strong enough."
+      ? "No scale-ready creative cleared the evidence bar yet. " +
+        "Promising creatives may still appear under Protect, Test More, or Today Priority " +
+        "until recent evidence is strong enough."
       : "Only creatives that clear the stricter evidence bar count as scale-ready.";
 
   return (
     <section
-      className={cn("space-y-5 rounded-lg border border-slate-200 bg-slate-50/70 p-4 shadow-sm", className)}
+      className={cn(
+        "space-y-5 rounded-lg border border-slate-200 bg-slate-50/70 p-4 shadow-sm",
+        className,
+      )}
       data-testid="creative-v2-preview-surface"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -377,7 +395,12 @@ export function CreativeDecisionOsV2PreviewSurface({
             decisions without changing platform state.
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border border-slate-200",
+            "bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
+          )}
+        >
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
           Read-only
         </span>
@@ -409,9 +432,7 @@ export function CreativeDecisionOsV2PreviewSurface({
                 Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes appear here first.
               </p>
             </div>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {todayPriority.rowIds.length}
-            </span>
+            <span className={countBadgeClasses}>{todayPriority.rowIds.length}</span>
           </div>
           <div className="grid gap-3 xl:grid-cols-2">
             {todayPriority.rowIds.slice(0, 8).map((rowId) => {
@@ -447,9 +468,7 @@ export function CreativeDecisionOsV2PreviewSurface({
                   live changes.
                 </p>
               </div>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                {readyForConfirmation.rowIds.length}
-              </span>
+              <span className={countBadgeClasses}>{readyForConfirmation.rowIds.length}</span>
             </div>
             <div className="space-y-3">
               {readyForConfirmation.rowIds.length > 0 ? (
@@ -458,7 +477,12 @@ export function CreativeDecisionOsV2PreviewSurface({
                   return row ? <RowCard key={row.rowId} row={row} compact onOpenRow={onOpenRow} /> : null;
                 })
               ) : (
-                <p className="rounded-lg border border-dashed border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900">
+                <p
+                  className={cn(
+                    "rounded-lg border border-dashed border-emerald-200",
+                    "bg-emerald-50/60 p-3 text-sm text-emerald-900",
+                  )}
+                >
                   No direct confirmation candidates in this workspace.
                 </p>
               )}
@@ -507,16 +531,19 @@ export function CreativeDecisionOsV2PreviewSurface({
                 Needs investigation before buyer action. This is not buyer confirmation.
               </span>
             </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {diagnoseFirst.rowIds.length}
-            </span>
+            <span className={countBadgeClasses}>{diagnoseFirst.rowIds.length}</span>
           </summary>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {surface.diagnoseGroups.slice(0, 8).map((group) => (
               <div key={group.key} className="rounded-lg border border-amber-100 bg-amber-50/70 p-3">
                 <p className="text-xs font-semibold text-amber-900">{group.label}</p>
                 <p className="mt-1 text-xs text-amber-800">{group.rowIds.length} rows need investigation.</p>
-                <div className="mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-900">
+                <div
+                  className={cn(
+                    "mt-2 inline-flex min-h-8 items-center gap-1.5 rounded-lg border",
+                    "border-amber-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-900",
+                  )}
+                >
                   <Search className="h-3.5 w-3.5" aria-hidden="true" />
                   Needs investigation before buyer action
                 </div>
@@ -539,9 +566,7 @@ export function CreativeDecisionOsV2PreviewSurface({
                 Muted by default unless spend or risk makes a row urgent.
               </span>
             </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {inactiveReview.rowIds.length}
-            </span>
+            <span className={countBadgeClasses}>{inactiveReview.rowIds.length}</span>
           </summary>
           <div className="mt-4 grid gap-3 xl:grid-cols-2">
             {inactiveReview.rowIds.slice(0, 6).map((rowId) => {

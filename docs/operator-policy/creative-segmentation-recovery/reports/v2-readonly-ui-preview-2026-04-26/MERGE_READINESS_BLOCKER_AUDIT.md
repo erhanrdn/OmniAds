@@ -32,8 +32,8 @@ packet. It does not claim product-readiness.
 | Item | Status |
 | --- | --- |
 | PR #81 branch | `wip/creative-v2-readonly-ui-preview-2026-04-26` |
-| PR #81 current code/audit baseline | `90dc792fa8bbf23cee552aefb303292842f17860` |
-| PR #81 final closure packet | final pushed branch head containing `MERGE_READINESS_FINAL_CLOSURE.md` |
+| PR #81 pre-correction branch head | `1e02cece0163b66aa63aa36ec61258f5bc15d714` |
+| PR #81 current correction | source formatting, hygiene test, and report correction; exact pushed head is visible in PR #81 after push |
 | PR #81 base | `wip/creative-decision-os-v2-baseline-first-2026-04-26` |
 | PR #78 dependency commit | `3da2e05cb47f97de89ee42d9af6a64598af8b17a` |
 | PR #79 contract dependency commit | `d0c326d3051510df74a7ef063bbd3e93d127a8f2` |
@@ -56,6 +56,46 @@ Public GitHub API did not show Draft PRs for those review branches. Local `gh`
 is not authenticated, so Codex did not create PRs and did not ask for a token.
 PR #81 report files now include direct pointers to these review branches.
 
+# Active GitHub evidence correction after ChatGPT review
+
+ChatGPT review found a contradiction between the prior closure packet and
+active GitHub evidence. The prior packet said hidden/bidi and
+line-length/readability concerns were closed, but the GitHub files view was
+reported to still warn on `app/(dashboard)/creatives/page.test.tsx`, and active
+raw files were reported as too dense or collapsed.
+
+Correction in this update:
+
+- `app/(dashboard)/creatives/page.test.tsx` was reformatted so the active test
+  file has a fresh readable multi-line source diff.
+- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was reformatted
+  to split dense TSX and repeated class strings into readable multi-line code.
+- `lib/creative-decision-os-v2-preview.test.tsx` now includes a hygiene test
+  that fails when active preview TS/TSX/JS/JSX files collapse into suspiciously
+  few lines or contain generated-looking huge lines.
+- The listed related files were inspected for line count and max line length.
+  No resolver thresholds, gold labels, v1 behavior, queue/apply behavior,
+  Command Center wiring, DB writes, Meta/platform writes, or product semantics
+  were changed.
+
+Readable source metrics after the formatting correction:
+
+| File | Lines | Max line |
+| --- | ---: | ---: |
+| `app/(dashboard)/creatives/page.test.tsx` | 294 | 108 |
+| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 595 | 118 |
+| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/api/creatives/decision-os-v2/preview/route.ts` | 119 | 105 |
+| `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
+| `lib/creative-decision-os-v2-preview.ts` | 651 | 133 |
+| `lib/creative-decision-os-v2-preview.test.tsx` | 366 | 137 |
+| `src/services/data-service-ai.ts` | 437 | 114 |
+
+The earlier false-positive closure is withdrawn until the active GitHub files
+view is checked after this formatting correction is pushed. If the GitHub
+warning remains, it must be handled at exact active file level rather than
+closed through broad diff/patch evidence alone.
+
 # Hidden / Bidi Warning Status
 
 GitHub UI banner state could not be inspected directly because local `gh` is
@@ -74,21 +114,24 @@ Historical warning status for PR #79 and PR #81:
   bidi, or control codepoints.
 - Active public `.diff` and `.patch` artifacts for PR #81 found zero hidden,
   bidi, or control codepoints.
-- If GitHub still shows a warning banner, the evidence available to Codex
-  supports a stale UI warning or GitHub heuristic rather than an active hidden
-  codepoint in the current diff/patch artifacts.
+- If GitHub still shows a warning banner, broad diff/patch evidence is not
+  enough to close it. The exact active file and available line/context must be
+  checked after this formatting correction.
 
-Closure:
+Current status:
 
 - M1 hidden/bidi active warning status:
-  `closed_by_documented_false_positive_exception`.
+  `open_pending_post_format_github_files_view_verification`.
 - M2 historical PR #79/#81 hidden/bidi warning status:
-  `closed_by_documented_false_positive_exception`.
+  `open_pending_post_format_github_files_view_verification`.
 
-This is not silently ignored. Public diff/patch scans, active raw blob scans,
-and local scans show zero hidden/bidi/control codepoints. Any remaining visible
-GitHub warning is documented as a heuristic or pre-existing Turkish text false
-positive, subject to merge-owner acceptance.
+This is not silently ignored. Broad local and public diff/patch scans remain
+important evidence, but they are not enough to close the warning while an
+active GitHub files-view banner is reported. After this formatting correction
+is pushed, the exact active files must be rechecked. If the banner is gone,
+M1/M2 can close normally. If the banner remains, the exact file and line context
+must be documented, or the inability to reproduce it must be recorded without
+claiming closure.
 
 # Review Threads and GitHub Comments
 
@@ -144,7 +187,11 @@ Local scans on modified and report files:
 # Formatting / Readability Status
 
 - `git diff --check`: passed.
-- Line-length/readability scan: passed.
+- Line-length/readability scan: passed before the ChatGPT correction, but the
+  prior closure was too broad because active source files still appeared
+  compressed in GitHub evidence.
+- This update reformats the active source/test files listed above and adds a
+  code hygiene test to prevent one-line or generated-looking TS/TSX output.
 - Second-session reports were rewritten as normal Markdown sections with normal
   line breaks. They are not generated one-line Markdown blobs.
 
@@ -236,10 +283,10 @@ Closure:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | passed, 305 files, 2192 tests |
+| `npm test` | passed, 305 files, 2193 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 39 tests |
+| Focused Creative/v2 preview tests | passed, 6 files, 40 tests |
 | JSON parse checks for report JSON files | passed, 8 files |
 
 # Remaining Blockers
@@ -249,21 +296,24 @@ Closure:
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| M1 GitHub UI hidden/bidi warning | closed by documented false-positive exception |
-| M2 Historical PR #79/#81 warning closure | closed by documented false-positive exception |
+| M1 GitHub UI hidden/bidi warning | open pending post-format GitHub files-view verification |
+| M2 Historical PR #79/#81 warning closure | open pending post-format GitHub files-view verification |
 | M3 Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
 | M5 Review threads | closed by public API evidence |
 | M6 Contract parity / forbidden-term hard gate | closed as manual hard gate |
 | M7 Diagnose Investigate no-op | closed |
+| Active source file readability | corrected by formatting update; must be confirmed after push |
 
 # Explicit Non-Ignoring Statement
 
 No blocker is being silently ignored.
 
-The items that could not be inspected because `gh` is unauthenticated or
-authenticated private GitHub UI state is unavailable are documented as
-limitations. Limited read-only preview may continue. PR #81 is not
-product-ready. Human merge consideration into the PR #78 branch depends on
-merge-owner acceptance of the documented hidden/bidi false-positive exception.
+The prior hidden/bidi false-positive exception is no longer treated as closed
+until the formatted active GitHub files are rechecked. The items that could not
+be inspected because `gh` is unauthenticated or authenticated private GitHub UI
+state is unavailable are documented as limitations. Limited read-only preview
+may continue. PR #81 is not product-ready, not merge-ready, and not ready for
+human merge consideration into the PR #78 branch until active warnings and file
+hygiene evidence are actually closed.

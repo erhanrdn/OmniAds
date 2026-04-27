@@ -8,26 +8,32 @@ MAIN_PUSHED: NO
 
 # Executive Summary
 
-This is the final merge-readiness closure packet for PR #81 after the
-lane-separation polish.
+This is a corrected merge-readiness closure packet for PR #81 after ChatGPT
+reviewed the prior packet and found active GitHub evidence that did not match
+the closure claims.
 
 Limited read-only preview may continue as supervised evidence gathering.
 
 Product-ready: NO.
 
-Merge-ready: ready for human merge consideration into the PR #78 branch only
-if the merge owner accepts the documented hidden/bidi false-positive exception.
+Merge-ready: NO.
+
+Ready for human merge consideration into the PR #78 branch: NO, pending active
+GitHub file hygiene and hidden/bidi warning verification after this formatting
+correction.
+
 This is never a product-ready claim and never a request to merge to main.
 
 # Current PR #81 HEAD Commit
 
-Current code/audit baseline before this closure packet:
+Current code/audit baseline before this correction:
 
-- `90dc792fa8bbf23cee552aefb303292842f17860`
-- Commit message: `fix: separate creative v2 preview lanes`
+- `1e02cece0163b66aa63aa36ec61258f5bc15d714`
+- Commit message: `docs: close creative v2 merge readiness packet`
 
-This final closure packet advances the PR #81 branch head with documentation
-only. The exact pushed branch head is available from PR #81 after push.
+This correction advances the PR #81 branch head with source formatting,
+readability-test coverage, and report corrections. The exact pushed branch
+head is available from PR #81 after push.
 
 # Resolver Dependency Commit
 
@@ -70,9 +76,11 @@ This branch is not a v1 replacement and is not accepted as product-ready.
 
 Merge-ready to main: NO.
 
-Merge-ready for human consideration into the PR #78 branch: YES, only under the
-documented constraints in this packet and only if the merge owner accepts the
-hidden/bidi false-positive exception.
+Merge-ready for human consideration into the PR #78 branch: NO.
+
+Reason: the prior packet closed hidden/bidi and readability concerns too early.
+Active GitHub files-view evidence must be rechecked after the formatting
+correction in this update.
 
 # Queue / Apply / Command Center / Write Safety Status
 
@@ -85,10 +93,45 @@ hidden/bidi false-positive exception.
 | Meta/platform writes | none added |
 | Unsafe action copy | none rendered in tests or reported by supervisor |
 
-# Hidden / Bidi False-Positive Closure
+# Active GitHub evidence correction after ChatGPT review
 
-Status: closed by documented false-positive / heuristic exception, subject to
-merge-owner acceptance.
+ChatGPT review found that the prior closure claims conflicted with active
+GitHub evidence:
+
+- `app/(dashboard)/creatives/page.test.tsx` was reported to still show a
+  hidden/bidirectional Unicode warning in the GitHub files view.
+- The active raw file for `app/(dashboard)/creatives/page.test.tsx` was
+  reported as a single giant line.
+- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was reported
+  as still having generated-looking dense lines.
+
+Correction in this update:
+
+- `app/(dashboard)/creatives/page.test.tsx` was reformatted.
+- `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` was
+  reformatted.
+- `lib/creative-decision-os-v2-preview.test.tsx` now fails if active preview
+  code files collapse into one or two huge generated-looking lines.
+- No resolver thresholds, gold labels, v1 behavior, queue/apply behavior,
+  Command Center wiring, DB writes, Meta/platform writes, or product semantics
+  changed.
+
+Readable source metrics after correction:
+
+| File | Lines | Max line |
+| --- | ---: | ---: |
+| `app/(dashboard)/creatives/page.test.tsx` | 294 | 108 |
+| `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx` | 595 | 118 |
+| `app/(dashboard)/creatives/page.tsx` | 1268 | 196 |
+| `app/api/creatives/decision-os-v2/preview/route.ts` | 119 | 105 |
+| `app/api/creatives/decision-os-v2/preview/route.test.ts` | 67 | 109 |
+| `lib/creative-decision-os-v2-preview.ts` | 651 | 133 |
+| `lib/creative-decision-os-v2-preview.test.tsx` | 366 | 137 |
+| `src/services/data-service-ai.ts` | 437 | 114 |
+
+# Hidden / Bidi Status
+
+Status: open pending post-format GitHub files-view verification.
 
 Evidence:
 
@@ -103,9 +146,11 @@ Evidence:
 - Any visible non-ASCII characters are normal Turkish UI/report letters, not
   hidden/bidi/control characters.
 
-The warning is not silently ignored. It is documented here as a GitHub
-heuristic or pre-existing Turkish text false positive. Merge-owner acceptance
-is required for this exception closure.
+The warning is not silently ignored. The earlier false-positive exception is
+withdrawn until active GitHub files are rechecked after this formatting
+correction. If the banner is gone, M1/M2 can close normally. If the banner
+remains, the exact active file and line context must be documented, or the
+inability to reproduce it must be recorded without claiming closure.
 
 # Review-Thread Public Evidence Closure
 
@@ -202,19 +247,20 @@ Supervisor note:
   Buyer Review contains many cards, the vertical balance can still look awkward.
 
 This non-blocking visual note does not block continued limited read-only
-preview or human merge consideration into the PR #78 branch. It remains future
-polish, not a safety blocker.
+preview. It remains future polish, not a safety blocker. Human merge
+consideration into the PR #78 branch is still blocked by the active GitHub
+warning/readability verification described above.
 
 # Checks Run
 
 | Check | Result |
 | --- | --- |
 | `git diff --check` | passed |
-| `npm test` | passed, 305 files, 2192 tests |
+| `npm test` | passed, 305 files, 2193 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
-| Focused Creative/v2 preview tests | passed, 6 files, 39 tests |
-| v2 gold eval | macro F1 97.96; severe 0, high 0, medium 2, low 0 |
+| Focused Creative/v2 preview tests | passed, 6 files, 40 tests |
+| v2 gold eval | not rerun in this formatting correction; resolver logic unchanged from prior pass |
 | Forbidden rendered button/text scan | passed in focused tests |
 | Forbidden internal artifact scan | passed in focused tests |
 | Hidden/bidi/control scan | passed |
@@ -227,9 +273,13 @@ polish, not a safety blocker.
 
 # Remaining Blockers
 
-No merge-readiness blockers remain for human consideration into the PR #78
-branch, provided the merge owner accepts the documented hidden/bidi
-false-positive exception.
+Merge-readiness blockers still open:
+
+- Active GitHub hidden/bidi files-view warning must be gone or explained at
+  exact active file level after this formatting correction.
+- Active raw files must be confirmed multi-line and readable after push.
+- Line-length/readability closure must be based on the formatted active files,
+  not the withdrawn prior closure.
 
 Remaining product-ready tracking items:
 
@@ -242,7 +292,7 @@ Remaining product-ready tracking items:
 
 Keep PR #81 Draft unless the owner explicitly changes it.
 
-Ready for human merge consideration into the PR #78 branch only.
+Not ready for human merge consideration into the PR #78 branch yet.
 
 Do not merge to main.
 
