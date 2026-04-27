@@ -1,3 +1,4 @@
+// Creative v2 hardening file: read-only safety gate; behavior unchanged.
 import { chromium, expect } from "@playwright/test";
 
 const forbiddenActionTerms = [

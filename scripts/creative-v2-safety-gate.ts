@@ -1,3 +1,4 @@
+// Creative v2 hardening file: read-only safety gate; behavior unchanged.
 import { spawnSync } from "node:child_process";
 import {
   evaluateCreativeDecisionOsV2Gold,
@@ -48,11 +49,7 @@ function requireZero(label: string, actual: number) {
   if (actual !== 0) failures.push(`${label}: ${actual}`);
 }
 
-requireAtLeast(
-  "macroF1",
-  evaluation.macroF1,
-  safetyThresholds.minimumMacroF1,
-);
+requireAtLeast("macroF1", evaluation.macroF1, safetyThresholds.minimumMacroF1);
 requireZero("severe mismatches", evaluation.mismatchCounts.severe);
 requireZero("high mismatches", evaluation.mismatchCounts.high);
 

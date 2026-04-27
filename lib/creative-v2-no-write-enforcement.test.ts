@@ -1,3 +1,4 @@
+// Creative v2 hardening file: read-only safety gate; behavior unchanged.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -18,8 +19,7 @@ const writeVerbPattern =
   /\b(enqueue|upsert|insert|update|delete|applyCommandCenter)\b/i;
 const metaWriteBoundaryPattern =
   /@\/lib\/meta|@\/lib\/api\/meta|MetaApi|facebook/i;
-const dbPlatformWritePattern =
-  /@\/lib\/db|@\/lib\/meta|@\/lib\/api\/meta/i;
+const dbPlatformWritePattern = /@\/lib\/db|@\/lib\/meta|@\/lib\/api\/meta/i;
 const writeSideEffectPattern =
   /\bfetch\s*\(|\bsql`|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i;
 

@@ -1,3 +1,4 @@
+# Creative v2 hardening workflow: read-only safety gate; behavior unchanged.
 name: CI
 
 on:
