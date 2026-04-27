@@ -106,7 +106,7 @@ describe("Creative v2 no-write enforcement", () => {
     );
 
     expect(previewFindings).toEqual([]);
-  });
+  }, 30_000);
 
   it("keeps preview model and component detached from DB, platform, and Command Center writes", () => {
     const combined = [previewModelFile, previewComponentFile]

@@ -115,6 +115,58 @@ Post-consolidation target base SHA: `2a2b66d4bc9b8123d45339b3e8287460c4312434`
 
 Merge command result: PASS
 
+## Post-Consolidation CI Follow-Up
+
+After the consolidation report commit was pushed, GitHub Actions started checks on target branch head `c6229060ac6dcd97bd919e801a884ee712023c35`.
+
+Observed drift:
+
+```text
+test | status=completed | conclusion=failure
+lib/creative-v2-no-write-enforcement.test.ts > Creative v2 no-write enforcement > keeps the preview route clean in the transitive GET side-effect scanner
+Error: Test timed out in 5000ms.
+```
+
+Remediation:
+
+- Increased only the timeout for the transitive GET side-effect scanner test in `lib/creative-v2-no-write-enforcement.test.ts` to `30_000`.
+- Product behavior changed: NO
+- Resolver logic changed: NO
+- Queue/apply changed: NO
+- Command Center changed: NO
+- DB/Meta/platform writes added: NO
+
+Post-remediation local checks:
+
+```text
+git diff --check
+PASS
+
+npx vitest run lib/creative-v2-no-write-enforcement.test.ts --reporter=verbose
+PASS - 1 test file passed, 5 tests passed
+
+npm test
+PASS - 307 test files passed, 2203 tests passed
+
+npm run creative:v2:safety
+PASS - 9 test files passed, 51 tests passed
+macroF1: 97.96
+severe mismatches: 0
+high mismatches: 0
+Watch primary outputs: 0
+Scale Review primary outputs: 0
+queueEligibleCount: 0
+applyEligibleCount: 0
+directScaleCount: 0
+inactiveDirectScaleCount: 0
+
+npx tsc --noEmit
+PASS
+
+npm run build
+PASS
+```
+
 ## Safety Position After Consolidation
 
 Product-ready remains: NO
