@@ -86,6 +86,12 @@ Public raw verification:
 
 The file is readable multi-line TypeScript.
 
+Exact public raw URL verified:
+
+```text
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
+```
+
 # Remaining Limit
 
 These are deterministic code and unit-level network/write boundary checks. A

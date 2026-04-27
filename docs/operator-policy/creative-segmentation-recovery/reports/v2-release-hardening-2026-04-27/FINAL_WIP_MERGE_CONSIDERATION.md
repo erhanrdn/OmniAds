@@ -11,6 +11,18 @@ PR #82 remains the canonical WIP integration candidate. PR #81 remains
 superseded as the merge surface and available for audit/history. PR #78 remains
 the resolver base. Main remains untouched.
 
+Full prompt reconciliation was run after ChatGPT reported that the previous
+prompt may have been truncated. The active branch identity was confirmed before
+checks:
+
+- Branch: `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
+- Verified PR #82 head at reconciliation:
+  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`
+- Remote: `https://github.com/erhanrdn/OmniAds.git`
+- Local worktree at branch identity check: clean
+- PR #82 head branch from GitHub connector:
+  `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
+
 This report corrects the rejected formatting evidence. The release-hardening
 files were reformatted again and pushed in commit
 `5cf72894e175cd050948e4bf881fc738b1358caa`.
@@ -51,7 +63,7 @@ the release-hardening packet.
 
 # Public Raw Formatting Evidence
 
-Branch checked:
+Branch checked with the exact raw URL form requested by ChatGPT:
 
 `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
 
@@ -65,16 +77,43 @@ Branch checked:
 Public raw commands used:
 
 ```bash
-curl -fsSL "<public raw refs/heads URL>" | wc -l
-curl -fsSL "<public raw refs/heads URL>" \
+curl -fsSL "<public raw URL from prompt>" | wc -l
+curl -fsSL "<public raw URL from prompt>" \
   | awk 'length($0)>220 {print FNR ":" length($0)}'
 ```
 
-The checked URLs use this form because the branch name contains slashes:
+The checked URLs were:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/<path>
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml
 ```
+
+# Local Formatting Evidence
+
+| File | Local line count | Local lines over 220 chars |
+| --- | ---: | --- |
+| `scripts/creative-v2-safety-gate.ts` | 78 | none |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none |
+| `.github/workflows/ci.yml` | 336 | none |
+
+# GitHub Commit Evidence
+
+- `74cd2810f764220f0dd32abf7ddcf0d177f3635b` exists through the public GitHub
+  commit API.
+- PR #82 public commits API returned 26 commits at reconciliation time.
+- PR #82 public commits API includes
+  `5cf72894e175cd050948e4bf881fc738b1358caa`.
+- PR #82 public commits API includes
+  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`.
+- PR #82 public commits API last commit at reconciliation time:
+  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`.
+- Any later report-only commit that records this evidence does not alter the
+  four target source/YAML files. The current branch raw URL checks remain the
+  authoritative formatting evidence.
 
 # Test/Typecheck/Build Results
 
@@ -92,11 +131,11 @@ https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decis
 | forbidden internal artifact scan | passed through `npm run creative:v2:safety` |
 | contract parity check | passed through `npm run creative:v2:safety` |
 | no-write enforcement tests | passed through `npm run creative:v2:safety` |
-| hidden/bidi/control scan | passed, 12 targeted paths checked |
-| strict non-ASCII scan | passed, 12 targeted paths checked |
-| restricted filename scan | passed, 12 targeted paths checked |
-| secret/raw-ID scan | passed, 12 targeted paths checked |
-| line-length/readability check | passed, 12 targeted paths checked, max 220 |
+| hidden/bidi/control scan | passed, 13 targeted paths checked |
+| strict non-ASCII scan | passed, 13 targeted paths checked |
+| restricted filename scan | passed, 13 targeted paths checked |
+| secret/raw-ID scan | passed, 13 targeted paths checked |
+| line-length/readability check | passed, 13 targeted paths checked, max 220 |
 | JSON parse checks | passed, 24 tracked JSON files |
 
 # Safety Counter Result

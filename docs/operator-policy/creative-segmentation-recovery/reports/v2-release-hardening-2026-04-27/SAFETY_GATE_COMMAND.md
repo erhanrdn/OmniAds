@@ -102,3 +102,9 @@ Public raw verification:
 | `scripts/creative-v2-safety-gate.ts` | 78 | none |
 
 The file is readable multi-line TypeScript.
+
+Exact public raw URL verified:
+
+```text
+https://raw.githubusercontent.com/erhanrdn/OmniAds/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
+```

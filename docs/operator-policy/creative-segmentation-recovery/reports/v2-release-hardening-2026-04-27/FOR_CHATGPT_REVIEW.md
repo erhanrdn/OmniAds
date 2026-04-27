@@ -19,14 +19,19 @@ This is not product-ready work and not main-merge work.
 
 Active formatting correction after ChatGPT review:
 
+- Verified PR #82 head at reconciliation:
+  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`
 - Formatting commit:
   `5cf72894e175cd050948e4bf881fc738b1358caa`
 - Final WIP merge-consideration report:
   `docs/operator-policy/creative-segmentation-recovery/reports/v2-release-hardening-2026-04-27/FINAL_WIP_MERGE_CONSIDERATION.md`
 - Public raw verification confirmed the active hardening source/YAML files are
   readable multi-line files with no lines over 220 characters.
-- Raw URLs for this slash-containing branch were verified with the explicit
-  `/refs/heads/` form to avoid stale or ambiguous raw URL resolution.
+- Public raw verification was repeated with the exact raw URL form requested by
+  ChatGPT.
+- PR #82 public commits API includes
+  `5cf72894e175cd050948e4bf881fc738b1358caa` and
+  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`.
 
 Public raw formatting evidence:
 
@@ -36,6 +41,11 @@ Public raw formatting evidence:
 | `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
 | `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none |
 | `.github/workflows/ci.yml` | 336 | none |
+
+Local line counts match the public raw line counts above.
+
+PR #82 ready for PR #78 branch merge consideration: NO, pending ChatGPT
+acceptance of the corrected raw-file evidence.
 
 Product-ready: NO.
 
@@ -243,11 +253,11 @@ Local command results after the formatting correction:
 
 Targeted final formatting scans after the public raw verification also passed:
 
-- hidden/bidi/control scan: 12 targeted paths checked.
-- strict non-ASCII scan: 12 targeted paths checked.
-- line-length/readability check: 12 targeted paths checked, max 220.
-- restricted filename scan: 12 targeted paths checked.
-- secret/raw-ID scan: 12 targeted paths checked.
+- hidden/bidi/control scan: 13 targeted paths checked.
+- strict non-ASCII scan: 13 targeted paths checked.
+- line-length/readability check: 13 targeted paths checked, max 220.
+- restricted filename scan: 13 targeted paths checked.
+- secret/raw-ID scan: 13 targeted paths checked.
 
 Safety counter result from `npm run creative:v2:safety`:
 

@@ -29,7 +29,7 @@ No main push.
 
 | Blocker | Status |
 | --- | --- |
-| Release-hardening raw formatting | corrected by commit `5cf72894e175cd050948e4bf881fc738b1358caa`; awaiting ChatGPT acceptance of raw evidence |
+| Release-hardening raw formatting | corrected by commit `5cf72894e175cd050948e4bf881fc738b1358caa`; exact public raw URLs return 78/122/133/336 lines with no lines over 220 |
 | Fresh authenticated self-hosted runtime smoke after this hardening pass | open; not executable by Codex without prohibited credentials or session data |
 | Static/prior-evidence substitute for WIP runtime smoke | available only if ChatGPT/owner accepts WIP scope |
 | Owner-side authenticated GitHub UI warnings | open if visible to owner; public API counts are zero |
@@ -86,11 +86,11 @@ Local command results after formatting correction:
 | forbidden internal artifact scan | passed through `npm run creative:v2:safety` |
 | contract parity check | passed through `npm run creative:v2:safety` |
 | no-write enforcement tests | passed through `npm run creative:v2:safety` |
-| hidden/bidi/control scan | passed, 12 targeted paths checked |
-| strict non-ASCII scan | passed, 12 targeted paths checked |
-| restricted filename scan | passed, 12 targeted paths checked |
-| secret/raw-ID scan | passed, 12 targeted paths checked |
-| line-length/readability check | passed, 12 targeted paths checked, max 220 |
+| hidden/bidi/control scan | passed, 13 targeted paths checked |
+| strict non-ASCII scan | passed, 13 targeted paths checked |
+| restricted filename scan | passed, 13 targeted paths checked |
+| secret/raw-ID scan | passed, 13 targeted paths checked |
+| line-length/readability check | passed, 13 targeted paths checked, max 220 |
 | JSON parse checks | passed, 24 tracked JSON files |
 
 The self-hosted runtime smoke remains open because Codex did not have an
