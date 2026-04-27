@@ -17,6 +17,24 @@ remains untouched.
 
 This is not product-ready work and not main-merge work.
 
+Active formatting correction after ChatGPT review:
+
+- Formatting commit:
+  `4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`
+- Final WIP merge-consideration report:
+  `docs/operator-policy/creative-segmentation-recovery/reports/v2-release-hardening-2026-04-27/FINAL_WIP_MERGE_CONSIDERATION.md`
+- Public raw verification confirmed the active hardening source/YAML files are
+  readable multi-line files with no lines over 220 characters.
+
+Public raw formatting evidence:
+
+| File | Public raw line count | Lines over 220 chars |
+| --- | ---: | --- |
+| `scripts/creative-v2-safety-gate.ts` | 73 | none |
+| `lib/creative-v2-no-write-enforcement.test.ts` | 120 | none |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 131 | none |
+| `.github/workflows/ci.yml` | 333 | none |
+
 Product-ready: NO.
 
 Merge-ready to main: NO.
@@ -202,11 +220,12 @@ No new hidden/bidi/control codepoints were introduced by this hardening pass.
 
 # Test/Typecheck/Build Results
 
-Local command results before push:
+Local command results after the formatting correction:
 
 | Command/check | Result |
 | --- | --- |
 | `git diff --check` | passed |
+| CI YAML parse check | passed |
 | `npm test` | passed, 307 files, 2203 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
@@ -219,6 +238,14 @@ Local command results before push:
 | secret/raw-ID scan | passed, 18 changed paths checked |
 | line-length/readability check | passed, 18 changed paths checked, max 220 |
 | JSON parse checks | passed, 24 tracked JSON files |
+
+Targeted final formatting scans after the public raw verification also passed:
+
+- hidden/bidi/control scan: 12 targeted paths checked.
+- strict non-ASCII scan: 12 targeted paths checked.
+- line-length/readability check: 12 targeted paths checked, max 220.
+- restricted filename scan: 12 targeted paths checked.
+- secret/raw-ID scan: 12 targeted paths checked.
 
 Safety counter result from `npm run creative:v2:safety`:
 

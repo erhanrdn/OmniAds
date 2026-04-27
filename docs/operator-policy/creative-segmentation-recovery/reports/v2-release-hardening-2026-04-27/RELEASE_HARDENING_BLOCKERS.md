@@ -29,7 +29,9 @@ No main push.
 
 | Blocker | Status |
 | --- | --- |
-| Fresh authenticated self-hosted runtime smoke after this hardening pass | open, not executable by Codex without prohibited secrets/domain/session details |
+| Release-hardening raw formatting | closed by commit `4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`; public raw files are multi-line and have no lines over 220 chars |
+| Fresh authenticated self-hosted runtime smoke after this hardening pass | open; not executable by Codex without prohibited credentials or session data |
+| Static/prior-evidence substitute for WIP runtime smoke | available only if ChatGPT/owner accepts WIP scope |
 | Owner-side authenticated GitHub UI warnings | open if visible to owner; public API counts are zero |
 | ChatGPT/owner decision on PR #82 merge into PR #78 | open |
 
@@ -59,6 +61,7 @@ No main push.
 
 | Gate | Status |
 | --- | --- |
+| Active hardening file formatting | closed, public raw verification passed |
 | Repeatable Creative v2 safety command | closed locally, command added |
 | Pull-request CI wiring for safety command | closed in branch, pending GitHub CI run after push |
 | Deterministic no-write tests | closed locally |
@@ -67,11 +70,12 @@ No main push.
 
 # Final Check Results
 
-Local command results before push:
+Local command results after formatting correction:
 
 | Command/check | Result |
 | --- | --- |
 | `git diff --check` | passed |
+| CI YAML parse check | passed |
 | `npm test` | passed, 307 files, 2203 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
@@ -82,11 +86,11 @@ Local command results before push:
 | forbidden internal artifact scan | passed through `npm run creative:v2:safety` |
 | contract parity check | passed through `npm run creative:v2:safety` |
 | no-write enforcement tests | passed through `npm run creative:v2:safety` |
-| hidden/bidi/control scan | passed, 18 changed paths checked |
-| strict non-ASCII scan | passed, 18 changed paths checked |
-| restricted filename scan | passed, 18 changed paths checked |
-| secret/raw-ID scan | passed, 18 changed paths checked |
-| line-length/readability check | passed, 18 changed paths checked, max 220 |
+| hidden/bidi/control scan | passed, 12 targeted paths checked |
+| strict non-ASCII scan | passed, 12 targeted paths checked |
+| restricted filename scan | passed, 12 targeted paths checked |
+| secret/raw-ID scan | passed, 12 targeted paths checked |
+| line-length/readability check | passed, 12 targeted paths checked, max 220 |
 | JSON parse checks | passed, 24 tracked JSON files |
 
 The self-hosted runtime smoke remains open because Codex did not have an

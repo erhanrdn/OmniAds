@@ -11,6 +11,11 @@ Exact blocker: Codex did not have an authenticated self-hosted browser state in
 this shell. Codex did not ask for a domain, DB URL, token, cookie, browser
 session value, server credential, or secret.
 
+This remains a main/product-ready blocker. For PR #82 to PR #78 WIP branch
+consideration, the static no-write enforcement tests, CI safety gate, and prior
+supervised preview evidence are substitute evidence only if ChatGPT/owner
+accepts that scope.
+
 # Manual Runner
 
 Added command:
@@ -64,3 +69,16 @@ server details.
 A fresh authenticated self-hosted runtime smoke remains open until an authorized
 owner runs the command or an equivalent supervised smoke in the existing
 self-hosted environment.
+
+# Formatting Correction
+
+The smoke runner was reformatted in commit
+`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+
+Public raw verification:
+
+| File | Line count | Lines over 220 chars |
+| --- | ---: | --- |
+| `scripts/creative-v2-self-hosted-smoke.ts` | 131 | none |
+
+The file is readable multi-line TypeScript.

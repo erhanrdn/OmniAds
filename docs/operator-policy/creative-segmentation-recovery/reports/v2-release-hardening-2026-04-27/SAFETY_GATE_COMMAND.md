@@ -65,7 +65,7 @@ Vercel or Neon, and does not add secrets.
 
 # Successful Local Run
 
-Local command result:
+Local command result after formatting correction:
 
 ```text
 Test Files  9 passed (9)
@@ -89,3 +89,16 @@ scaleReviewPrimaryCount: 0
 This is now a repeatable hard gate command and a CI pull-request check. Main
 merge remains blocked until ChatGPT/owner accepts CI evidence and remaining
 runtime/product gates.
+
+# Formatting Correction
+
+The safety gate script was reformatted in commit
+`4cf6c1a0e83a1fc05b18862326d04a49c11f3e8d`.
+
+Public raw verification:
+
+| File | Line count | Lines over 220 chars |
+| --- | ---: | --- |
+| `scripts/creative-v2-safety-gate.ts` | 73 | none |
+
+The file is readable multi-line TypeScript.
