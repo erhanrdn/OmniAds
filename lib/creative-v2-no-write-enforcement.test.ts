@@ -7,6 +7,8 @@ const previewModelFile = "lib/creative-decision-os-v2-preview.ts";
 const previewComponentFile = "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx";
 const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
+const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
+const postPreviewMarker = "{creativesMetadataQuery.isLoading";
 
 function source(file: string) {
   return readFileSync(file, "utf8");
@@ -95,8 +97,8 @@ describe("Creative v2 no-write enforcement", () => {
     const openDrawer = callbackBody(creativesPageFile, "const openCreativeDrawer = useCallback");
     const v2SurfaceUsage = sourceSliceBetween(
       pageSource,
-      "<CreativeDecisionOsV2PreviewSurface",
-      "{creativesMetadataQuery.isLoading",
+      previewSurfaceMarker,
+      postPreviewMarker,
     );
 
     expect(openDrawer).toContain("setCreativeDrawerState");

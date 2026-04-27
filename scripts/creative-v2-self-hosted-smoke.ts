@@ -22,6 +22,8 @@ const forbiddenInternalTerms = [
   /labels this row/i,
 ];
 
+const writeMethods = ["POST", "PUT", "PATCH", "DELETE"];
+
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -64,7 +66,7 @@ async function main() {
 
   page.on("request", (request) => {
     const method = request.method().toUpperCase();
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return;
+    if (!writeMethods.includes(method)) return;
     mutationRequests.push({
       method,
       path: pathOnly(request.url()),

@@ -28,7 +28,11 @@ function run(command: string, args: string[]) {
   }
 }
 
-run("npx", ["vitest", "run", ...focusedTestFiles]);
+run("npx", [
+  "vitest",
+  "run",
+  ...focusedTestFiles,
+]);
 
 const evaluation = evaluateCreativeDecisionOsV2Gold(readGoldLabelsV0());
 const failures: string[] = [];
@@ -41,7 +45,8 @@ function requireZero(label: string, actual: number) {
   if (actual !== 0) failures.push(`${label}: ${actual}`);
 }
 
-requireAtLeast("macroF1", evaluation.macroF1, 90);
+const minimumMacroF1 = 90;
+requireAtLeast("macroF1", evaluation.macroF1, minimumMacroF1);
 requireZero("severe mismatches", evaluation.mismatchCounts.severe);
 requireZero("high mismatches", evaluation.mismatchCounts.high);
 

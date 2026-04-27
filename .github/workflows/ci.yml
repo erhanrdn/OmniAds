@@ -130,7 +130,8 @@ jobs:
           if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
             runtime_changed="true"
             schema_changed="true"
-            echo "No valid before SHA; defaulting to runtime_changed=true schema_changed=true."
+            echo "No valid before SHA."
+            echo "Defaulting to runtime_changed=true schema_changed=true."
           elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
             runtime_changed="true"
             schema_changed="true"
@@ -166,7 +167,9 @@ jobs:
               live_changed_files="$(git diff --name-only "${live_build_sha}" "${CURRENT_SHA}")"
               if printf '%s\n' "${live_changed_files}" | grep -Eq "${schema_regex}"; then
                 schema_changed="true"
-                echo "Schema-affecting change detected between live build ${live_build_sha} and ${CURRENT_SHA}."
+                echo "Schema-affecting change detected between:"
+                echo "live build ${live_build_sha}"
+                echo "current build ${CURRENT_SHA}"
               fi
             else
               echo "Live build SHA ${live_build_sha} is not available locally."
