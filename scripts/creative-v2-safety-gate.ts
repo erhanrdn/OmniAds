@@ -33,35 +33,25 @@ run("npx", ["vitest", "run", ...focusedTestFiles]);
 const evaluation = evaluateCreativeDecisionOsV2Gold(readGoldLabelsV0());
 const failures: string[] = [];
 
-if (evaluation.macroF1 < 90) {
-  failures.push(`macroF1 below 90: ${evaluation.macroF1}`);
+function requireAtLeast(label: string, actual: number, minimum: number) {
+  if (actual < minimum) failures.push(`${label} below ${minimum}: ${actual}`);
 }
-if (evaluation.mismatchCounts.severe !== 0) {
-  failures.push(`severe mismatches: ${evaluation.mismatchCounts.severe}`);
+
+function requireZero(label: string, actual: number) {
+  if (actual !== 0) failures.push(`${label}: ${actual}`);
 }
-if (evaluation.mismatchCounts.high !== 0) {
-  failures.push(`high mismatches: ${evaluation.mismatchCounts.high}`);
-}
-if (evaluation.queueApplySafety.watchPrimaryCount !== 0) {
-  failures.push(`Watch primary outputs: ${evaluation.queueApplySafety.watchPrimaryCount}`);
-}
-if (evaluation.queueApplySafety.scaleReviewPrimaryCount !== 0) {
-  failures.push(
-    `Scale Review primary outputs: ${evaluation.queueApplySafety.scaleReviewPrimaryCount}`,
-  );
-}
-if (evaluation.queueApplySafety.queueEligibleCount !== 0) {
-  failures.push(`queue eligible outputs: ${evaluation.queueApplySafety.queueEligibleCount}`);
-}
-if (evaluation.queueApplySafety.applyEligibleCount !== 0) {
-  failures.push(`apply eligible outputs: ${evaluation.queueApplySafety.applyEligibleCount}`);
-}
-if (evaluation.queueApplySafety.directScaleCount !== 0) {
-  failures.push(`direct Scale outputs: ${evaluation.queueApplySafety.directScaleCount}`);
-}
-if (evaluation.queueApplySafety.inactiveDirectScaleCount !== 0) {
-  failures.push(`inactive direct Scale outputs: ${evaluation.queueApplySafety.inactiveDirectScaleCount}`);
-}
+
+requireAtLeast("macroF1", evaluation.macroF1, 90);
+requireZero("severe mismatches", evaluation.mismatchCounts.severe);
+requireZero("high mismatches", evaluation.mismatchCounts.high);
+
+const safetyCounters = evaluation.queueApplySafety;
+requireZero("Watch primary outputs", safetyCounters.watchPrimaryCount);
+requireZero("Scale Review primary outputs", safetyCounters.scaleReviewPrimaryCount);
+requireZero("queue eligible outputs", safetyCounters.queueEligibleCount);
+requireZero("apply eligible outputs", safetyCounters.applyEligibleCount);
+requireZero("direct Scale outputs", safetyCounters.directScaleCount);
+requireZero("inactive direct Scale outputs", safetyCounters.inactiveDirectScaleCount);
 
 if (failures.length > 0) {
   throw new Error(`Creative v2 safety gate failed:\n${failures.join("\n")}`);

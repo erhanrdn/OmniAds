@@ -99,7 +99,13 @@ jobs:
           runtime_changed="false"
           schema_changed="false"
           live_build_sha=""
-          schema_regex='^(lib/migrations(\..*)?\.ts|scripts/run-migrations\.ts|lib/db-schema-readiness\.ts|app/api/migrate/route\.ts)$'
+          schema_regex_parts=(
+            '^(lib/migrations(\..*)?\.ts'
+            '|scripts/run-migrations\.ts'
+            '|lib/db-schema-readiness\.ts'
+            '|app/api/migrate/route\.ts)$'
+          )
+          schema_regex="$(printf '%s' "${schema_regex_parts[@]}")"
 
           resolve_live_build_sha() {
             local payload
@@ -128,7 +134,8 @@ jobs:
           elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
             runtime_changed="true"
             schema_changed="true"
-            echo "Before SHA ${BEFORE_SHA} is not available locally; defaulting to runtime_changed=true schema_changed=true."
+            echo "Before SHA ${BEFORE_SHA} is not available locally."
+            echo "Defaulting to runtime_changed=true schema_changed=true."
           else
             changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
             printf 'Changed files:\n%s\n' "${changed_files}"
@@ -162,17 +169,22 @@ jobs:
                 echo "Schema-affecting change detected between live build ${live_build_sha} and ${CURRENT_SHA}."
               fi
             else
-              echo "Live build SHA ${live_build_sha} is not available locally; preserving current schema_changed=${schema_changed}."
+              echo "Live build SHA ${live_build_sha} is not available locally."
+              echo "Preserving current schema_changed=${schema_changed}."
             fi
           else
-            echo "Unable to resolve live build SHA from public build-info; preserving current schema_changed=${schema_changed}."
+            echo "Unable to resolve live build SHA from public build-info."
+            echo "Preserving current schema_changed=${schema_changed}."
           fi
 
           echo "runtime_changed=${runtime_changed}" >> "$GITHUB_OUTPUT"
           echo "schema_changed=${schema_changed}" >> "$GITHUB_OUTPUT"
 
   publish-web-image:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-runtime-changes.outputs.runtime_changed == 'true'
     needs:
       - typecheck
       - test
@@ -215,7 +227,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ env.BUILD_CACHE_SCOPE }}
 
   publish-worker-image:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-runtime-changes.outputs.runtime_changed == 'true'
     needs:
       - typecheck
       - test

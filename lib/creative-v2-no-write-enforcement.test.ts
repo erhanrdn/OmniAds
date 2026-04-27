@@ -38,6 +38,16 @@ function callbackBody(file: string, declaration: string) {
   return text.slice(start, end + "}, []);".length);
 }
 
+function sourceSliceBetween(text: string, startMarker: string, endMarker: string) {
+  const start = text.indexOf(startMarker);
+  if (start < 0) throw new Error(`Missing start marker ${startMarker}`);
+
+  const end = text.indexOf(endMarker, start);
+  if (end < 0) throw new Error(`Missing end marker ${endMarker}`);
+
+  return text.slice(start, end);
+}
+
 describe("Creative v2 no-write enforcement", () => {
   it("keeps the preview route GET-only and free of write boundary imports", () => {
     const text = source(previewRouteFile);
@@ -81,15 +91,19 @@ describe("Creative v2 no-write enforcement", () => {
   });
 
   it("keeps v2 row detail/open interactions local to the existing read-only drawer", () => {
+    const pageSource = source(creativesPageFile);
     const openDrawer = callbackBody(creativesPageFile, "const openCreativeDrawer = useCallback");
-    const v2SurfaceUsage = source(creativesPageFile).slice(
-      source(creativesPageFile).indexOf("<CreativeDecisionOsV2PreviewSurface"),
-      source(creativesPageFile).indexOf("</CreativesTopSection", source(creativesPageFile).indexOf("<CreativeDecisionOsV2PreviewSurface")),
+    const v2SurfaceUsage = sourceSliceBetween(
+      pageSource,
+      "<CreativeDecisionOsV2PreviewSurface",
+      "{creativesMetadataQuery.isLoading",
     );
 
     expect(openDrawer).toContain("setCreativeDrawerState");
     expect(openDrawer).toContain("scrollIntoView");
-    expect(openDrawer).not.toMatch(/\bfetch\s*\(|runCreativeDecisionOsAnalysis|mutate\(|command-center/i);
+    expect(openDrawer).not.toMatch(
+      /\bfetch\s*\(|runCreativeDecisionOsAnalysis|mutate\(|command-center/i,
+    );
     expect(v2SurfaceUsage).toContain("onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}");
     expect(v2SurfaceUsage).not.toMatch(/runCreativeDecisionOsAnalysis|CommandCenter|queue|apply/i);
   });

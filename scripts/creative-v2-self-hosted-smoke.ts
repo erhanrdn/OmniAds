@@ -46,6 +46,11 @@ function hasForbidden(text: string, patterns: RegExp[]) {
   return patterns.filter((pattern) => pattern.test(text)).map((pattern) => pattern.source);
 }
 
+function assertEmpty(label: string, values: unknown[]) {
+  if (values.length === 0) return;
+  throw new Error(`Creative v2 self-hosted smoke failed: ${label}.`);
+}
+
 async function main() {
   const baseUrl = requiredEnv("CREATIVE_V2_SMOKE_BASE_URL").replace(/\/$/, "");
   const storageState = process.env.CREATIVE_V2_SMOKE_STORAGE_STATE?.trim();
@@ -115,9 +120,9 @@ async function main() {
 
   console.log(JSON.stringify(result, null, 2));
 
-  if (actionViolations.length > 0 || internalViolations.length > 0 || mutationRequests.length > 0) {
-    throw new Error("Creative v2 self-hosted smoke failed.");
-  }
+  assertEmpty("forbidden action language visible", actionViolations);
+  assertEmpty("forbidden internal language visible", internalViolations);
+  assertEmpty("write-like network requests captured", mutationRequests);
 }
 
 main().catch(async (error) => {
