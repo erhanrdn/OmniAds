@@ -65,14 +65,44 @@ Hidden/bidi closure status:
 
 - The previous false-positive exception is withdrawn until active GitHub files
   are rechecked after this formatting correction is pushed.
-- If the GitHub warning is gone, M1/M2 can close normally.
-- If the GitHub warning remains, the exact active file and line context must be
-  documented, or the inability to reproduce it must be recorded without
-  claiming closure.
+- Post-push public GitHub files HTML still shows hidden/bidirectional warning
+  banners, so M1/M2 remain open.
+- The exact active file sections with warning banners are documented below.
 
 PR #81 remains Draft. Product-ready: NO. Merge-ready: NO. It is not ready for
 human merge consideration into PR #78 until active warnings and file hygiene
 evidence are actually closed.
+
+Post-push public GitHub evidence for formatting correction commit
+`cb9eb9b155da250822fb27aeff1cf8274eaaa55f`:
+
+- PR #81 public API head: `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`.
+- PR #81 is still Draft.
+- Public GitHub files HTML still shows hidden/bidirectional warning banners.
+- Warning banner file sections:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `app/(dashboard)/creatives/page.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+  - `app/api/creatives/decision-os-v2/preview/route.ts`
+- Public raw targeted scan found zero hidden/bidi/control codepoints in all
+  four warning-banner files.
+- Public raw targeted scan also found zero hidden/bidi/control codepoints in
+  `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`; no banner was
+  found for that component section in the public files HTML.
+- Public raw source files are multi-line and readable after formatting:
+  - `app/(dashboard)/creatives/page.test.tsx`: 294 lines, max line 108.
+  - `app/(dashboard)/creatives/page.tsx`: 1268 lines, max line 196.
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`: 67 lines, max
+    line 109.
+  - `app/api/creatives/decision-os-v2/preview/route.ts`: 119 lines, max line
+    105.
+  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 595 lines,
+    max line 118.
+- Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
+  codepoints.
+
+Conclusion: active raw file hygiene is corrected. Hidden/bidi closure remains
+open because the public GitHub files view still shows active warning banners.
 
 # UI iteration after completed operator session
 
@@ -314,13 +344,13 @@ Merge-readiness blocker table:
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| Hidden/bidi active warning | open pending post-format GitHub files-view verification |
-| Historical PR #79/#81 hidden warning closure | open pending post-format GitHub files-view verification |
+| Hidden/bidi active warning | open; public GitHub files HTML still shows warning banners after formatting |
+| Historical PR #79/#81 hidden warning closure | open; active PR #81 warning remains after formatting |
 | Review threads | closed by public API evidence |
 | Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
-| Active source file readability | corrected by formatting update; must be confirmed after push |
+| Active source file readability | closed by post-push public raw file verification |
 
 No blocker is being silently ignored.
 
@@ -688,9 +718,10 @@ Active PR #79 file blobs were also checked after the v0.1.1 contract parity
 fix. Hidden/bidi/control codepoints were not found in active PR #79 files.
 
 ChatGPT later reported that active GitHub evidence still showed a warning and
-readability problems. Therefore this earlier scan is not treated as closure.
-This update reformats the active source files and requires another post-push
-GitHub files-view check before hidden/bidi or readability blockers can close.
+readability problems. This update reformatted the active source files and ran a
+post-push public GitHub check. The post-push raw files are multi-line and clean,
+but the public GitHub files HTML still shows warning banners on the active file
+sections documented above. Hidden/bidi closure remains open.
 
 # Previous preview validation before UI iteration
 
@@ -796,9 +827,8 @@ sort test remains the supporting evidence. This is tracked in
   Decision OS snapshot, so the preview appears only after v1 analysis exists for
   the selected scope.
 - This branch is stacked on PR #78 and should be reviewed against that branch for an isolated UI diff.
-- Active GitHub files-view warning/readability evidence must be rechecked after
-  this formatting correction. PR #81 remains not merge-ready until that is
-  closed honestly.
+- Active GitHub files-view warning evidence remains open after this formatting
+  correction. PR #81 remains not merge-ready until that is closed honestly.
 
 # Confirmations
 

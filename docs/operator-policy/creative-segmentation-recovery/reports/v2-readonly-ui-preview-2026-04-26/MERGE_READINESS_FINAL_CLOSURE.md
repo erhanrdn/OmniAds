@@ -131,7 +131,8 @@ Readable source metrics after correction:
 
 # Hidden / Bidi Status
 
-Status: open pending post-format GitHub files-view verification.
+Status: open. The public GitHub files view still shows warning banners after
+the formatting correction.
 
 Evidence:
 
@@ -151,6 +152,29 @@ withdrawn until active GitHub files are rechecked after this formatting
 correction. If the banner is gone, M1/M2 can close normally. If the banner
 remains, the exact active file and line context must be documented, or the
 inability to reproduce it must be recorded without claiming closure.
+
+Post-push public GitHub evidence for formatting correction commit
+`cb9eb9b155da250822fb27aeff1cf8274eaaa55f`:
+
+- PR #81 public API head: `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`.
+- PR #81 is still Draft.
+- Public GitHub files HTML still shows hidden/bidirectional warning banners.
+- Warning banner file sections:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `app/(dashboard)/creatives/page.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+  - `app/api/creatives/decision-os-v2/preview/route.ts`
+- Public raw targeted scan found zero hidden/bidi/control codepoints in all
+  four warning-banner files.
+- Public raw targeted scan also found zero hidden/bidi/control codepoints in
+  `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`; no banner was
+  found for that component section in the public files HTML.
+- Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
+  codepoints.
+
+Conclusion: active raw file readability is corrected, but hidden/bidi
+files-view closure remains open because the public GitHub warning banners are
+still visible.
 
 # Review-Thread Public Evidence Closure
 
@@ -275,11 +299,11 @@ warning/readability verification described above.
 
 Merge-readiness blockers still open:
 
-- Active GitHub hidden/bidi files-view warning must be gone or explained at
-  exact active file level after this formatting correction.
-- Active raw files must be confirmed multi-line and readable after push.
-- Line-length/readability closure must be based on the formatted active files,
-  not the withdrawn prior closure.
+- Active GitHub hidden/bidi files-view warning remains visible after formatting
+  and must be resolved or explicitly adjudicated later.
+- Active raw files are confirmed multi-line and readable after push.
+- Line-length/readability closure is now based on formatted active raw files,
+  but hidden/bidi warning closure remains open.
 
 Remaining product-ready tracking items:
 

@@ -96,6 +96,35 @@ view is checked after this formatting correction is pushed. If the GitHub
 warning remains, it must be handled at exact active file level rather than
 closed through broad diff/patch evidence alone.
 
+Post-push public GitHub evidence for formatting correction commit
+`cb9eb9b155da250822fb27aeff1cf8274eaaa55f`:
+
+- PR #81 public API head: `cb9eb9b155da250822fb27aeff1cf8274eaaa55f`.
+- PR #81 is still Draft.
+- Public GitHub files HTML still contains hidden/bidirectional warning banners.
+- The warning banners are attached to these active file sections:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `app/(dashboard)/creatives/page.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+  - `app/api/creatives/decision-os-v2/preview/route.ts`
+- Public raw targeted scans for those files found zero hidden/bidi/control
+  codepoints.
+- Public raw source files are multi-line and readable after formatting:
+  - `app/(dashboard)/creatives/page.test.tsx`: 294 lines, max line 108.
+  - `app/(dashboard)/creatives/page.tsx`: 1268 lines, max line 196.
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`: 67 lines, max
+    line 109.
+  - `app/api/creatives/decision-os-v2/preview/route.ts`: 119 lines, max line
+    105.
+  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 595 lines,
+    max line 118, no banner found in public files HTML.
+- Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
+  codepoints.
+
+Conclusion: active raw file hygiene is corrected, but the active GitHub
+files-view warning is still visible. M1/M2 remain open and are not closed by
+exception.
+
 # Hidden / Bidi Warning Status
 
 GitHub UI banner state could not be inspected directly because local `gh` is
@@ -121,9 +150,9 @@ Historical warning status for PR #79 and PR #81:
 Current status:
 
 - M1 hidden/bidi active warning status:
-  `open_pending_post_format_github_files_view_verification`.
+  `open_active_github_files_view_warning_remains_after_formatting`.
 - M2 historical PR #79/#81 hidden/bidi warning status:
-  `open_pending_post_format_github_files_view_verification`.
+  `open_active_github_files_view_warning_remains_after_formatting`.
 
 This is not silently ignored. Broad local and public diff/patch scans remain
 important evidence, but they are not enough to close the warning while an
@@ -296,24 +325,25 @@ Closure:
 | PR #81 Draft only | still required |
 | Product-ready | NO |
 | Merge-ready | NO |
-| M1 GitHub UI hidden/bidi warning | open pending post-format GitHub files-view verification |
-| M2 Historical PR #79/#81 warning closure | open pending post-format GitHub files-view verification |
+| M1 GitHub UI hidden/bidi warning | open; public GitHub files HTML still shows warning banners after formatting |
+| M2 Historical PR #79/#81 warning closure | open; active PR #81 warning remains after formatting |
 | M3 Full authenticated DOM validation after lane polish | closed |
 | Direct-actionability workspace evidence | product-ready tracking |
 | Clean-checkout repeatability | passed for focused v2 preview tests |
 | M5 Review threads | closed by public API evidence |
 | M6 Contract parity / forbidden-term hard gate | closed as manual hard gate |
 | M7 Diagnose Investigate no-op | closed |
-| Active source file readability | corrected by formatting update; must be confirmed after push |
+| Active source file readability | closed by post-push public raw file verification |
 
 # Explicit Non-Ignoring Statement
 
 No blocker is being silently ignored.
 
-The prior hidden/bidi false-positive exception is no longer treated as closed
-until the formatted active GitHub files are rechecked. The items that could not
-be inspected because `gh` is unauthenticated or authenticated private GitHub UI
-state is unavailable are documented as limitations. Limited read-only preview
-may continue. PR #81 is not product-ready, not merge-ready, and not ready for
-human merge consideration into the PR #78 branch until active warnings and file
-hygiene evidence are actually closed.
+The prior hidden/bidi false-positive exception is no longer treated as closed.
+After formatting, public raw files are clean and readable, but the public
+GitHub files HTML still shows active warning banners on the files listed above.
+The items that could not be inspected because `gh` is unauthenticated or
+authenticated private GitHub UI state is unavailable are documented as
+limitations. Limited read-only preview may continue. PR #81 is not
+product-ready, not merge-ready, and not ready for human merge consideration
+into the PR #78 branch while the active GitHub warning remains open.
