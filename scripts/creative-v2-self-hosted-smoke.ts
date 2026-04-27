@@ -1,4 +1,5 @@
 // Creative v2 hardening file: read-only safety gate; behavior unchanged.
+// Forced target-file rewrite marker: public Raw must remain multiline.
 import { chromium, expect } from "@playwright/test";
 
 const forbiddenActionTerms = [

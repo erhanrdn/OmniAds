@@ -1,4 +1,5 @@
 // Creative v2 hardening file: read-only safety gate; behavior unchanged.
+// Forced target-file rewrite marker: public Raw must remain multiline.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";

@@ -1,4 +1,5 @@
 # Creative v2 hardening workflow: read-only safety gate; behavior unchanged.
+# Forced target-file rewrite marker: public Raw must remain multiline.
 name: CI
 
 on:
