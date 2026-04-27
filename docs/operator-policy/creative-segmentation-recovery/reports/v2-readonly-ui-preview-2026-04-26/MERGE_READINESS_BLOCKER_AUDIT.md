@@ -107,9 +107,39 @@ Current validation before push:
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
 
-Post-push GitHub raw/files-view status for this correction is recorded below
-after push. Product-ready: NO. Merge-ready: NO unless the active formatting and
-warning blockers are truly closed.
+Post-push GitHub raw/files-view status for formatting correction commit
+`0ab332ee739e14c00b5c07abb1728741b5e520a0`:
+
+- PR #81 public API head: `0ab332ee739e14c00b5c07abb1728741b5e520a0`.
+- PR #81 remains Draft.
+- Public raw file check confirms real line breaks:
+  - `app/(dashboard)/creatives/page.test.tsx`: 298 lines, max line 99.
+  - `components/creatives/CreativeDecisionOsV2PreviewSurface.tsx`: 625 lines,
+    max line 111.
+  - `app/(dashboard)/creatives/page.tsx`: 1268 lines, max line 196.
+  - `app/api/creatives/decision-os-v2/preview/route.ts`: 121 lines, max line
+    100.
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`: 67 lines, max
+    line 109.
+  - `lib/creative-decision-os-v2-preview.ts`: 663 lines, max line 100.
+  - `lib/creative-decision-os-v2-preview.test.tsx`: 394 lines, max line 137.
+  - `src/services/data-service-ai.ts`: 446 lines, max line 100.
+- Public raw targeted scan found zero hidden/bidi/control codepoints in the
+  checked active files.
+- Public PR #81 `.diff` and `.patch` scans found zero hidden/bidi/control
+  codepoints.
+- Public GitHub files HTML still contains hidden/bidirectional warning template
+  sections for:
+  - `app/(dashboard)/creatives/page.test.tsx`
+  - `app/(dashboard)/creatives/page.tsx`
+  - `app/api/creatives/decision-os-v2/preview/route.test.ts`
+- No exact raw file line or codepoint was found for those warning template
+  sections.
+
+Product-ready: NO. Merge-ready: NO. Active raw formatting is corrected, but
+hidden/bidi files-view closure remains open because GitHub files HTML still
+contains warning template sections and no exact line/codepoint can be
+documented from raw files.
 
 # Superseded prior GitHub evidence correction after ChatGPT review
 
