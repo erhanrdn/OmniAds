@@ -1,4 +1,4 @@
-# Final WIP Formatting Correction
+# Final WIP Raw Formatting Reconciliation
 
 CHATGPT_REVIEW_READY: YES
 SANITIZED: YES
@@ -11,37 +11,21 @@ PR #82 remains the canonical WIP integration candidate. PR #81 remains
 superseded as the merge surface and available for audit/history. PR #78 remains
 the resolver base. Main remains untouched.
 
-Full prompt reconciliation was run after ChatGPT reported that the previous
-prompt may have been truncated. The active branch identity was confirmed before
-checks:
+This reconciliation addresses ChatGPT's rejection that public Raw files still
+appeared collapsed. A real formatter was run on the active PR #82 branch, a new
+source-formatting commit was pushed, and the exact public Raw commands were run
+with real URLs.
 
-- Branch: `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
-- Verified PR #82 head at reconciliation:
-  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`
-- Remote: `https://github.com/erhanrdn/OmniAds.git`
-- Local worktree at branch identity check: clean
-- PR #82 head branch from GitHub connector:
-  `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
+Current PR #82 head at source-formatting verification:
+`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
 
-This report corrects the rejected formatting evidence. The release-hardening
-files were reformatted again and pushed in commit
-`5cf72894e175cd050948e4bf881fc738b1358caa`.
+New formatting commit:
+`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
 
-Raw LF newline correction after ChatGPT rejection was reconciled again on
-April 27, 2026:
+The commit exists on GitHub and appears in the PR #82 commit list.
 
-- Branch identity confirmed:
-  `wip/creative-decision-os-v2-integration-candidate-2026-04-27`
-- Reconciliation starting head:
-  `93606354793479d4136d9899238ec95a1fbdf718`
-- New source newline-normalization commit: not required. Byte-level diagnosis
-  showed the four target files already contain real LF bytes, with no CR-only,
-  U+2028, U+2029, or NEL separators.
-- This report update records the corrected `refs/heads/...` public Raw
-  verification and does not change product behavior.
-
-PR #82 is not claimed ready for PR #78 branch merge consideration until
-ChatGPT accepts the corrected public raw evidence.
+PR #82 ready for PR #78 branch merge consideration: NO, pending ChatGPT
+acceptance of this corrected Raw evidence.
 
 Product-ready: NO.
 
@@ -63,135 +47,159 @@ PR #82 remains Draft.
 
 No main push.
 
-# Files Formatted
-
-- `.github/workflows/ci.yml`
-- `lib/creative-v2-no-write-enforcement.test.ts`
-- `scripts/creative-v2-safety-gate.ts`
-- `scripts/creative-v2-self-hosted-smoke.ts`
-
-The release-hardening Markdown reports were inspected as targeted files and
-passed line-count/readability checks. No giant one-line report files remain in
-the release-hardening packet.
-
-# Raw LF Newline Correction After ChatGPT Rejection
-
-Byte-level diagnosis before correction:
+# Branch Identity
 
 ```text
-scripts/creative-v2-safety-gate.ts
-bytes: 2560
-LF: 78
-CR: 0
-U+2028: 0
-U+2029: 0
-NEL C2 85: 0
+$ git branch --show-current
+wip/creative-decision-os-v2-integration-candidate-2026-04-27
 
-lib/creative-v2-no-write-enforcement.test.ts
-bytes: 5227
-LF: 122
-CR: 0
-U+2028: 0
-U+2029: 0
-NEL C2 85: 0
+$ git rev-parse HEAD
+b6d8bfe52ef0e81e277255feb738bb67f28abb48
 
-scripts/creative-v2-self-hosted-smoke.ts
-bytes: 4101
-LF: 133
-CR: 0
-U+2028: 0
-U+2029: 0
-NEL C2 85: 0
+$ git status --short
 
-.github/workflows/ci.yml
-bytes: 10318
-LF: 336
-CR: 0
-U+2028: 0
-U+2029: 0
-NEL C2 85: 0
+$ git remote -v
+origin  https://github.com/erhanrdn/OmniAds.git (fetch)
+origin  https://github.com/erhanrdn/OmniAds.git (push)
 ```
 
-Correction action: no source rewrite was needed because the active files
-already used real LF bytes. The post-correction diagnosis is therefore the same
-as the pre-correction diagnosis:
+GitHub public PR API confirmed:
 
 ```text
-scripts/creative-v2-safety-gate.ts: LF 78, CR 0, U+2028 0, U+2029 0, NEL 0
-lib/creative-v2-no-write-enforcement.test.ts: LF 122, CR 0, U+2028 0, U+2029 0, NEL 0
-scripts/creative-v2-self-hosted-smoke.ts: LF 133, CR 0, U+2028 0, U+2029 0, NEL 0
-.github/workflows/ci.yml: LF 336, CR 0, U+2028 0, U+2029 0, NEL 0
+number 82
+draft true
+head_ref wip/creative-decision-os-v2-integration-candidate-2026-04-27
+head_sha b6d8bfe52ef0e81e277255feb738bb67f28abb48
+base_ref wip/creative-decision-os-v2-baseline-first-2026-04-26
 ```
 
-# Public Raw Formatting Evidence
+# Formatter Action
 
-Branch checked with the exact `refs/heads/...` Raw URL form requested by
-ChatGPT:
-
-`wip/creative-decision-os-v2-integration-candidate-2026-04-27`
-
-| File | Public raw line count | Lines over 220 chars | Readable multi-line |
-| --- | ---: | --- | --- |
-| `scripts/creative-v2-safety-gate.ts` | 78 | none | YES |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none | YES |
-| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none | YES |
-| `.github/workflows/ci.yml` | 336 | none | YES |
-
-Public raw commands used:
+Command run:
 
 ```bash
-curl -fsSL "<public raw URL from prompt>" | wc -l
-curl -fsSL "<public raw URL from prompt>" \
-  | awk 'length($0)>220 {print FNR ":" length($0)}'
+npx prettier --write scripts/creative-v2-safety-gate.ts \
+  lib/creative-v2-no-write-enforcement.test.ts \
+  scripts/creative-v2-self-hosted-smoke.ts \
+  .github/workflows/ci.yml
 ```
 
-The checked URLs were:
+Output:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml
+scripts/creative-v2-safety-gate.ts 31ms
+lib/creative-v2-no-write-enforcement.test.ts 12ms
+scripts/creative-v2-self-hosted-smoke.ts 9ms
+.github/workflows/ci.yml 18ms (unchanged)
 ```
 
-# Local Formatting Evidence
+Files changed by formatter:
 
-| File | Local line count | Local lines over 220 chars |
-| --- | ---: | --- |
-| `scripts/creative-v2-safety-gate.ts` | 78 | none |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
-| `scripts/creative-v2-self-hosted-smoke.ts` | 133 | none |
-| `.github/workflows/ci.yml` | 336 | none |
+- `scripts/creative-v2-safety-gate.ts`
+- `lib/creative-v2-no-write-enforcement.test.ts`
+- `scripts/creative-v2-self-hosted-smoke.ts`
+
+`.github/workflows/ci.yml` was already Prettier-clean and unchanged.
+
+No product behavior changed.
+
+# Local Line-Count Evidence
+
+Exact local commands and outputs:
+
+```text
+$ wc -l scripts/creative-v2-safety-gate.ts
+      82 scripts/creative-v2-safety-gate.ts
+$ awk 'length($0)>220 {print FNR ":" length($0)}' scripts/creative-v2-safety-gate.ts
+
+$ wc -l lib/creative-v2-no-write-enforcement.test.ts
+     156 lib/creative-v2-no-write-enforcement.test.ts
+$ awk 'length($0)>220 {print FNR ":" length($0)}' lib/creative-v2-no-write-enforcement.test.ts
+
+$ wc -l scripts/creative-v2-self-hosted-smoke.ts
+     141 scripts/creative-v2-self-hosted-smoke.ts
+$ awk 'length($0)>220 {print FNR ":" length($0)}' scripts/creative-v2-self-hosted-smoke.ts
+
+$ wc -l .github/workflows/ci.yml
+     336 .github/workflows/ci.yml
+$ awk 'length($0)>220 {print FNR ":" length($0)}' .github/workflows/ci.yml
+```
+
+The `awk` checks produced no output for all four files.
+
+# Byte-Level LF/CR Diagnosis
+
+Exact byte-level output:
+
+```text
+scripts/creative-v2-safety-gate.ts LF 82 CR 0 bytes 2578
+lib/creative-v2-no-write-enforcement.test.ts LF 156 CR 0 bytes 5430
+scripts/creative-v2-self-hosted-smoke.ts LF 141 CR 0 bytes 4135
+.github/workflows/ci.yml LF 336 CR 0 bytes 10318
+```
+
+No CR-only workaround was present. The files contain real LF newline bytes.
+
+# Public Raw URL Evidence
+
+Exact public Raw commands and outputs after pushing
+`73bdee0806a703886d1b98b29b9a4eb9e3d42896`:
+
+```text
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | wc -l
+      82
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | awk 'length($0)>220 {print FNR ":" length($0)}'
+
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts | wc -l
+     156
+$ curl -fsSL \
+  https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts \
+  | awk 'length($0)>220 {print FNR ":" length($0)}'
+
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts | wc -l
+     141
+$ curl -fsSL \
+  https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-self-hosted-smoke.ts \
+  | awk 'length($0)>220 {print FNR ":" length($0)}'
+
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml | wc -l
+     336
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/.github/workflows/ci.yml | awk 'length($0)>220 {print FNR ":" length($0)}'
+```
+
+The public Raw `awk` checks produced no output for all four files.
 
 # GitHub Commit Evidence
 
-- Reconciliation starting head
-  `93606354793479d4136d9899238ec95a1fbdf718` exists on the public branch.
-- `74cd2810f764220f0dd32abf7ddcf0d177f3635b` exists through the public GitHub
-  commit API.
-- PR #82 public commits API returned 26 commits at reconciliation time.
-- PR #82 public commits API includes
-  `5cf72894e175cd050948e4bf881fc738b1358caa`.
-- PR #82 public commits API includes
-  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`.
-- PR #82 public commits API last commit at reconciliation time:
-  `74cd2810f764220f0dd32abf7ddcf0d177f3635b`.
-- Any later report-only commit that records this evidence does not alter the
-  four target source/YAML files. The current branch raw URL checks remain the
-  authoritative formatting evidence.
+```text
+$ git rev-parse HEAD
+73bdee0806a703886d1b98b29b9a4eb9e3d42896
+
+$ git ls-remote origin refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27
+73bdee0806a703886d1b98b29b9a4eb9e3d42896 refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27
+```
+
+Public PR commit API evidence:
+
+```text
+commit_exists 73bdee0806a703886d1b98b29b9a4eb9e3d42896
+pr_commits_count 29
+contains_73bdee0 true
+last 73bdee0806a703886d1b98b29b9a4eb9e3d42896
+```
 
 # Test/Typecheck/Build Results
 
 | Command/check | Result |
 | --- | --- |
 | `git diff --check` | passed |
-| CI YAML parse check | passed |
 | `npm test` | passed, 307 files, 2203 tests |
 | `npx tsc --noEmit` | passed |
 | `npm run build` | passed |
 | `npm run creative:v2:safety` | passed, 9 files, 51 tests plus gold safety counters |
 | focused Creative/v2 Vitest run | passed, 9 files, 51 tests |
 | v2 gold eval | macro F1 97.96, severe 0, high 0, medium 2, low 0 |
+| CI YAML parse check | passed |
 | forbidden rendered button/text scan | passed through `npm run creative:v2:safety` |
 | forbidden internal artifact scan | passed through `npm run creative:v2:safety` |
 | contract parity check | passed through `npm run creative:v2:safety` |
@@ -219,31 +227,6 @@ watchPrimaryCount: 0
 scaleReviewPrimaryCount: 0
 ```
 
-# CI Status
-
-The branch keeps the pull-request CI hard gate:
-
-```bash
-npm run test
-npm run creative:v2:safety
-```
-
-The CI update adds no deployment behavior, Vercel assumption, Neon assumption,
-or secret requirement.
-
-# No-Write Enforcement Status
-
-Static and component-level no-write enforcement passed.
-
-Covered boundaries:
-
-- v2 preview route remains GET-only.
-- v2 preview client fetch remains GET-only with no body.
-- transitive GET side-effect scanner has zero findings for the preview route.
-- preview model/component remain detached from DB, Meta/platform, Command
-  Center, queue/apply, and execution boundaries.
-- row detail/open interaction remains local to the existing read-only drawer.
-
 # Self-Hosted Runtime Smoke Status
 
 Not executed by Codex.
@@ -251,6 +234,13 @@ Not executed by Codex.
 Exact blocker: this shell does not have an authenticated self-hosted browser
 state. Codex did not ask for a domain, DB URL, token, cookie, browser session
 value, server credential, or secret.
+
+Command result without authorized local smoke configuration:
+
+```text
+CREATIVE_V2_SMOKE_BASE_URL is required locally to run the self-hosted smoke.
+Do not paste or commit domains, tokens, cookies, DB URLs, or credentials.
+```
 
 This remains a main/product-ready blocker. For PR #82 to PR #78 WIP branch
 consideration, static no-write coverage, CI safety gate coverage, and prior
@@ -264,6 +254,14 @@ consideration. It is not main-merge clearance and not product-ready clearance.
 No new hidden/bidi/control codepoints were introduced by this formatting pass.
 
 # Remaining Blockers
+
+Blocks PR #82 to PR #78 branch merge consideration:
+
+- ChatGPT acceptance of the corrected public Raw evidence.
+- Fresh authenticated self-hosted runtime smoke remains open unless the owner
+  accepts existing static/prior evidence for WIP branch scope.
+- Owner-side authenticated GitHub UI warnings remain an owner-side gate if
+  visible only in authenticated UI.
 
 Blocks main merge:
 
@@ -284,7 +282,7 @@ Blocks product-ready:
 # WIP Merge Consideration
 
 PR #82 may be considered for human merge consideration into the PR #78 branch:
-NO, pending ChatGPT acceptance of the corrected active raw-file evidence.
+NO, pending ChatGPT acceptance of the corrected active Raw evidence.
 
 Actual merge was not performed.
 

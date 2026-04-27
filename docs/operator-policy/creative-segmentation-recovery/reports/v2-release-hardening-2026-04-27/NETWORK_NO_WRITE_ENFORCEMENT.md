@@ -5,8 +5,8 @@ SANITIZED: YES
 
 # Summary
 
-This pass adds focused no-write enforcement around the v2 preview route, client
-fetch path, preview UI model/component, and row detail/open path.
+This pass keeps focused no-write enforcement around the v2 preview route,
+client fetch path, preview UI model/component, and row detail/open path.
 
 Result: passed locally through `npm run creative:v2:safety`.
 
@@ -73,32 +73,34 @@ Local result:
 - `npm run creative:v2:safety`: passed.
 - Focused safety test run inside that command: 9 files passed, 51 tests passed.
 
-# Formatting Correction
+# Raw Formatting Correction
 
-The no-write enforcement test was reformatted in commit
-`5cf72894e175cd050948e4bf881fc738b1358caa`.
+The no-write enforcement test was reformatted with Prettier in commit
+`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
 
-Raw LF newline correction after ChatGPT rejection:
-
-- Reconciliation starting head:
-  `93606354793479d4136d9899238ec95a1fbdf718`
-- Byte-level diagnosis:
-  `bytes 5227`, `LF 122`, `CR 0`, `U+2028 0`, `U+2029 0`, `NEL 0`
-- Source newline rewrite: not required.
-
-Public raw verification:
-
-| File | Line count | Lines over 220 chars |
-| --- | ---: | --- |
-| `lib/creative-v2-no-write-enforcement.test.ts` | 122 | none |
-
-The file is readable multi-line TypeScript.
-
-Exact public raw URL verified:
+Local evidence:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts
+$ wc -l lib/creative-v2-no-write-enforcement.test.ts
+     156 lib/creative-v2-no-write-enforcement.test.ts
+$ awk 'length($0)>220 {print FNR ":" length($0)}' lib/creative-v2-no-write-enforcement.test.ts
+
+$ python3 -c '...'
+lib/creative-v2-no-write-enforcement.test.ts LF 156 CR 0 bytes 5430
 ```
+
+Public Raw evidence:
+
+```text
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts | wc -l
+     156
+$ curl -fsSL \
+  https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/lib/creative-v2-no-write-enforcement.test.ts \
+  | awk 'length($0)>220 {print FNR ":" length($0)}'
+```
+
+The public Raw `awk` check produced no output. The file is readable multi-line
+TypeScript with real LF newlines.
 
 # Remaining Limit
 

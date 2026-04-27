@@ -65,7 +65,7 @@ Vercel or Neon, and does not add secrets.
 
 # Successful Local Run
 
-Local command result after formatting correction:
+Local command result after the Prettier formatting correction:
 
 ```text
 Test Files  9 passed (9)
@@ -84,35 +84,35 @@ watchPrimaryCount: 0
 scaleReviewPrimaryCount: 0
 ```
 
-# Gate Status
+# Raw Formatting Correction
 
-This is now a repeatable hard gate command and a CI pull-request check. Main
-merge remains blocked until ChatGPT/owner accepts CI evidence and remaining
-runtime/product gates.
+The safety gate script was reformatted with Prettier in commit
+`73bdee0806a703886d1b98b29b9a4eb9e3d42896`.
 
-# Formatting Correction
-
-The safety gate script was reformatted in commit
-`5cf72894e175cd050948e4bf881fc738b1358caa`.
-
-Raw LF newline correction after ChatGPT rejection:
-
-- Reconciliation starting head:
-  `93606354793479d4136d9899238ec95a1fbdf718`
-- Byte-level diagnosis:
-  `bytes 2560`, `LF 78`, `CR 0`, `U+2028 0`, `U+2029 0`, `NEL 0`
-- Source newline rewrite: not required.
-
-Public raw verification:
-
-| File | Line count | Lines over 220 chars |
-| --- | ---: | --- |
-| `scripts/creative-v2-safety-gate.ts` | 78 | none |
-
-The file is readable multi-line TypeScript.
-
-Exact public raw URL verified:
+Local evidence:
 
 ```text
-https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts
+$ wc -l scripts/creative-v2-safety-gate.ts
+      82 scripts/creative-v2-safety-gate.ts
+$ awk 'length($0)>220 {print FNR ":" length($0)}' scripts/creative-v2-safety-gate.ts
+
+$ python3 -c '...'
+scripts/creative-v2-safety-gate.ts LF 82 CR 0 bytes 2578
 ```
+
+Public Raw evidence:
+
+```text
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | wc -l
+      82
+$ curl -fsSL https://raw.githubusercontent.com/erhanrdn/OmniAds/refs/heads/wip/creative-decision-os-v2-integration-candidate-2026-04-27/scripts/creative-v2-safety-gate.ts | awk 'length($0)>220 {print FNR ":" length($0)}'
+```
+
+The public Raw `awk` check produced no output. The file is readable multi-line
+TypeScript with real LF newlines.
+
+# Gate Status
+
+This is a repeatable hard gate command and a CI pull-request check. Main merge
+remains blocked until ChatGPT/owner accepts CI evidence and remaining
+runtime/product gates.
