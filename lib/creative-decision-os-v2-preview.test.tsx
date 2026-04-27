@@ -275,6 +275,54 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
     expect(html).not.toMatch(/<button[^>]*>\s*<svg[\s\S]*?Investigate\s*<\/button>/);
   });
 
+  it("renders distinct lane markers for priority, confirmation, review, investigation, and inactive sections", () => {
+    const lanePreview = previewFromRows([
+      sourceRow({
+        rowId: "priority-cut",
+        v2PrimaryDecision: "Cut",
+        v2Actionability: "review_only",
+        v2RiskLevel: "high",
+        spend: 4000,
+        peerMedianSpend: 500,
+      }),
+      sourceRow({
+        rowId: "direct-protect",
+        v2PrimaryDecision: "Protect",
+        v2Actionability: "direct",
+      }),
+      sourceRow({
+        rowId: "review-refresh",
+        v2PrimaryDecision: "Refresh",
+        v2Actionability: "review_only",
+      }),
+      sourceRow({
+        rowId: "diagnose-row",
+        v2PrimaryDecision: "Diagnose",
+        v2Actionability: "diagnose",
+        v2ProblemClass: "data-quality",
+        v2BlockerReasons: ["missing_source_evidence"],
+      }),
+      sourceRow({
+        rowId: "inactive-row",
+        v2PrimaryDecision: "Refresh",
+        v2Actionability: "review_only",
+        activeStatus: false,
+        campaignStatus: "PAUSED",
+      }),
+    ]);
+    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={lanePreview} />);
+
+    expect(html).toContain("Highest urgency");
+    expect(html).toContain("Review lanes");
+    expect(html).toContain("Confirmation lane");
+    expect(html).toContain("Decision review");
+    expect(html).toContain("Investigation lane");
+    expect(html).toContain("Muted lane");
+    expect(html).toContain("border-l-emerald-500");
+    expect(html).toContain("border-l-amber-500");
+    expect(html).toContain("border-l-slate-400");
+  });
+
   it("keeps the preview component read-only without DB, Meta, or Command Center wiring", () => {
     const source = readFileSync("components/creatives/CreativeDecisionOsV2PreviewSurface.tsx", "utf8");
 

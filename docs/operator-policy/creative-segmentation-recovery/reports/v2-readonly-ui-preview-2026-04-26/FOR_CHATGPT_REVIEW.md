@@ -51,6 +51,10 @@ Post-iteration delta validation report:
 - Supervisor used the existing authenticated self-hosted OmniAds domain. Domain
   intentionally not recorded.
 
+Merge-readiness blocker audit:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/MERGE_READINESS_BLOCKER_AUDIT.md`
+
 Reason for change:
 
 - The completed supervised operator session found first-glance clarity around
@@ -180,6 +184,91 @@ Confirmations:
 - Deprecated Vercel/Neon checks are not treated as active blockers.
 - Active runtime validation refers only to local/self-hosted app plus
   self-hosted PostgreSQL DB.
+
+# Lane separation polish after second delta validation
+
+Date: 2026-04-27
+
+What changed:
+
+- Added subtle lane markers and left-border accents to visually separate:
+  - Today Priority
+  - Ready for Buyer Confirmation
+  - Buyer Review
+  - Diagnose First
+  - Inactive Review
+- Added a `Review lanes` divider before the stacked review sections.
+- Added non-action lane labels:
+  - `Highest urgency`
+  - `Confirmation lane`
+  - `Decision review`
+  - `Investigation lane`
+  - `Muted lane`
+
+Why it changed:
+
+- The post-iteration delta validation found that Ready for Buyer Confirmation
+  was understandable and separate from Diagnose, but stacked sections still felt
+  visually similar.
+- This is a small read-only visual polish to reduce confusion between
+  confirmation and investigation.
+
+Behavioral confirmations:
+
+- No resolver logic changed.
+- No thresholds changed.
+- No decision labels changed.
+- No v1 behavior changed.
+- No queue/apply behavior was added.
+- No Command Center wiring was added.
+- No DB write path was added.
+- No Meta/platform write path was added.
+- No unsafe action copy was added.
+
+Authenticated DOM validation after lane polish:
+
+- Full authenticated DOM validation could not be completed by Codex because no
+  authenticated browser state is available to automation, local demo-login was
+  not a usable authenticated validation path in prior attempts, and Codex is
+  not asking the supervisor for domain, DB URL, token, browser state, server
+  credentials, or secrets.
+- Previous full supervised operator session remains the baseline.
+- The post-iteration delta validation remains accepted for continuation.
+- This remains a merge-readiness blocker, not a blocker for continued limited
+  read-only preview.
+
+Checks after lane polish:
+
+| Check | Result |
+| --- | --- |
+| `npm test` | passed, 305 files, 2192 tests |
+| `npx tsc --noEmit` | passed |
+| `npm run build` | passed |
+| Focused Creative/v2 preview tests | passed, 6 files, 39 tests |
+| Clean-checkout focused v2 preview tests | passed, 3 files, 16 tests |
+| JSON parse checks for report JSON files | passed, 8 files |
+| `git diff --check` | passed |
+| Hidden/bidi/control scan | passed |
+| Strict non-ASCII scan | passed |
+| Restricted filename scan | passed |
+| Secret/raw-ID scan | passed |
+| Line-length/readability scan | passed |
+
+Merge-readiness blocker table:
+
+| Blocker | Status |
+| --- | --- |
+| PR #81 Draft only | still required |
+| Product-ready | NO |
+| Merge-ready | NO |
+| GitHub UI hidden/bidi banner zero or closed | still required |
+| Historical PR #79/#81 hidden warning closure | still required |
+| Authenticated GitHub unresolved thread inspection | still required; `gh` unauthenticated |
+| Full authenticated DOM validation after lane polish | still required |
+| Direct-actionability workspace evidence | product-ready tracking |
+| Clean-checkout repeatability | passed for focused v2 preview tests |
+
+No blocker is being silently ignored.
 
 # Dependencies
 

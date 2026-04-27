@@ -113,6 +113,38 @@ function actionButtonLabel(row: CreativeDecisionOsV2PreviewRow) {
   return "Open detail";
 }
 
+function laneShellClasses(tone: "priority" | "confirmation" | "review" | "diagnose" | "inactive") {
+  const toneClass = {
+    priority: "border-l-4 border-l-rose-500 bg-white",
+    confirmation: "border-l-4 border-l-emerald-500 bg-emerald-50/30",
+    review: "border-l-4 border-l-cyan-500 bg-cyan-50/25",
+    diagnose: "border-l-4 border-l-amber-500 bg-amber-50/35",
+    inactive: "border-l-4 border-l-slate-400 bg-slate-50/80",
+  }[tone];
+  return cn("rounded-lg border border-slate-200 p-4 shadow-sm", toneClass);
+}
+
+function LaneBadge({
+  children,
+  tone,
+}: {
+  children: string;
+  tone: "priority" | "confirmation" | "review" | "diagnose" | "inactive";
+}) {
+  const toneClass = {
+    priority: "border-rose-200 bg-rose-50 text-rose-800",
+    confirmation: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    review: "border-cyan-200 bg-cyan-50 text-cyan-800",
+    diagnose: "border-amber-200 bg-amber-50 text-amber-800",
+    inactive: "border-slate-200 bg-slate-100 text-slate-700",
+  }[tone];
+  return (
+    <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-semibold", toneClass)}>
+      {children}
+    </span>
+  );
+}
+
 function SummaryMetric({
   label,
   value,
@@ -365,9 +397,10 @@ export function CreativeDecisionOsV2PreviewSurface({
       </div>
 
       {todayPriority ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-4" data-testid="creative-v2-today-priority">
+        <section className={laneShellClasses("priority")} data-testid="creative-v2-today-priority">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
+              <LaneBadge tone="priority">Highest urgency</LaneBadge>
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                 <AlertTriangle className="h-4 w-4 text-rose-600" aria-hidden="true" />
                 Today Priority / Buyer Command Strip
@@ -389,14 +422,22 @@ export function CreativeDecisionOsV2PreviewSurface({
         </section>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="flex items-center gap-3 pt-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Review lanes
+        </span>
+        <span className="h-px flex-1 bg-slate-200" aria-hidden="true" />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
         {readyForConfirmation ? (
           <section
-            className="rounded-lg border border-slate-200 bg-white p-4"
+            className={laneShellClasses("confirmation")}
             data-testid="creative-v2-ready-confirmation"
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
+                <LaneBadge tone="confirmation">Confirmation lane</LaneBadge>
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
                   Ready for Buyer Confirmation
@@ -425,8 +466,9 @@ export function CreativeDecisionOsV2PreviewSurface({
           </section>
         ) : null}
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4" data-testid="creative-v2-buyer-review">
+        <section className={laneShellClasses("review")} data-testid="creative-v2-buyer-review">
           <div className="mb-3">
+            <LaneBadge tone="review">Decision review</LaneBadge>
             <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
               <Sparkles className="h-4 w-4 text-cyan-600" aria-hidden="true" />
               Buyer Review
@@ -453,9 +495,10 @@ export function CreativeDecisionOsV2PreviewSurface({
       </div>
 
       {diagnoseFirst ? (
-        <details className="rounded-lg border border-slate-200 bg-white p-4" data-testid="creative-v2-diagnose-first">
+        <details className={laneShellClasses("diagnose")} data-testid="creative-v2-diagnose-first">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <span>
+              <LaneBadge tone="diagnose">Investigation lane</LaneBadge>
               <span className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                 <Search className="h-4 w-4 text-amber-600" aria-hidden="true" />
                 Diagnose First
@@ -484,9 +527,10 @@ export function CreativeDecisionOsV2PreviewSurface({
       ) : null}
 
       {inactiveReview ? (
-        <details className="rounded-lg border border-slate-200 bg-white p-4" data-testid="creative-v2-inactive-review">
+        <details className={laneShellClasses("inactive")} data-testid="creative-v2-inactive-review">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <span>
+              <LaneBadge tone="inactive">Muted lane</LaneBadge>
               <span className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                 <Wrench className="h-4 w-4 text-slate-500" aria-hidden="true" />
                 Inactive Review

@@ -5,7 +5,7 @@ HEAD_COMMIT: SEE_BRANCH_HEAD_AFTER_PUSH
 PRIMARY_REPORT_PATH: docs/operator-policy/creative-segmentation-recovery/reports/v2-second-operator-preview-session-2026-04-27/FOR_CHATGPT_REVIEW.md
 HANDOFF_FILE: docs/operator-policy/creative-segmentation-recovery/reports/v2-second-operator-preview-session-2026-04-27/FOR_CHATGPT_REVIEW.md
 SANITIZED: YES
-PRODUCT_CODE_CHANGED: NO
+PRODUCT_CODE_CHANGED: YES
 MERGE_REQUESTED: NO
 MAIN_PUSHED: NO
 
@@ -26,6 +26,14 @@ intentionally not recorded.
 
 Result: the limited read-only preview may continue as supervised evidence
 gathering. Product-ready remains NO. Merge-ready remains NO.
+
+Additional update after this delta validation:
+
+- A small read-only lane-separation polish was implemented.
+- The polish makes Today Priority, Ready for Buyer Confirmation, Buyer Review,
+  Diagnose First, and Inactive Review visually more distinct.
+- No resolver, threshold, v1, queue/apply, Command Center, DB write, or
+  Meta/platform write behavior changed.
 
 # Session Status
 
@@ -238,6 +246,12 @@ Recommended non-blocking polish:
 
 - Improve visual separation between stacked lanes so `Ready for Buyer
   Confirmation`, Diagnose, and other sections feel less similar at a glance.
+
+Follow-up status:
+
+- This non-blocking lane-separation polish has been implemented.
+- It remains read-only and does not change the underlying resolver or action
+  behavior.
 
 # Merge Readiness
 

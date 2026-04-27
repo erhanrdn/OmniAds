@@ -2,7 +2,7 @@ CHATGPT_REVIEW_READY: YES
 ROLE: CODEX_WIP_IMPLEMENTATION
 BRANCH: wip/creative-v2-readonly-ui-preview-2026-04-26
 SANITIZED: YES
-PRODUCT_CODE_CHANGED: NO
+PRODUCT_CODE_CHANGED: YES
 MERGE_REQUESTED: NO
 MAIN_PUSHED: NO
 
@@ -154,3 +154,8 @@ No blocking buyer hesitation appeared in this delta validation.
 Non-blocking issue:
 
 - Visual separation between stacked lanes can be improved later.
+
+Follow-up status:
+
+- The non-blocking lane-separation polish has been implemented.
+- The change is visual/read-only only.
