@@ -7,6 +7,10 @@ MERGE_REQUESTED: NO
 
 # Source Branch Heads
 
+PR #82 is now the canonical WIP integration candidate. PR #81 is superseded as
+the merge surface and remains available for audit/history. PR #78 remains the
+resolver base, and main remains untouched.
+
 | Source | Branch | Commit |
 | --- | --- | --- |
 | PR #78 resolver branch | `wip/creative-decision-os-v2-baseline-first-2026-04-26` | `3da2e05cb47f97de89ee42d9af6a64598af8b17a` |

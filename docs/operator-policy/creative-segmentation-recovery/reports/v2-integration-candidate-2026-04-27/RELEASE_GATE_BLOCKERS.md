@@ -5,6 +5,18 @@ SANITIZED: YES
 
 # Status Discipline
 
+PR #82 is the canonical WIP integration candidate.
+
+PR #81 is superseded as the merge surface and remains available for
+audit/history.
+
+Future Creative Decision OS v2 hardening work should land on PR #82 unless
+ChatGPT says otherwise.
+
+PR #78 remains the resolver base.
+
+Main remains untouched.
+
 Product-ready: NO.
 
 Merge-ready to main: NO.

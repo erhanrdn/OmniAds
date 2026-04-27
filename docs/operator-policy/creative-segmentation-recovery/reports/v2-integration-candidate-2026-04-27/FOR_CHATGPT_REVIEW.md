@@ -17,6 +17,12 @@ PR #78 and merged cleanly. The blocker is that Codex cannot independently run a
 fresh authenticated self-hosted runtime smoke without asking for forbidden
 domain, token, browser session, server, or database details.
 
+ChatGPT later accepted PR #82 as the canonical WIP integration candidate. PR
+#81 is superseded as the merge surface and remains available for audit/history.
+Future Creative Decision OS v2 hardening work should land on PR #82 unless
+ChatGPT says otherwise. PR #78 remains the resolver base. Main remains
+untouched.
+
 The integration candidate combines the PR #78 resolver branch and the PR #81
 read-only UI preview branch. It does not touch main and does not request main
 merge. The branch remains WIP/Draft material only.

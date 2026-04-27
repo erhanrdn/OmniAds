@@ -37,6 +37,23 @@ const requiredForbiddenButtonTerms = [
   "Product-ready",
 ];
 
+const contractV011Expectations = {
+  version: "v0.1.1",
+  laneLabels: [
+    "Today Priority / Buyer Command Strip",
+    "Ready for Buyer Confirmation",
+    "Buyer Review",
+    "Diagnose First",
+    "Inactive Review",
+  ],
+  forbiddenButtonLanguage: requiredForbiddenButtonTerms,
+  safetyInvariants: {
+    commandCenter: "Do not create Command Center work items from v2 preview",
+    queueApply: "Disabled for all v2 preview rows",
+    v1DecisionOs: "Do not replace the current v1 creativeDecisionOs object",
+  },
+};
+
 const readablePreviewFiles = [
   "app/(dashboard)/creatives/page.tsx",
   "app/(dashboard)/creatives/page.test.tsx",
@@ -197,6 +214,83 @@ describe("Creative Decision OS v2 preview surface model", () => {
       deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")
         ?.rowIds,
     ).toEqual(["direct-test-more", "direct-protect"]);
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "diagnose_first")?.rowIds,
+    ).toEqual([]);
+  });
+
+  it("keeps direct rows in confirmation unless they separately qualify for urgency", () => {
+    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+      sourceRow({
+        rowId: "direct-protect-default",
+        v2PrimaryDecision: "Protect",
+        v2Actionability: "direct",
+        v2RiskLevel: "low",
+        changedFromCurrent: false,
+        spend: 250,
+        peerMedianSpend: 250,
+      }),
+      sourceRow({
+        rowId: "direct-test-more-default",
+        v2PrimaryDecision: "Test More",
+        v2Actionability: "direct",
+        v2RiskLevel: "low",
+        changedFromCurrent: false,
+        spend: 300,
+        peerMedianSpend: 250,
+      }),
+      sourceRow({
+        rowId: "direct-cut-urgent",
+        v2PrimaryDecision: "Cut",
+        v2Actionability: "direct",
+        v2RiskLevel: "high",
+        spend: 3_000,
+        peerMedianSpend: 400,
+      }),
+    ]);
+    const todayPriority =
+      deterministicSurface.buckets.find((item) => item.id === "today_priority")?.rowIds ?? [];
+    const ready =
+      deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")
+        ?.rowIds ?? [];
+
+    expect(ready).toEqual([
+      "direct-cut-urgent",
+      "direct-test-more-default",
+      "direct-protect-default",
+    ]);
+    expect(todayPriority).toEqual(["direct-cut-urgent"]);
+    expect(todayPriority).not.toContain("direct-protect-default");
+    expect(todayPriority).not.toContain("direct-test-more-default");
+  });
+
+  it("keeps Diagnose rows out of buyer confirmation and action-looking lanes", () => {
+    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+      sourceRow({
+        rowId: "diagnose-data-quality",
+        v2PrimaryDecision: "Diagnose",
+        v2Actionability: "diagnose",
+        v2RiskLevel: "medium",
+        v2ProblemClass: "data-quality",
+        v2BlockerReasons: ["missing_source_evidence"],
+      }),
+      sourceRow({
+        rowId: "direct-protect",
+        v2PrimaryDecision: "Protect",
+        v2Actionability: "direct",
+      }),
+    ]);
+
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "diagnose_first")?.rowIds,
+    ).toEqual(["diagnose-data-quality"]);
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "ready_for_buyer_confirmation")
+        ?.rowIds,
+    ).toEqual(["direct-protect"]);
+    expect(
+      deterministicSurface.buckets.find((item) => item.id === "today_priority")?.rowIds,
+    ).toEqual([]);
   });
 
   it("keeps v2 safety invariants visible in the preview model", () => {
@@ -225,6 +319,30 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
     );
 
     expect(missingTerms).toEqual([]);
+  });
+
+  it("keeps the rendered safety model aligned with the PR79 v0.1.1 contract", () => {
+    expect(contractV011Expectations.version).toBe("v0.1.1");
+    expect(CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION).toBe(
+      "creative-decision-os-v2-preview.v0.1.1",
+    );
+
+    const laneLabels = surface.buckets.map((item) => item.label);
+    for (const label of contractV011Expectations.laneLabels) {
+      expect(laneLabels).toContain(label);
+    }
+
+    const missingForbiddenTerms = contractV011Expectations.forbiddenButtonLanguage.filter(
+      (term) =>
+        !CREATIVE_DECISION_OS_V2_PREVIEW_FORBIDDEN_BUTTON_TEXT.some((pattern) =>
+          pattern.test(term),
+        ),
+    );
+    expect(missingForbiddenTerms).toEqual([]);
+    expect(surface.rows.some((row) => row.queueEligible || row.applyEligible)).toBe(false);
+    expect(contractV011Expectations.safetyInvariants.commandCenter).toContain("Do not create");
+    expect(contractV011Expectations.safetyInvariants.queueApply).toContain("Disabled");
+    expect(contractV011Expectations.safetyInvariants.v1DecisionOs).toContain("Do not replace");
   });
 
   it("renders safe read-only text without forbidden button or internal artifact terms", () => {
@@ -289,6 +407,7 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
 
     expect(html).toContain("Ready for Buyer Confirmation");
     expect(html).toContain("No direct confirmation candidates in this workspace.");
+    expect(html).not.toMatch(/Apply|Queue|Push|Auto|Scale now|Cut now|Approve|Product-ready/i);
     expect(html).toContain(
       "Needs investigation before buyer action. This is not buyer confirmation.",
     );
