@@ -1,0 +1,662 @@
+{
+  "contractVersion": "v0.1.1",
+  "generatedAt": "2026-04-26T14:40:33Z",
+  "branch": "review/creative-v2-operator-surface-contract-2026-04-26",
+  "baseCommit": "fa838df2be0a93c445680c42d23f4adadb52bd8f",
+  "sourceResolverPr": {
+    "branch": "origin/wip/creative-decision-os-v2-baseline-first-2026-04-26",
+    "reviewedHeadCommit": "3da2e05cb47f97de89ee42d9af6a64598af8b17a",
+    "substantiveResolverFixCommit": "10f5a94fa66f0501150376010d3ab4d0c7c16e3a",
+    "liveAuditArtifact": "docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json",
+    "liveSafetyArtifact": "docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-safety-summary.json"
+  },
+  "sanitized": true,
+  "productCodeChanged": false,
+  "behaviorChanged": false,
+  "uiIntegrated": false,
+  "apiIntegrated": false,
+  "queueApplyIntegrated": false,
+  "coreCorrection": {
+    "summary": "Direct is actionability confidence, not buyer urgency.",
+    "wrongV0Rule": "actionability == direct as top urgency",
+    "v01RuleSummary": "Urgency is computed separately from actionability.",
+    "v01RuleCriteria": [
+      "Scale rows",
+      "high-spend Cut rows",
+      "active Refresh or fatigue rows",
+      "high-risk decision changes",
+      "active severe loser or recent-collapse rows",
+      "high-spend or high-risk inactive exceptions"
+    ]
+  },
+  "currentCreativeInventory": {
+    "route": "app/(dashboard)/creatives/page.tsx",
+    "supportFile": "app/(dashboard)/creatives/page-support.tsx",
+    "apiPaths": [
+      {
+        "path": "/api/meta/creatives",
+        "implementation": "app/api/meta/creatives/route.ts",
+        "purpose": "Current creative metadata and metric rows"
+      },
+      {
+        "path": "/api/meta/creatives/history",
+        "implementation": "app/api/meta/creatives/history/route.ts",
+        "purpose": "Historical creative metrics and ad-level breakdowns"
+      },
+      {
+        "path": "/api/creatives/decision-os",
+        "implementation": "app/api/creatives/decision-os/route.ts",
+        "purpose": "Current Creative Decision OS v1 snapshot and analysis run path"
+      }
+    ],
+    "mainComponents": [
+      "components/creatives/CreativesTopSection.tsx",
+      "components/creatives/CreativesTableSection.tsx",
+      "components/creatives/CreativeDecisionSupportSurface.tsx",
+      "components/operator/OperatorSurfaceSummary.tsx",
+      "components/creatives/CreativeDecisionOsDrawer.tsx",
+      "components/creatives/CreativeDecisionOsContent.tsx",
+      "components/creatives/CreativeDecisionOsOverview.tsx",
+      "components/creatives/CreativeDetailExperience.tsx"
+    ],
+    "featureFlagPatterns": [
+      "CREATIVE_DECISION_OS_V1",
+      "CREATIVE_DECISION_OS_CANARY_BUSINESSES"
+    ],
+    "safeInjectionPoint": {
+      "recommended": "Fetch a separate v2 preview payload after current creative rows, history, benchmark scope, and current v1 snapshot are available.",
+      "mustNotReplace": [
+        "current creativeDecisionOs v1 object",
+        "current v1 quick filters unless labeled preview-only",
+        "Command Center work item generation",
+        "queue/apply eligibility",
+        "existing run-analysis mutation behavior"
+      ],
+      "candidateFutureEndpoint": "/api/creatives/decision-os-v2/preview",
+      "candidateFutureClientState": "creativeDecisionOsV2Preview",
+      "candidateFutureComponent": "CreativeDecisionOsV2PreviewSurface"
+    }
+  },
+  "liveAuditAnalysis": {
+    "rowsAudited": 303,
+    "businessesAudited": 8,
+    "accountsAudited": 9,
+    "decisionDistribution": {
+      "Scale": 1,
+      "Cut": 15,
+      "Refresh": 37,
+      "Protect": 17,
+      "Test More": 40,
+      "Diagnose": 193
+    },
+    "actionabilityDistribution": {
+      "direct": 2,
+      "review_only": 108,
+      "diagnose": 193
+    },
+    "decisionByActionability": {
+      "Scale": {
+        "review_only": 1
+      },
+      "Cut": {
+        "review_only": 15
+      },
+      "Refresh": {
+        "review_only": 37
+      },
+      "Protect": {
+        "direct": 1,
+        "review_only": 16
+      },
+      "Test More": {
+        "direct": 1,
+        "review_only": 39
+      },
+      "Diagnose": {
+        "diagnose": 193
+      }
+    },
+    "proposedTodayPriorityCount": 69,
+    "inactiveReviewCount": 70,
+    "safetyCounters": {
+      "directScale": 0,
+      "inactiveDirectScale": 0,
+      "queueEligibleTrue": 0,
+      "applyEligibleTrue": 0,
+      "watchPrimary": 0,
+      "scaleReviewPrimary": 0,
+      "directActionDespiteSourceCampaignBlockers": 0,
+      "testMoreDirectOnDegradedDataQualityRisk": 0,
+      "protectDespiteRecentSevereDecay": 0
+    }
+  },
+  "urgencyBuckets": [
+    {
+      "id": "today_priority_buyer_command_strip",
+      "label": "Today Priority / Buyer Command Strip",
+      "count": 69,
+      "criteria": [
+        "all primaryDecision == Scale rows",
+        "Cut rows with high spend or high risk",
+        "active Refresh rows with high spend, fatigue, recent decay, recent collapse, or below-benchmark conversion evidence",
+        "high-risk current -> v2 decision changes",
+        "active severe loser or recent-collapse rows",
+        "inactive rows only when spend or risk is high enough to override default collapsed inactive treatment"
+      ],
+      "purpose": "Rows a senior buyer should see within five seconds.",
+      "buttonPolicy": "Route to review or diagnosis; queue/apply disabled."
+    },
+    {
+      "id": "inactive_review",
+      "label": "Inactive Review",
+      "count": 70,
+      "criteria": [
+        "activeStatus != true",
+        "primaryDecision in Refresh, Diagnose, Cut, Protect, Test More"
+      ],
+      "purpose": "Collapsed inactive rows, with high-spend or high-risk exceptions promoted into Today Priority.",
+      "buttonPolicy": "Review or diagnose only; queue/apply disabled."
+    },
+    {
+      "id": "secondary_direct_confidence",
+      "label": "Ready for Buyer Confirmation",
+      "count": 2,
+      "criteria": [
+        "actionability == direct"
+      ],
+      "purpose": "Confidence and safety signal only; not the top urgency model.",
+      "buttonPolicy": "Show Ready for buyer confirmation; no Apply or Queue."
+    }
+  ],
+  "actionabilityBuckets": [
+    {
+      "id": "ready_for_buyer_confirmation",
+      "label": "Ready for Buyer Confirmation",
+      "count": 2,
+      "criteria": "actionability == direct",
+      "notes": "Direct is not urgency and does not unlock apply."
+    },
+    {
+      "id": "buyer_review",
+      "label": "Buyer Review",
+      "count": 108,
+      "criteria": "actionability == review_only",
+      "notes": "Split internally by decision."
+    },
+    {
+      "id": "diagnose_first",
+      "label": "Diagnose First",
+      "count": 193,
+      "criteria": "primaryDecision == Diagnose or actionability == diagnose",
+      "notes": "Collapsed by default and grouped by blocker or problem class."
+    },
+    {
+      "id": "blocked",
+      "label": "Blocked",
+      "count": 0,
+      "criteria": "actionability == blocked",
+      "notes": "Show blocker reason before any buyer action if present in future payloads."
+    }
+  ],
+  "decisionBuckets": [
+    {
+      "id": "scale_review_required",
+      "label": "Scale Review Required",
+      "count": 1,
+      "criteria": "primaryDecision == Scale",
+      "defaultPriority": 1
+    },
+    {
+      "id": "cut_review_required",
+      "label": "Cut Review Required",
+      "count": 15,
+      "criteria": "primaryDecision == Cut",
+      "defaultPriority": 2
+    },
+    {
+      "id": "refresh_review",
+      "label": "Refresh Review",
+      "count": 37,
+      "criteria": "primaryDecision == Refresh",
+      "defaultPriority": 3
+    },
+    {
+      "id": "protect_hold_review",
+      "label": "Protect Hold Review",
+      "count": 17,
+      "criteria": "primaryDecision == Protect",
+      "defaultPriority": 4
+    },
+    {
+      "id": "test_more_review",
+      "label": "Test More Review",
+      "count": 40,
+      "criteria": "primaryDecision == Test More",
+      "defaultPriority": 5
+    },
+    {
+      "id": "diagnose_first",
+      "label": "Diagnose First",
+      "count": 193,
+      "criteria": "primaryDecision == Diagnose",
+      "defaultPriority": 6
+    }
+  ],
+  "defaultAboveTheFoldModel": [
+    "Today Priority count and top rows",
+    "Scale candidate even when review_only",
+    "Critical/high Cut candidates by spend",
+    "Active Refresh/fatigue candidates by spend and risk",
+    "Highest-risk current -> v2 decision changes",
+    "Diagnose First count, grouped and collapsed",
+    "Ready for Buyer Confirmation count as a secondary safety rail",
+    "Preview safety state: queue disabled, apply disabled"
+  ],
+  "sortingRules": {
+    "todayPriority": [
+      "Scale rows",
+      "critical/high Cut rows by spend",
+      "high-spend active Refresh/fatigue rows",
+      "highest-risk current -> v2 changes",
+      "active recent-collapse rows",
+      "high-spend/high-risk inactive exceptions",
+      "direct-confidence Protect/Test More rows"
+    ],
+    "buyerReview": [
+      "decision urgency: Scale, Cut, Refresh, Protect, Test More",
+      "risk level: critical, high, medium, low",
+      "spend descending",
+      "changed from current before unchanged",
+      "confidence descending"
+    ],
+    "diagnoseFirst": [
+      "high spend or high risk exceptions",
+      "blocker or problem class",
+      "spend descending",
+      "recent conversion stop or source-trust ambiguity",
+      "confidence descending"
+    ],
+    "inactiveReview": [
+      "high spend or high risk exceptions",
+      "decision: Cut, Refresh, Diagnose, Protect, Test More",
+      "spend descending",
+      "confidence descending"
+    ]
+  },
+  "filterRules": [
+    "urgency bucket",
+    "decision",
+    "actionability",
+    "risk",
+    "changed from current decision",
+    "active state",
+    "inactive-only",
+    "spend band",
+    "benchmark relationship",
+    "recent trend",
+    "blocker present",
+    "source/campaign trust",
+    "preview queue/apply state"
+  ],
+  "buttonPolicy": {
+    "direct": "Show Ready for buyer confirmation; no Apply or Queue.",
+    "review_only": "Show Review required or Open review; no Apply.",
+    "diagnose": "Show View diagnosis only; no action buttons.",
+    "blocked": "Show blocker reason before any buyer action.",
+    "scale": "Review only in v2 preview.",
+    "cut": "Review only in v2 preview; never auto-cut.",
+    "queueApply": "Disabled for all v2 preview rows."
+  },
+  "forbiddenButtonLanguage": [
+    "Apply",
+    "Apply now",
+    "Auto apply",
+    "Auto-*",
+    "Queue",
+    "Queue now",
+    "Push live",
+    "Push to review queue",
+    "Scale now",
+    "Cut now",
+    "Launch",
+    "Budget increase",
+    "Approve",
+    "Accepted",
+    "Direct scale",
+    "Product-ready"
+  ],
+  "safetyInvariants": {
+    "queueApplyButtons": "Disabled for v2 preview",
+    "directScale": "Never apply in preview",
+    "cutDirect": "Must not be auto-applied in preview",
+    "diagnose": "No action buttons",
+    "reviewOnly": "Show Review required, not Apply",
+    "blocked": "Show blocker reason before any buyer action",
+    "commandCenter": "Do not create Command Center work items from v2 preview",
+    "v1DecisionOs": "Do not replace the current v1 creativeDecisionOs object"
+  },
+  "top20HighestSpendPlacement": [
+    {
+      "rank": 1,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-46",
+      "spend": 124046.89,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 2,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
+      "spend": 61027.88,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 3,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
+      "spend": 57588.45,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 4,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49",
+      "spend": 33858.47,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 5,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-50",
+      "spend": 33045.48,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Diagnose",
+      "placement": "Today Priority + Inactive Review + Diagnose First"
+    },
+    {
+      "rank": 6,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51",
+      "spend": 29265.56,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 7,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
+      "spend": 28450.98,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "placement": "Today Priority + Inactive Review + Diagnose First"
+    },
+    {
+      "rank": 8,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-53",
+      "spend": 26077.54,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 9,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54",
+      "spend": 25506.3,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 10,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55",
+      "spend": 23522.86,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 11,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56",
+      "spend": 16255.87,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 12,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "spend": 13373.07,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Protect",
+      "placement": "Protect Hold Review"
+    },
+    {
+      "rank": 13,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-57",
+      "spend": 12644.77,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 14,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "spend": 10118.73,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Scale",
+      "placement": "Today Priority + Scale Review Required"
+    },
+    {
+      "rank": 15,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-03",
+      "spend": 10022.46,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Cut Review Required"
+    },
+    {
+      "rank": 16,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-04",
+      "spend": 8765.22,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Protect",
+      "placement": "Protect Hold Review"
+    },
+    {
+      "rank": 17,
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "spend": 8295.35,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 18,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "spend": 6991.75,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Test More",
+      "placement": "Test More Review"
+    },
+    {
+      "rank": 19,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-02|company-05-creative-06",
+      "spend": 6686.77,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Cut Review Required"
+    },
+    {
+      "rank": 20,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-07",
+      "spend": 6314.72,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Cut Review Required"
+    }
+  ],
+  "top20HighestRiskPlacement": [
+    {
+      "rank": 1,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-48",
+      "spend": 57588.45,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 2,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-54",
+      "spend": 25506.3,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 3,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-01|company-05-creative-02",
+      "spend": 10118.73,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Scale",
+      "placement": "Today Priority + Scale Review Required"
+    },
+    {
+      "rank": 4,
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "spend": 8295.35,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 5,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-07|company-05-creative-58",
+      "spend": 5025.29,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 6,
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "spend": 4365.02,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 7,
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "spend": 1701.51,
+      "currentDecision": "Cut",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 8,
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "spend": 833.63,
+      "currentDecision": "Test More",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 9,
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "spend": 286.87,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Cut",
+      "placement": "Today Priority + Inactive Review + Cut Review Required"
+    },
+    {
+      "rank": 10,
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "spend": 151.25,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 11,
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "spend": 132.06,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Refresh Review"
+    },
+    {
+      "rank": 12,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-52",
+      "spend": 28450.98,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "placement": "Today Priority + Inactive Review + Diagnose First"
+    },
+    {
+      "rank": 13,
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "spend": 983.91,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "placement": "Today Priority + Inactive Review + Diagnose First"
+    },
+    {
+      "rank": 14,
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "spend": 277.11,
+      "currentDecision": "Refresh",
+      "v2PrimaryDecision": "Diagnose",
+      "placement": "Today Priority + Diagnose First"
+    },
+    {
+      "rank": 15,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-47",
+      "spend": 61027.88,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 16,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-49",
+      "spend": 33858.47,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 17,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-51",
+      "spend": 29265.56,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 18,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-06|company-05-creative-55",
+      "spend": 23522.86,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 19,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-06|company-05-adset-05|company-05-creative-56",
+      "spend": 16255.87,
+      "currentDecision": "Protect",
+      "v2PrimaryDecision": "Refresh",
+      "placement": "Today Priority + Inactive Review + Refresh Review"
+    },
+    {
+      "rank": 20,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-03|company-05-creative-05",
+      "spend": 6991.75,
+      "currentDecision": "Diagnose",
+      "v2PrimaryDecision": "Test More",
+      "placement": "Test More Review"
+    }
+  ]
+}

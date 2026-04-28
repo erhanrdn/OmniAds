@@ -65,6 +65,9 @@ No resolver threshold changed in this pass.
 
 # Product-Ready Blocker Status
 
-Open. Diagnose volume/product framing still needs a later product-ready review
-with fresh workspace evidence. The current WIP preview can continue with
-collapsed/grouped Diagnose framing.
+Accepted for the 2026-04-28 read-only default-visible promotion. Diagnose
+volume remains large, but the surface keeps Diagnose collapsed, visually
+separate from Ready for Buyer Confirmation, grouped by problem class, and
+read-only. Future product work can add class/spend filters or resolver tuning,
+but Diagnose volume is no longer a blocker for showing the current buyer surface
+on the normal Creative page.

@@ -7,7 +7,9 @@ SANITIZED: YES
 
 The authenticated workspace has not rendered a direct-actionability row during
 the prior supervised sessions. This pass strengthens deterministic substitute
-evidence but does not close the product-ready live-evidence blocker.
+evidence. On 2026-04-28, the substitute evidence was accepted for read-only
+default-visible buyer surface promotion because the surface does not create any
+queue/apply, DB write, or Meta/platform write path.
 
 # Tests Added Or Strengthened
 
@@ -36,5 +38,7 @@ This is deterministic test evidence over constructed rows. It proves the model
 and rendered copy behave correctly for the missing shape, but it is not a
 workspace-rendered live observation from the authenticated self-hosted data.
 
-Product-ready blocker remains open unless ChatGPT later accepts this substitute
-or a self-hosted workspace renders direct rows.
+Accepted for the 2026-04-28 read-only default-visible promotion. A future
+self-hosted workspace observation with direct rows is still useful evidence, but
+it is no longer a blocker for showing the current read-only buyer surface on the
+normal Creative page.

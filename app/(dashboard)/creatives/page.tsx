@@ -437,11 +437,12 @@ export default function CreativesPage() {
         benchmarkScope: activeBenchmarkScope,
       }),
   });
-  const creativeDecisionOsV2PreviewEnabled =
-    searchParams.get("creativeDecisionOsV2Preview") === "1" ||
-    searchParams.get("creativeDecisionOsV2Preview")?.toLowerCase() === "true" ||
-    searchParams.get("v2Preview") === "1" ||
-    searchParams.get("v2Preview")?.toLowerCase() === "true";
+  const creativeDecisionOsV2PreviewDisabled =
+    searchParams.get("creativeDecisionOsV2Preview") === "0" ||
+    searchParams.get("creativeDecisionOsV2Preview")?.toLowerCase() === "false" ||
+    searchParams.get("v2Preview") === "0" ||
+    searchParams.get("v2Preview")?.toLowerCase() === "false";
+  const creativeDecisionOsV2PreviewEnabled = !creativeDecisionOsV2PreviewDisabled;
   const creativeDecisionOsV2PreviewQuery = useQuery({
     queryKey: [
       "creative-decision-os-v2-preview",

@@ -1,6 +1,6 @@
 # Creative Segmentation Recovery State
 
-Last updated: 2026-04-26 by Codex
+Last updated: 2026-04-28 by Codex
 
 ## Current Goal
 
@@ -8,11 +8,11 @@ Integrate deterministic Creative media-buyer scoring as the routing layer for
 Creative segmentation while preserving the live targeted fatigued-winner Cut
 recalibration and all queue/push/apply safety.
 
-Current result: PR #74 is live for the targeted `fatigued_winner` /
-`refresh_replace` Cut admission gate. PR #65 is being readied on the current
-integration branch, with `assessCreativeOperatorPolicy()` routing the operator
-segment through `mediaBuyerScorecard.operatorSegment` and the PR #74 Cut gate
-carried forward into the scorecard path.
+Current result: PR #74 and PR #65 are merged into main/live. The Creative v2
+buyer surface from PR #78 is promoted from limited query-gated preview to the
+normal Creative page as a read-only surface. V1 remains rendered, queue/apply
+and Command Center remain disconnected, and no DB or Meta/platform write path
+is added by the v2 buyer surface.
 
 ## Program Status
 
@@ -37,12 +37,12 @@ carried forward into the scorecard path.
 - Creative primary-decision UI swap: merged through PR #71
 - Creative review-only Scale surface hardening: implemented in prior pass
 - fatigued-winner Cut recalibration: merged and live through PR #74
-- Creative v2 buyer preview: merged through PR #78; default visibility restored in current integration pass
-- Claude fix-plan implementation, Watch floor-policy fix, and Round 5 closure: PR #65 open on `feature/adsecute-creative-claude-fix-plan-implementation`
-- Protect/no-touch boundary investigation: implemented on PR #65 branch
-- Round 6 Watch-as-Refresh edge verification: implemented on PR #65 branch; no additional policy change required
+- Creative v2 buyer preview: merged through PR #78; promoted to normal Creative page visibility with explicit query opt-out
+- Claude fix-plan implementation, Watch floor-policy fix, Round 5 closure, and PR #65 media-buyer scoring: merged
+- Protect/no-touch boundary investigation: merged through PR #65
+- Round 6 Watch-as-Refresh edge verification: merged through PR #65; no additional policy change required
 - PR #65 score reconciliation: complete; no policy change made
-- Creative media-buyer scoring engine: implemented on PR #65 branch
+- Creative media-buyer scoring engine: merged through PR #65
 - PR #65 fresh scoring unblock: source-read/audit helper hardened; fresh current-output artifact exists but is blocked and invalid for acceptance
 - PR #65 scoring runtime recovery: server-side Docker audit completed; fresh current-output artifact is valid for Claude review
 
@@ -752,6 +752,7 @@ Answers:
 - Protect boundary investigation: `docs/operator-policy/creative-segmentation-recovery/reports/protect-boundary-investigation/final.md`
 - Round 6 Watch edge verification: `docs/operator-policy/creative-segmentation-recovery/reports/round-6-watch-refresh-edge-fix/final.md`
 - PR #65 score reconciliation: `docs/operator-policy/creative-segmentation-recovery/reports/pr65-score-reconciliation/final.md`
+- Creative v2 buyer surface promotion: `docs/operator-policy/creative-segmentation-recovery/reports/v2-buyer-surface-promotion-2026-04-28/final.md`
 - equal-segment scoring final: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/final.md`
 - per-segment scores: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/per-segment-scores.md`
 - confusion matrix: `docs/operator-policy/creative-segmentation-recovery/reports/equal-segment-scoring/confusion-matrix.md`
@@ -760,7 +761,8 @@ Answers:
 
 ## Next Recommended Action
 
-Finish the current PR #65 integration validation, including preservation of PR
-#74 Cut behavior and the Creative v2 buyer preview surface on the default
-Creative page. If static tests, build, and Creative smoke gates pass, update the
-PR #65 branch and proceed through the normal main/deploy verification flow.
+Complete the Creative v2 buyer surface promotion validation and deploy the exact
+main SHA. Required checks for this pass: static tests, TypeScript, production
+build, Creative v2 safety gate, no-write enforcement, request side-effect scan,
+and authenticated Creative v2 smoke confirming default-visible, explicit opt-out
+hidden, no forbidden wording, and no mutation requests.
