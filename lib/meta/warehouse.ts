@@ -9438,6 +9438,7 @@ export async function getMetaCampaignDailyRange(input: {
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  campaignIds?: string[] | null;
   includeProvisional?: boolean;
 }): Promise<MetaCampaignDailyRow[]> {
   await assertMetaRequestReadTablesReady(
@@ -9502,6 +9503,10 @@ export async function getMetaCampaignDailyRange(input: {
         OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
       )
       AND (
+        ${input.campaignIds ?? null}::text[] IS NULL
+        OR campaign_id = ANY(${input.campaignIds ?? null}::text[])
+      )
+      AND (
         ${input.includeProvisional ?? false}::boolean = TRUE
         OR truth_state IS NULL
         OR truth_state = 'finalized'
@@ -9556,9 +9561,16 @@ export async function getMetaCampaignDailyRange(input: {
       AND date >= $2
       AND date <= $3
       AND ($4::text[] IS NULL OR provider_account_id = ANY($4::text[]))
+      AND ($5::text[] IS NULL OR campaign_id = ANY($5::text[]))
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
   `,
-      [input.businessId, normalizeDate(input.startDate), normalizeDate(input.endDate), input.providerAccountIds ?? null]
+      [
+        input.businessId,
+        normalizeDate(input.startDate),
+        normalizeDate(input.endDate),
+        input.providerAccountIds ?? null,
+        input.campaignIds ?? null,
+      ]
     )
       : await sql`
     SELECT
@@ -9608,6 +9620,10 @@ export async function getMetaCampaignDailyRange(input: {
       AND (
         ${input.providerAccountIds ?? null}::text[] IS NULL
         OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.campaignIds ?? null}::text[] IS NULL
+        OR campaign_id = ANY(${input.campaignIds ?? null}::text[])
       )
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
   `;

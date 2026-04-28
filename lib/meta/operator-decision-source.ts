@@ -1,5 +1,8 @@
 import { getMetaOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
-import { getMetaAdSetsForRange, type MetaAdSetsSourceResult } from "@/lib/meta/adsets-source";
+import {
+  getMetaAdSetsForRange,
+  type MetaAdSetsSourceResult,
+} from "@/lib/meta/adsets-source";
 import {
   getMetaBreakdownsForRange,
   getMetaCountryBreakdownsForRange,
@@ -27,7 +30,10 @@ export async function getMetaDecisionWindowContext(input: {
 
 export async function getMetaDecisionSourceSnapshot(input: {
   businessId: string;
-  decisionWindows: Awaited<ReturnType<typeof getMetaDecisionWindowContext>>["decisionWindows"];
+  decisionWindows: Awaited<
+    ReturnType<typeof getMetaDecisionWindowContext>
+  >["decisionWindows"];
+  campaignIds?: string[] | null;
 }) {
   const primaryWindow = input.decisionWindows.primary30d;
   const [campaigns, breakdowns, geoBreakdown, adSets] = await Promise.all([
@@ -35,6 +41,7 @@ export async function getMetaDecisionSourceSnapshot(input: {
       businessId: input.businessId,
       startDate: primaryWindow.startDate,
       endDate: primaryWindow.endDate,
+      campaignIds: input.campaignIds,
     }),
     getMetaBreakdownsForRange({
       businessId: input.businessId,
@@ -49,6 +56,7 @@ export async function getMetaDecisionSourceSnapshot(input: {
     getMetaAdSetsForRange({
       businessId: input.businessId,
       campaignId: null,
+      campaignIds: input.campaignIds,
       startDate: primaryWindow.startDate,
       endDate: primaryWindow.endDate,
     }),

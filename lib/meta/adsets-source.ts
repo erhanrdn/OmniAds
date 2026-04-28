@@ -2,7 +2,10 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
-import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
+import {
+  getMetaPartialReason,
+  getMetaRangePreparationContext,
+} from "@/lib/meta/readiness";
 import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
 import { getMetaLiveAdSets } from "@/lib/meta/live";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
@@ -21,28 +24,50 @@ export interface MetaAdSetsSourceResult {
 export async function getMetaAdSetsForRange(input: {
   businessId: string;
   campaignId?: string | null;
+  campaignIds?: string[] | null;
   startDate?: string | null;
   endDate?: string | null;
   includePrev?: boolean;
 }): Promise<MetaAdSetsSourceResult> {
   const resolvedStart =
-    input.startDate ?? new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
-  const resolvedEnd =
-    input.endDate ?? new Date().toISOString().slice(0, 10);
+    input.startDate ??
+    new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+  const resolvedEnd = input.endDate ?? new Date().toISOString().slice(0, 10);
+  const requestedCampaignIds = Array.from(
+    new Set(
+      [input.campaignId, ...(input.campaignIds ?? [])].filter(
+        Boolean,
+      ) as string[],
+    ),
+  );
+  const filterAdSetRows = (rows: MetaAdSetData[]) => {
+    if (requestedCampaignIds.length === 0) return rows;
+    const requested = new Set(requestedCampaignIds);
+    return rows.filter((row) => requested.has(row.campaignId));
+  };
 
   if (await isDemoBusiness(input.businessId)) {
     return {
       status: "ok",
-      rows: getDemoMetaAdSets(input.campaignId ?? null),
+      rows: filterAdSetRows(
+        requestedCampaignIds.length === 1
+          ? getDemoMetaAdSets(requestedCampaignIds[0])
+          : getDemoMetaAdSets(null),
+      ),
       isPartial: false,
       notReadyReason: null,
       evidenceSource: "demo",
     };
   }
 
-  const integration = await getIntegration(input.businessId, "meta").catch(() => null);
+  const integration = await getIntegration(input.businessId, "meta").catch(
+    () => null,
+  );
   const connected = integration?.status === "connected";
-  const assignment = await getProviderAccountAssignments(input.businessId, "meta").catch(() => null);
+  const assignment = await getProviderAccountAssignments(
+    input.businessId,
+    "meta",
+  ).catch(() => null);
   const providerAccountIds = assignment?.account_ids ?? [];
   const rangeContext = await getMetaRangePreparationContext({
     businessId: input.businessId,
@@ -74,17 +99,19 @@ export async function getMetaAdSetsForRange(input: {
       }
       const liveRows = await getMetaLiveAdSets({
         businessId: input.businessId,
-        campaignId: input.campaignId ?? null,
+        campaignId:
+          requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
         startDate: resolvedStart,
         endDate: resolvedEnd,
         includePrev: input.includePrev,
       });
+      const filteredLiveRows = filterAdSetRows(liveRows);
       return {
         status: "ok",
-        rows: liveRows,
+        rows: filteredLiveRows,
         isPartial: false,
         notReadyReason: null,
-        evidenceSource: "live",
+        evidenceSource: filteredLiveRows.length > 0 ? "live" : "unknown",
       };
     }
 
@@ -101,24 +128,26 @@ export async function getMetaAdSetsForRange(input: {
       }
       const liveRows = await getMetaLiveAdSets({
         businessId: input.businessId,
-        campaignId: input.campaignId ?? null,
+        campaignId:
+          requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
         startDate: resolvedStart,
         endDate: resolvedEnd,
         includePrev: input.includePrev,
       });
+      const filteredLiveRows = filterAdSetRows(liveRows);
       return {
         status: "ok",
-        rows: liveRows,
-        isPartial: liveRows.length === 0,
+        rows: filteredLiveRows,
+        isPartial: filteredLiveRows.length === 0,
         notReadyReason:
-          liveRows.length === 0
+          filteredLiveRows.length === 0
             ? getMetaPartialReason({
                 isSelectedCurrentDay: true,
                 currentDateInTimezone: rangeContext.currentDateInTimezone,
                 primaryAccountTimezone: rangeContext.primaryAccountTimezone,
                 defaultReason:
                   "Current-day live Meta ad set data is still being prepared.",
-            })
+              })
             : null,
         evidenceSource: liveRows.length > 0 ? "live" : "unknown",
       };
@@ -128,20 +157,28 @@ export async function getMetaAdSetsForRange(input: {
       businessId: input.businessId,
       startDate: resolvedStart,
       endDate: resolvedEnd,
-      campaignId: input.campaignId,
+      campaignId:
+        requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
+      campaignIds:
+        requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
       providerAccountIds,
       includePrev: input.includePrev,
     });
-    if (warehouseRows.length > 0) {
+    const filteredWarehouseRows = filterAdSetRows(warehouseRows);
+    if (filteredWarehouseRows.length > 0) {
       return {
         status: "ok",
-        rows: warehouseRows,
+        rows: filteredWarehouseRows,
         isPartial: historicalTruth ? !historicalTruth.truthReady : false,
         notReadyReason:
           historicalTruth && !historicalTruth.truthReady
             ? getMetaHistoricalVerificationReason({
-                verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
-                fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
+                verificationState:
+                  historicalTruth.verificationState ??
+                  historicalTruth.state ??
+                  null,
+                fallbackReason:
+                  "Ad set warehouse data is still being prepared for the requested range.",
               })
             : null,
         evidenceSource:
@@ -188,20 +225,28 @@ export async function getMetaAdSetsForRange(input: {
         businessId: input.businessId,
         startDate: resolvedStart,
         endDate: resolvedEnd,
-        campaignId: input.campaignId,
+        campaignId:
+          requestedCampaignIds.length === 1 ? requestedCampaignIds[0] : null,
+        campaignIds:
+          requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
         providerAccountIds,
         includePrev: input.includePrev,
       });
-      if (warehouseRows.length > 0) {
+      const filteredWarehouseRows = filterAdSetRows(warehouseRows);
+      if (filteredWarehouseRows.length > 0) {
         return {
           status: "ok",
-          rows: warehouseRows,
+          rows: filteredWarehouseRows,
           isPartial: historicalTruth ? !historicalTruth.truthReady : false,
           notReadyReason:
             historicalTruth && !historicalTruth.truthReady
               ? getMetaHistoricalVerificationReason({
-                  verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
-                  fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
+                  verificationState:
+                    historicalTruth.verificationState ??
+                    historicalTruth.state ??
+                    null,
+                  fallbackReason:
+                    "Ad set warehouse data is still being prepared for the requested range.",
                 })
               : null,
           evidenceSource:
@@ -213,34 +258,42 @@ export async function getMetaAdSetsForRange(input: {
     }
   }
 
-  const warehouseUnavailableWithReadyTruth = historicalTruth?.truthReady === true;
+  const warehouseUnavailableWithReadyTruth =
+    historicalTruth?.truthReady === true;
 
   return {
     status: "ok",
     rows: [],
-    isPartial: historicalTruth ? !historicalTruth.truthReady || warehouseUnavailableWithReadyTruth : true,
+    isPartial: historicalTruth
+      ? !historicalTruth.truthReady || warehouseUnavailableWithReadyTruth
+      : true,
     notReadyReason: warehouseUnavailableWithReadyTruth
       ? "Ad set data is temporarily unavailable for the requested range."
       : historicalTruth
-      ? historicalTruth.truthReady
-        ? null
-        : getMetaHistoricalVerificationReason({
-            verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
-            fallbackReason: getMetaPartialReason({
+        ? historicalTruth.truthReady
+          ? null
+          : getMetaHistoricalVerificationReason({
+              verificationState:
+                historicalTruth.verificationState ??
+                historicalTruth.state ??
+                null,
+              fallbackReason: getMetaPartialReason({
+                isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Ad set warehouse data is still being prepared for the requested range.",
+              }),
+            })
+        : connected
+          ? getMetaPartialReason({
               isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
               currentDateInTimezone: rangeContext.currentDateInTimezone,
               primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-              defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
-            }),
-          })
-      : connected
-        ? getMetaPartialReason({
-            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
-          })
-        : "Meta integration is not connected. Historical warehouse data will appear here once available.",
+              defaultReason:
+                "Ad set warehouse data is still being prepared for the requested range.",
+            })
+          : "Meta integration is not connected. Historical warehouse data will appear here once available.",
     evidenceSource: "unknown",
   };
 }

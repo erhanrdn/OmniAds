@@ -978,6 +978,7 @@ export async function getMetaWarehouseCampaigns(input: {
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  campaignIds?: string[] | null;
 }): Promise<MetaWarehouseCampaignResponse> {
   const providerAccountIds = input.providerAccountIds ?? [];
   const v2Enabled =
@@ -1683,6 +1684,7 @@ export async function getMetaWarehouseCampaignTable(input: {
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  campaignIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaWarehouseCampaignTableRow[]> {
   const payload = await getMetaWarehouseCampaigns(input);
@@ -1764,6 +1766,7 @@ export async function getMetaWarehouseAdSets(input: {
   startDate: string;
   endDate: string;
   campaignId?: string | null;
+  campaignIds?: string[] | null;
   providerAccountIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaWarehouseAdSetTableRow[]> {
@@ -1787,7 +1790,7 @@ export async function getMetaWarehouseAdSets(input: {
           startDate: input.startDate,
           endDate: input.endDate,
           providerAccountIds: input.providerAccountIds,
-          campaignIds: input.campaignId ? [input.campaignId] : null,
+          campaignIds: input.campaignIds ?? (input.campaignId ? [input.campaignId] : null),
         }),
         verification,
         "adset_daily",
@@ -1797,7 +1800,7 @@ export async function getMetaWarehouseAdSets(input: {
         startDate: input.startDate,
         endDate: input.endDate,
         providerAccountIds: input.providerAccountIds,
-        campaignIds: input.campaignId ? [input.campaignId] : null,
+        campaignIds: input.campaignIds ?? (input.campaignId ? [input.campaignId] : null),
       });
 
   const byAdSet = new Map<string, MetaAdSetDailyRow[]>();

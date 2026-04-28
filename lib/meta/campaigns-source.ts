@@ -8,14 +8,21 @@ import {
 } from "@/lib/provider-account-assignments";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
 import { getMetaLiveCampaignRows } from "@/lib/meta/live";
-import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
+import {
+  getMetaPartialReason,
+  getMetaRangePreparationContext,
+} from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
 
 export interface MetaCampaignsSourceResult {
-  status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
+  status?:
+    | "ok"
+    | "no_accounts_assigned"
+    | "account_not_assigned"
+    | "not_connected";
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
@@ -51,6 +58,7 @@ export async function getMetaCampaignsForRange(input: {
   endDate?: string | null;
   accountId?: string | null;
   campaignId?: string | null;
+  campaignIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaCampaignsSourceResult> {
   if (await isDemoBusiness(input.businessId)) {
@@ -80,6 +88,18 @@ export async function getMetaCampaignsForRange(input: {
     input.accountId && input.accountId !== "all"
       ? assignedAccountIds.filter((accountId) => accountId === input.accountId)
       : assignedAccountIds;
+  const requestedCampaignIds = Array.from(
+    new Set(
+      [input.campaignId, ...(input.campaignIds ?? [])].filter(
+        Boolean,
+      ) as string[],
+    ),
+  );
+  const filterCampaignRows = (rows: MetaCampaignRow[]) => {
+    if (requestedCampaignIds.length === 0) return rows;
+    const requested = new Set(requestedCampaignIds);
+    return rows.filter((row) => requested.has(row.id));
+  };
   if (targetAccountIds.length === 0) {
     return {
       status: "account_not_assigned",
@@ -91,7 +111,9 @@ export async function getMetaCampaignsForRange(input: {
     };
   }
 
-  const integration = await getIntegration(input.businessId, "meta").catch(() => null);
+  const integration = await getIntegration(input.businessId, "meta").catch(
+    () => null,
+  );
   const connected = integration?.status === "connected";
   const rangeContext = await getMetaRangePreparationContext({
     businessId: input.businessId,
@@ -135,9 +157,7 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
-      if (input.campaignId) {
-        rows = rows.filter((row) => row.id === input.campaignId);
-      }
+      rows = filterCampaignRows(rows);
       return {
         status: "ok",
         rows,
@@ -165,9 +185,7 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
-      if (input.campaignId) {
-        rows = rows.filter((row) => row.id === input.campaignId);
-      }
+      rows = filterCampaignRows(rows);
       return {
         status: "ok",
         rows,
@@ -191,11 +209,11 @@ export async function getMetaCampaignsForRange(input: {
       startDate: resolvedStart,
       endDate: effectiveEndDate,
       providerAccountIds: targetAccountIds,
+      campaignIds:
+        requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
       includePrev: input.includePrev,
     })) as MetaCampaignRow[];
-    if (input.campaignId) {
-      rows = rows.filter((row) => row.id === input.campaignId);
-    }
+    rows = filterCampaignRows(rows);
   } catch (error) {
     console.warn("[meta-campaigns] data_fetch_failed", {
       businessId: input.businessId,
@@ -236,31 +254,35 @@ export async function getMetaCampaignsForRange(input: {
         startDate: resolvedStart,
         endDate: effectiveEndDate,
         providerAccountIds: targetAccountIds,
+        campaignIds:
+          requestedCampaignIds.length > 0 ? requestedCampaignIds : null,
         includePrev: input.includePrev,
       })) as MetaCampaignRow[];
-      if (input.campaignId) {
-        rows = rows.filter((row) => row.id === input.campaignId);
-      }
+      rows = filterCampaignRows(rows);
     } catch {
       rows = [];
     }
   }
 
-  const warehouseUnavailableWithReadyTruth = rows.length === 0 && Boolean(historicalTruth?.truthReady);
+  const warehouseUnavailableWithReadyTruth =
+    rows.length === 0 && Boolean(historicalTruth?.truthReady);
 
   return {
     status: "ok",
     rows,
-    isPartial: historicalTruth ? !historicalTruth.truthReady || rows.length === 0 : rows.length === 0,
-    notReadyReason:
-      warehouseUnavailableWithReadyTruth
-        ? "Campaign data is temporarily unavailable for the requested range."
-        : historicalTruth
+    isPartial: historicalTruth
+      ? !historicalTruth.truthReady || rows.length === 0
+      : rows.length === 0,
+    notReadyReason: warehouseUnavailableWithReadyTruth
+      ? "Campaign data is temporarily unavailable for the requested range."
+      : historicalTruth
         ? historicalTruth.truthReady
           ? null
           : getMetaHistoricalVerificationReason({
               verificationState:
-                historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                historicalTruth.verificationState ??
+                historicalTruth.state ??
+                null,
               fallbackReason: getMetaPartialReason({
                 isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
                 currentDateInTimezone: rangeContext.currentDateInTimezone,

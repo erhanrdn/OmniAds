@@ -17,7 +17,10 @@ import {
   type CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
 import { buildCreativeHistoricalAnalysis } from "@/lib/creative-historical-intelligence";
-import { addDaysToIsoDate, META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
+import {
+  addDaysToIsoDate,
+  META_WAREHOUSE_HISTORY_DAYS,
+} from "@/lib/meta/history";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import {
   getMetaDecisionSourceSnapshot,
@@ -137,7 +140,9 @@ function toHistoricalWindow(row: MetaCreativeRow) {
 }
 
 function buildHistoryById(
-  input: Partial<Record<keyof CreativeDecisionOsHistoricalWindows, MetaCreativeRow[]>>,
+  input: Partial<
+    Record<keyof CreativeDecisionOsHistoricalWindows, MetaCreativeRow[]>
+  >,
 ) {
   const map = new Map<string, CreativeDecisionOsHistoricalWindows>();
   for (const [windowKey, rows] of Object.entries(input) as Array<
@@ -163,7 +168,9 @@ function toDecisionInputRow(
   row: MetaCreativeRow,
   history: CreativeDecisionOsHistoricalWindows | null,
 ): CreativeDecisionOsInputRow {
-  const frequency = Number((row as MetaCreativeRow & { frequency?: number }).frequency ?? 0);
+  const frequency = Number(
+    (row as MetaCreativeRow & { frequency?: number }).frequency ?? 0,
+  );
   const creativeAgeDays = calculateCreativeAgeDays(row.launchDate);
 
   return {
@@ -335,9 +342,15 @@ export async function getCreativeDecisionOsForRange(input: {
   let selectedPeriodRows: MetaCreativeRow[] | null = null;
   let evidenceSource: CreativeEvidenceSource = "unknown";
   let historyById = new Map<string, CreativeDecisionOsHistoricalWindows>();
-  let campaigns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["campaigns"]["rows"] = [];
-  let adSets: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["adSets"]["rows"] = [];
-  let breakdowns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["breakdowns"] = {
+  let campaigns: Awaited<
+    ReturnType<typeof getMetaDecisionSourceSnapshot>
+  >["campaigns"]["rows"] = [];
+  let adSets: Awaited<
+    ReturnType<typeof getMetaDecisionSourceSnapshot>
+  >["adSets"]["rows"] = [];
+  let breakdowns: Awaited<
+    ReturnType<typeof getMetaDecisionSourceSnapshot>
+  >["breakdowns"] = {
     age: [],
     location: [],
     placement: [],
@@ -347,9 +360,9 @@ export async function getCreativeDecisionOsForRange(input: {
   };
 
   if (isDemoBusinessId(input.businessId)) {
-    decisionRows = (getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[]).map(
-      mapApiRowToUiRow,
-    );
+    decisionRows = (
+      getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[]
+    ).map(mapApiRowToUiRow);
     selectedPeriodRows = decisionRows;
     evidenceSource = "demo";
     historyById = buildDemoHistoryById(decisionRows);
@@ -363,13 +376,31 @@ export async function getCreativeDecisionOsForRange(input: {
   } else {
     const primaryWindow = decisionContext.decisionWindows.primary30d;
     const windowDefs = {
-      last3: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -2), endDate: decisionContext.decisionAsOf },
-      last7: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -6), endDate: decisionContext.decisionAsOf },
-      last14: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -13), endDate: decisionContext.decisionAsOf },
-      last30: { startDate: primaryWindow.startDate, endDate: primaryWindow.endDate },
-      last90: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -89), endDate: decisionContext.decisionAsOf },
+      last3: {
+        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -2),
+        endDate: decisionContext.decisionAsOf,
+      },
+      last7: {
+        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -6),
+        endDate: decisionContext.decisionAsOf,
+      },
+      last14: {
+        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -13),
+        endDate: decisionContext.decisionAsOf,
+      },
+      last30: {
+        startDate: primaryWindow.startDate,
+        endDate: primaryWindow.endDate,
+      },
+      last90: {
+        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -89),
+        endDate: decisionContext.decisionAsOf,
+      },
       allHistory: {
-        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -(META_WAREHOUSE_HISTORY_DAYS - 1)),
+        startDate: addDaysToIsoDate(
+          decisionContext.decisionAsOf,
+          -(META_WAREHOUSE_HISTORY_DAYS - 1),
+        ),
         endDate: decisionContext.decisionAsOf,
       },
     } satisfies Record<
@@ -377,38 +408,55 @@ export async function getCreativeDecisionOsForRange(input: {
       { startDate: string; endDate: string }
     >;
 
-    const [
-      primary,
-      last3,
-      last7,
-      last14,
-      last90,
-      allHistory,
-      decisionSnapshot,
-      selectedPeriod,
-    ] = await Promise.all([
-      fetchCreativeRowsForWindow({
-        request: input.request,
-        businessId: input.businessId,
-        startDate: primaryWindow.startDate,
-        endDate: primaryWindow.endDate,
-      }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last3 }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last7 }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last14 }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last90 }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.allHistory }),
-      getMetaDecisionSourceSnapshot({
-        businessId: input.businessId,
-        decisionWindows: decisionContext.decisionWindows,
-      }),
-      fetchCreativeRowsForWindow({
-        request: input.request,
-        businessId: input.businessId,
-        startDate: timeline.reportingStartDate,
-        endDate: timeline.reportingEndDate,
-      }).catch(() => null),
-    ]);
+    const [primary, last3, last7, last14, last90, allHistory, selectedPeriod] =
+      await Promise.all([
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          startDate: primaryWindow.startDate,
+          endDate: primaryWindow.endDate,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          ...windowDefs.last3,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          ...windowDefs.last7,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          ...windowDefs.last14,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          ...windowDefs.last90,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          ...windowDefs.allHistory,
+        }),
+        fetchCreativeRowsForWindow({
+          request: input.request,
+          businessId: input.businessId,
+          startDate: timeline.reportingStartDate,
+          endDate: timeline.reportingEndDate,
+        }).catch(() => null),
+      ]);
+    const decisionSnapshot = await getMetaDecisionSourceSnapshot({
+      businessId: input.businessId,
+      decisionWindows: decisionContext.decisionWindows,
+      campaignIds: Array.from(
+        new Set(
+          primary.rows.map((row) => row.campaignId).filter(Boolean) as string[],
+        ),
+      ),
+    });
     const last30 = primary;
 
     decisionRows = primary.rows;
@@ -475,7 +523,9 @@ export async function getCreativeDecisionOsForRange(input: {
       historicalMemory: decisionContext.historicalMemory,
       decisionAsOf: decisionContext.decisionAsOf,
       evidenceSource,
-      rows: decisionRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
+      rows: decisionRows.map((row) =>
+        toDecisionInputRow(row, historyById.get(row.id) ?? null),
+      ),
       campaigns,
       adSets,
       breakdowns: {

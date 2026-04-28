@@ -1,6 +1,6 @@
 // Creative v2 hardening file: read-only safety gate; behavior unchanged.
 // Public Raw verification marker: multiline LF formatting required.
-import { chromium, expect } from "@playwright/test";
+import { chromium, expect, type Page } from "@playwright/test";
 
 const forbiddenActionTerms = [
   /\bApply\b/i,
@@ -26,9 +26,12 @@ const forbiddenInternalTerms = [
 
 const writeMethods = ["POST", "PUT", "PATCH", "DELETE"];
 const previewFlagQuery = "creativeDecisionOsV2Preview=1";
+const previewDisableQuery = "creativeDecisionOsV2Preview=0";
 const previewSurfaceTestId = "creative-v2-preview-surface";
+const previewVisibilityTimeoutMs = 45_000;
 const previewRoutes = {
-  withoutFlag: "/creatives",
+  default: "/creatives",
+  disabled: `/creatives?${previewDisableQuery}`,
   withFlag: `/creatives?${previewFlagQuery}`,
 } as const;
 
@@ -63,6 +66,29 @@ function assertEmpty(label: string, values: unknown[]) {
   throw new Error(`Creative v2 self-hosted smoke failed: ${label}.`);
 }
 
+async function expectPreviewSurfaceVisible(page: Page) {
+  await expect(page.getByTestId(previewSurfaceTestId)).toBeVisible({
+    timeout: previewVisibilityTimeoutMs,
+  });
+  const aboveFold = page.getByTestId("creative-v2-above-fold");
+  await expect(aboveFold).toBeVisible({ timeout: previewVisibilityTimeoutMs });
+  await expect(page.getByTestId("creative-v2-today-priority")).toBeVisible({
+    timeout: previewVisibilityTimeoutMs,
+  });
+  await expect(aboveFold.getByText("Scale-ready", { exact: true })).toBeVisible({
+    timeout: previewVisibilityTimeoutMs,
+  });
+  await expect(
+    page.getByTestId("creative-v2-ready-confirmation"),
+  ).toBeVisible({ timeout: previewVisibilityTimeoutMs });
+  await expect(page.getByTestId("creative-v2-diagnose-first")).toBeVisible({
+    timeout: previewVisibilityTimeoutMs,
+  });
+  await expect(page.getByTestId("creative-v2-inactive-review")).toBeVisible({
+    timeout: previewVisibilityTimeoutMs,
+  });
+}
+
 async function main() {
   const baseUrl = requiredEnv("CREATIVE_V2_SMOKE_BASE_URL").replace(/\/$/, "");
   const storageState = process.env.CREATIVE_V2_SMOKE_STORAGE_STATE?.trim();
@@ -88,26 +114,23 @@ async function main() {
     });
   });
 
-  phase = "no_flag";
-  await page.goto(`${baseUrl}${previewRoutes.withoutFlag}`, {
-    waitUntil: "networkidle",
+  phase = "default";
+  await page.goto(`${baseUrl}${previewRoutes.default}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectPreviewSurfaceVisible(page);
+
+  phase = "disabled";
+  await page.goto(`${baseUrl}${previewRoutes.disabled}`, {
+    waitUntil: "domcontentloaded",
   });
   await expect(page.getByTestId(previewSurfaceTestId)).toHaveCount(0);
 
   phase = "with_flag";
   await page.goto(`${baseUrl}${previewRoutes.withFlag}`, {
-    waitUntil: "networkidle",
+    waitUntil: "domcontentloaded",
   });
-  await expect(page.getByTestId(previewSurfaceTestId)).toBeVisible();
-  const aboveFold = page.getByTestId("creative-v2-above-fold");
-  await expect(aboveFold).toBeVisible();
-  await expect(page.getByTestId("creative-v2-today-priority")).toBeVisible();
-  await expect(aboveFold.getByText("Scale-ready", { exact: true })).toBeVisible();
-  await expect(
-    page.getByTestId("creative-v2-ready-confirmation"),
-  ).toBeVisible();
-  await expect(page.getByTestId("creative-v2-diagnose-first")).toBeVisible();
-  await expect(page.getByTestId("creative-v2-inactive-review")).toBeVisible();
+  await expectPreviewSurfaceVisible(page);
 
   const bodyText = await page.locator("body").innerText();
   const actionViolations = hasForbidden(bodyText, forbiddenActionTerms);
@@ -128,7 +151,8 @@ async function main() {
   const result = {
     selfHostedRuntimeSmoke: "completed",
     domainRecorded: false,
-    noFlagV2PreviewVisible: false,
+    defaultV2PreviewVisible: true,
+    disabledV2PreviewVisible: false,
     withFlagV2PreviewVisible: true,
     todayPriorityVisible: true,
     scaleReadyCopyVisible: true,
