@@ -1,8 +1,10 @@
 # Happy Harbor - Faz B Resolver Replay
 
-Generated at: 2026-04-28T21:22:59.555Z
+Generated at: 2026-04-28T21:33:15.803Z
 Rows: 200
 Literal acceptance met: no
+targetPackConfigured: 95/200 (assertion passed)
+break_even_proxy_used evidence: 105/200 rows
 
 ## Fleiss Kappa
 

@@ -55,7 +55,9 @@ export type CreativeReasonTag =
   | "confident_cut"
   | "baseline_strong"
   | "baseline_medium"
-  | "baseline_weak";
+  | "baseline_weak"
+  | "break_even_proxy_used"
+  | "break_even_default_floor";
 
 export type CreativeBlockerReason =
   | "trust_degraded_missing_truth"
@@ -177,13 +179,19 @@ function normalized(value: string | null | undefined) {
 }
 
 export function resolveCreativeBreakEvenRoas(input: CreativeVerdictInput) {
+  return resolveCreativeBreakEven(input).value;
+}
+
+function resolveCreativeBreakEven(input: CreativeVerdictInput) {
   const targetRoas = input.commercialTruth.targetRoas;
   const medianRoas = input.baseline.selected?.medianRoas;
   if (input.commercialTruth.targetPackConfigured === true && finite(targetRoas) && targetRoas > 0) {
-    return targetRoas;
+    return { value: targetRoas, source: "target_pack" as const };
   }
-  if (finite(medianRoas) && medianRoas > 0) return medianRoas;
-  return 1;
+  if (finite(medianRoas) && medianRoas > 0) {
+    return { value: medianRoas, source: "median_proxy" as const };
+  }
+  return { value: 1, source: "default_floor" as const };
 }
 
 function resolveBusinessValidationStatus(
@@ -328,7 +336,8 @@ export function resolveCreativeVerdict(input: CreativeVerdictInput): CreativeVer
   const evidence: CreativeReason[] = [];
   const seenEvidence = new Set<CreativeReasonTag>();
   const blockers: CreativeBlockerReason[] = [];
-  const breakEven = resolveCreativeBreakEvenRoas(input);
+  const breakEvenResolution = resolveCreativeBreakEven(input);
+  const breakEven = breakEvenResolution.value;
   const spend = n(input.metrics.spend30d);
   const purchases = n(input.metrics.purchases30d);
   const ratio = roasRatio(input, breakEven);
@@ -378,8 +387,14 @@ export function resolveCreativeVerdict(input: CreativeVerdictInput): CreativeVer
   if (!targetPackConfigured) {
     blockers.push("commercial_truth_target_pack_missing");
     pushEvidence(evidence, seenEvidence, "target_pack_missing", "supporting");
-  } else {
+  }
+  if (breakEvenResolution.source === "target_pack") {
     pushEvidence(evidence, seenEvidence, "target_pack_configured", "supporting");
+  } else {
+    pushEvidence(evidence, seenEvidence, "break_even_proxy_used", "primary");
+    if (breakEvenResolution.source === "default_floor") {
+      pushEvidence(evidence, seenEvidence, "break_even_default_floor", "primary");
+    }
   }
 
   if (deploymentCompatibility === "limited" || deploymentCompatibility === "blocked") {

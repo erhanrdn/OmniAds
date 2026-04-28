@@ -17,6 +17,8 @@ const CODEX_RATING_PATH = path.join(AUDIT_A_DIR, "codex-rating.json");
 const CLAUDE_RATING_PATH = path.join(AUDIT_A_DIR, "claude-rating.json");
 const DATA_PATH = path.join(AUDIT_B_DIR, "faz-b-rerun.json");
 const REPORT_PATH = path.join(AUDIT_B_DIR, "faz-b-rerun.md");
+const EXPECTED_TARGET_PACK_CONFIGURED_COUNT = 95;
+const EXPECTED_BREAK_EVEN_PROXY_USED_COUNT = 105;
 
 const HEADLINES = [
   "Test Winner",
@@ -202,18 +204,29 @@ function pairwiseAgreement(
   );
 }
 
-function verdictRating(row: SampleRow): Rating {
-  const verdict = resolveCreativeVerdict({
+function targetRoasForSample(row: SampleRow) {
+  if (!row.commercialTruth.targetPackConfigured) return null;
+  return row.baseline.selected.medianRoas && row.baseline.selected.medianRoas > 0
+    ? row.baseline.selected.medianRoas
+    : 1;
+}
+
+function resolveSampleVerdict(row: SampleRow) {
+  return resolveCreativeVerdict({
     metrics: row.metrics,
     delivery: row.delivery,
     baseline: row.baseline,
     commercialTruth: {
       targetPackConfigured: row.commercialTruth.targetPackConfigured,
-      targetRoas: null,
+      targetRoas: targetRoasForSample(row),
       businessValidationStatus: row.commercialTruth.businessValidationStatus,
     },
     context: row.context,
   });
+}
+
+function verdictRating(row: SampleRow): Rating {
+  const verdict = resolveSampleVerdict(row);
   return {
     rowId: row.rowId,
     phase: verdict.phase,
@@ -293,6 +306,8 @@ function buildReport(data: ReturnType<typeof buildData>) {
     `Generated at: ${data.generatedAt}`,
     `Rows: ${data.rowCount}`,
     `Literal acceptance met: ${data.acceptance.literalFleissAtLeast050 ? "yes" : "no"}`,
+    `targetPackConfigured: ${data.integrity.targetPackConfiguredCount}/${data.rowCount} (assertion passed)`,
+    `break_even_proxy_used evidence: ${data.integrity.breakEvenProxyUsedCount}/${data.rowCount} rows`,
     "",
     "## Fleiss Kappa",
     "",
@@ -338,6 +353,15 @@ function buildData() {
   const claude = readJson<{ rows: Rating[] }>(CLAUDE_RATING_PATH);
   const codexById = new Map(codex.rows.map((row) => [row.rowId, row]));
   const claudeById = new Map(claude.rows.map((row) => [row.rowId, row]));
+  const targetPackConfiguredCount = sample.rows.filter(
+    (row) => row.commercialTruth.targetPackConfigured === true,
+  ).length;
+  if (targetPackConfiguredCount !== EXPECTED_TARGET_PACK_CONFIGURED_COUNT) {
+    throw new Error(
+      `Integrity check failed: expected ${EXPECTED_TARGET_PACK_CONFIGURED_COUNT} rows with targetPackConfigured=true, got ${targetPackConfiguredCount}. ` +
+        "If sample-200.json was regenerated, update the expected value in this script.",
+    );
+  }
 
   const rows = sample.rows.map((sampleRow) => {
     const codexRating = codexById.get(sampleRow.rowId);
@@ -351,6 +375,15 @@ function buildData() {
       claude: claudeRating,
     };
   });
+  const breakEvenProxyUsedCount = rows.filter((row) =>
+    row.adsecute.primaryReason.includes("break_even_proxy_used"),
+  ).length;
+  if (breakEvenProxyUsedCount !== EXPECTED_BREAK_EVEN_PROXY_USED_COUNT) {
+    throw new Error(
+      `Integrity check failed: expected ${EXPECTED_BREAK_EVEN_PROXY_USED_COUNT} rows with break_even_proxy_used evidence, got ${breakEvenProxyUsedCount}. ` +
+        "If sample-200.json or resolver break-even rules changed, update the expected value in this script.",
+    );
+  }
 
   const fleiss = {
     action: fleissKappa(rows, "action", ACTIONS),
@@ -373,6 +406,12 @@ function buildData() {
       codexRatingPath: CODEX_RATING_PATH,
       claudeRatingPath: CLAUDE_RATING_PATH,
       resolver: "lib/creative-verdict.ts:resolveCreativeVerdict",
+    },
+    integrity: {
+      targetPackConfiguredCount,
+      expectedTargetPackConfiguredCount: EXPECTED_TARGET_PACK_CONFIGURED_COUNT,
+      breakEvenProxyUsedCount,
+      expectedBreakEvenProxyUsedCount: EXPECTED_BREAK_EVEN_PROXY_USED_COUNT,
     },
     acceptance: {
       literalFleissAtLeast050:
@@ -406,6 +445,8 @@ export function runPhaseBRerun() {
       Object.entries(data.fleiss).map(([axis, value]) => [axis, round(value.kappa, 4)]),
     ),
     literalAcceptanceMet: data.acceptance.literalFleissAtLeast050,
+    targetPackConfiguredCount: data.integrity.targetPackConfiguredCount,
+    breakEvenProxyUsedCount: data.integrity.breakEvenProxyUsedCount,
   };
 }
 

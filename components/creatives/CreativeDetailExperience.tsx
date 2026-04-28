@@ -706,6 +706,9 @@ export function CreativeDetailExperience({
 
               {/* Block 1: Verdict */}
               {(() => {
+                const breakEvenProxyUsed = decisionOsCreative.verdict?.evidence.some(
+                  (item) => item.tag === "break_even_proxy_used",
+                );
                 const vt = useLegacyVerdictContract
                   ? getLegacyVerdictTheme(
                       decision.action,
@@ -725,6 +728,19 @@ export function CreativeDetailExperience({
                         {vt.label}
                       </div>
                     </div>
+                    {breakEvenProxyUsed ? (
+                      <details className="group relative w-fit px-1">
+                        <summary className="inline-flex cursor-help list-none items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 [&::-webkit-details-marker]:hidden">
+                          Break-even: median proxy <span aria-hidden="true">i</span>
+                        </summary>
+                        <div className="absolute left-1 z-20 mt-1 w-72 rounded-lg border border-amber-200 bg-white p-3 text-[11px] leading-relaxed text-slate-600 shadow-lg">
+                          This break-even is computed from the business&apos;s 30-day median ROAS because no commercial truth target pack is configured.
+                          <a className="mt-2 block font-semibold text-amber-800 hover:text-amber-900" href="/commercial-truth">
+                            Open Commercial Truth settings
+                          </a>
+                        </div>
+                      </details>
+                    ) : null}
                     <p className="px-1 text-[13px] leading-relaxed text-slate-600">{decisionOsCreative.summary}</p>
                     {previewTruth?.liveDecisionWindow !== "ready" ? (
                       <p className="px-1 text-[11px] text-amber-700">

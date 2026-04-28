@@ -675,6 +675,23 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).not.toContain("No command-ready Decision OS action core item is available.");
   });
 
+  it("surfaces median proxy fallback when commercial targets are missing", () => {
+    const data = payload();
+    data.commercialTruthCoverage = {
+      ...data.commercialTruthCoverage,
+      mode: "conservative_fallback",
+      targetPackConfigured: false,
+      missingInputs: ["target_pack"],
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Targets: median proxy fallback");
+    expect(html).toContain("/commercial-truth");
+  });
+
   it("does not treat missing authority as command-ready", () => {
     const data = payload();
     data.authority = undefined;

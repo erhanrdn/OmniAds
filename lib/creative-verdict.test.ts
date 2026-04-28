@@ -250,6 +250,46 @@ describe("resolveCreativeVerdict break-even source", () => {
 
     expect(result.headline).toBe("Test Winner");
   });
+
+  it("break_even uses target pack when configured and finite", () => {
+    const result = resolveCreativeVerdict(row({
+      commercialTruth: { targetPackConfigured: true, targetRoas: 2.5 },
+      baseline: { selected: { medianRoas: 3 } },
+    }));
+
+    expect(result.evidence).toContainEqual({ tag: "target_pack_configured", weight: "supporting" });
+    expect(result.evidence.some((item) => item.tag === "break_even_proxy_used")).toBe(false);
+  });
+
+  it("break_even falls back to median when target pack is absent", () => {
+    const result = resolveCreativeVerdict(row({
+      commercialTruth: { targetPackConfigured: false, targetRoas: null },
+      baseline: { selected: { medianRoas: 3 } },
+    }));
+
+    expect(result.evidence).toContainEqual({ tag: "break_even_proxy_used", weight: "primary" });
+    expect(result.evidence.some((item) => item.tag === "break_even_default_floor")).toBe(false);
+  });
+
+  it("break_even falls back to median when targetRoas is null", () => {
+    const result = resolveCreativeVerdict(row({
+      commercialTruth: { targetPackConfigured: true, targetRoas: null },
+      baseline: { selected: { medianRoas: 3 } },
+    }));
+
+    expect(result.evidence).toContainEqual({ tag: "break_even_proxy_used", weight: "primary" });
+    expect(result.evidence.some((item) => item.tag === "break_even_default_floor")).toBe(false);
+  });
+
+  it("break_even uses 1.0 floor when both target and median are absent", () => {
+    const result = resolveCreativeVerdict(row({
+      commercialTruth: { targetPackConfigured: false, targetRoas: null },
+      baseline: { selected: { medianRoas: null } },
+    }));
+
+    expect(result.evidence).toContainEqual({ tag: "break_even_proxy_used", weight: "primary" });
+    expect(result.evidence).toContainEqual({ tag: "break_even_default_floor", weight: "primary" });
+  });
 });
 
 describe("resolveCreativeVerdict action readiness", () => {

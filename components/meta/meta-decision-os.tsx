@@ -948,7 +948,17 @@ function AuthorityReadinessSection({
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
             <span>Mode {formatActionLabel(commercialTruth.mode)}</span>
-            <span>Targets {formatBooleanState(commercialTruth.targetPackConfigured)}</span>
+            {commercialTruth.targetPackConfigured ? (
+              <span>Targets {formatBooleanState(commercialTruth.targetPackConfigured)}</span>
+            ) : (
+              <a
+                href="/commercial-truth"
+                title="This break-even is computed from fallback thresholds because no commercial truth target pack is configured. Configure a target pack in Settings -> Commercial Truth for accurate break-even calibration."
+                className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Targets: median proxy fallback <span aria-hidden="true">i</span>
+              </a>
+            )}
             <span>Country economics {formatBooleanState(commercialTruth.countryEconomicsConfigured)}</span>
             <span>Promo calendar {formatBooleanState(commercialTruth.promoCalendarConfigured)}</span>
             <span>Operating constraints {formatBooleanState(commercialTruth.operatingConstraintsConfigured)}</span>

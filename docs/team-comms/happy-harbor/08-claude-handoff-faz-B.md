@@ -189,6 +189,55 @@ Final: clamp(0.30, 0.95)
 
 UI'da düşük confidence rating'leri "needs_review" rozetiyle göstermek için kullanılacak (Faz D).
 
+### 3.8 Commercial truth integration verification gate (Faz B kapanışında zorunlu)
+
+Bu spec'e geçmeden önce yaptığım entegrasyon denetimi commercial truth'un kanonik fonksiyonu, fetch path'i, ve UI tüketimi yapısal olarak doğru tarafa bağlandığını gösteriyor:
+
+| Katman | Kanonik path | Durum |
+|---|---|---|
+| Source fetch | [lib/business-commercial.ts:1080](../../lib/business-commercial.ts) `getBusinessCommercialTruthSnapshot(businessId)` | ✓ |
+| Creative DO source | [lib/creative-decision-os-source.ts:490](../../lib/creative-decision-os-source.ts) `getBusinessCommercialTruthSnapshot(input.businessId)` → injection point | ✓ |
+| Meta DO source | [lib/meta/decision-os-source.ts:54-100](../../lib/meta/decision-os-source.ts) `Promise.all([getBusinessCommercialTruthSnapshot(...)…])` → `commercialTruth: snapshot` | ✓ |
+| Resolver field path | [lib/creative-decision-os.ts:1347-1350](../../lib/creative-decision-os.ts) `commercialTruth?.targetPack?.targetRoas / breakEvenRoas / targetCpa / breakEvenCpa` | ✓ |
+| Creative UI | [components/creatives/CreativeDecisionOsOverview.tsx:186,498,597](../../components/creatives/CreativeDecisionOsOverview.tsx) `decisionOs.commercialTruthCoverage` | ✓ |
+| Meta UI | [components/meta/meta-decision-os.tsx:927-962](../../components/meta/meta-decision-os.tsx) `decisionOs.commercialTruthCoverage` (mode + targetPackConfigured + countryEconomicsConfigured + promoCalendarConfigured + operatingConstraintsConfigured + notes[0]) | ✓ |
+
+**Yapısal entegrasyon doğru.** Ama A.5 sample'ı kritik bir veri-kapsam boşluğu gösteriyor:
+
+| Business | Rows | targetPackConfigured | validation favorable | unfavorable | missing |
+|---|---:|---:|---:|---:|---:|
+| company-01 | 21 | **0** | 0 | 0 | 21 |
+| company-02 | 8 | 8 | 3 | 1 | 4 |
+| company-03 | 10 | **0** | 0 | 0 | 10 |
+| company-04 | 37 | **0** | 0 | 0 | 37 |
+| company-05 | 54 | 54 | 2 | 18 | 34 |
+| company-06 | 25 | **0** | 0 | 0 | 25 |
+| company-07 | 12 | **0** | 0 | 0 | 12 |
+| company-08 | 33 | 33 | 0 | 15 | 18 |
+| **Toplam** | **200** | **95 (%47.5)** | **5 (%2.5)** | **34 (%17)** | **161 (%80.5)** |
+
+**Sonuç:** 8 işletmenin **5'inde target pack hiç ayarlanmamış**. Bu işletmelerde § 3.4 break-even formülü her zaman fallback'e (business median ROAS) düşüyor. Resolver doğru çalışacak ama:
+- Median proxy ≠ gerçek break-even. company-01'in median ROAS'ı 3.0 olabilir ama gerçek break-even'i 1.8 olabilir — fallback'le winner judgement'lar yanlış kalibre.
+- UI'da kullanıcı bu farkı görmek zorunda.
+
+**Faz B verification gate (Faz B kapanış öncesi yap):**
+
+1. **Resolver fallback davranışı görünür olmalı.** `CreativeVerdict.evidence` array'ine yeni reason tag ekle: `break_even_proxy_used` — `commercialTruth.targetPackConfigured == false` durumunda her satıra primary olarak basılır. UI bunu "Break-even: median proxy" rozeti olarak gösterir.
+
+2. **Kapsama dashboard'u (mini).** [components/creatives/CreativeDecisionOsOverview.tsx](../../components/creatives/CreativeDecisionOsOverview.tsx) içinde mevcut `commercialTruthCoverage.summary` zaten gerekli alanları sunuyor. Yeni sayı: **"X% creatives in this analysis are using business-median proxy for break-even (no target pack configured)"** — kullanıcı bunu görmeden Adsecute önerilerine güvenemez.
+
+3. **Meta sayfasında aynı görünürlük.** [components/meta/meta-decision-os.tsx:951](../../components/meta/meta-decision-os.tsx) zaten `Targets {formatBooleanState(commercialTruth.targetPackConfigured)}` gösteriyor. Buraya proxy fallback aktif olduğunda daha net bir uyarı (ör. amber pill) ekle.
+
+4. **Verification test (zorunlu yeni test):** `lib/creative-verdict.test.ts` içine en az 4 fixture:
+   - target pack yok → fallback business median → `evidence` içinde `break_even_proxy_used`
+   - target pack var, targetRoas finite → fallback yok, `break_even_proxy_used` evidence'ta YOK
+   - target pack var, targetRoas null → fallback business median → `break_even_proxy_used`
+   - business median yok ve target pack yok → fallback 1.0 → `evidence`'a iki tag (`break_even_proxy_used` + `break_even_default_floor`)
+
+5. **A.5 sample re-run gating:** § 4.2 Doğrulama'da yazdığım Fleiss kappa ≥ 0.50 hedefi tek başına yetmez. Ek check: re-run sırasında her satır için resolver'ın `commercialTruth.targetPackConfigured` değerini doğru okuduğunu logla — 200 satırın 95'i target pack'li, 105'i değil olacak (yukarıdaki sayım). Eğer rakam farklıysa veri yolu kırık demektir.
+
+Bu gate Faz B'nin teknik tamamlanma kriteri. Faz E'de de tekrar gözden geçireceğiz: ürün canlı kullanıma açıldığında, kullanıcılar commercial truth'larını doldurmadan Adsecute önerilerine güvenirse, "winner" judgement'ı sistemli olarak yanlış olabilir.
+
 ---
 
 ## 4. Senin (Codex'in) somut görevin
@@ -226,7 +275,7 @@ UI'da düşük confidence rating'leri "needs_review" rozetiyle göstermek için 
 
 ## 5. Açık sorular (yanıt bekliyorum)
 
-1. **`commercial_truth_target_pack` field path:** A.5 reveal'da `commercialTruth.targetPackConfigured` boolean'ı vardı, ama `targetRoas` somut değeri ham raw_pages'da nerede yaşıyor? Codex audit script'inde işlevsel olduğu için biliyorsun — `lib/commercial-truth-*` dosyalarından kanonik path'i çıkar, tablo halinde `09-codex-deliverables-faz-B.md` § 1'e yaz.
+1. **`commercial_truth_target_pack` field path:** § 3.8'deki entegrasyon denetiminde kanonik path doğrulandı — `commercialTruth.targetPack.targetRoas` ([lib/creative-decision-os.ts:1347](../../lib/creative-decision-os.ts)). Bu artık spec olarak kapalı; sen `09-codex-deliverables-faz-B.md` § 1'de § 3.8'in 5 verification test'ini hangi fixture data ile yazdığını belgele.
 
 2. **Migration trafiği:** `?verdictContract=v0` 2 hafta korunacak dedik. Bu sürede iki resolver da çalışıyor olacak — performans gözleyebilir miyiz? Eğer yeni resolver eski sisteminkinden 2× yavaşsa snapshot persist'i öncesi kestirme cache eklemen gerekir mi? `pnpm dev:local` tarafında 200 satır resolve'u için 1 sn'den fazla sürüyorsa bana bildir.
 
@@ -245,6 +294,8 @@ UI'da düşük confidence rating'leri "needs_review" rozetiyle göstermek için 
 - [ ] `scripts/happy-harbor-faz-b-rerun.ts` çalışır, A.5 sample'ı üzerinde Fleiss kappa ≥ 0.50.
 - [ ] Manuel UI smoke (5 creative açıldı, çelişki yok).
 - [ ] Feature flag `?verdictContract=v0` çalışıyor (eski sistem hâlâ tetiklenebiliyor).
+- [ ] § 3.8 commercial truth verification gate: `break_even_proxy_used` evidence tag'i resolver'da implement edildi, en az 4 fixture testi pass; UI tarafında (creative + meta) proxy fallback rozeti görünür.
+- [ ] A.5 sample re-run sırasında resolver'ın gördüğü targetPackConfigured count = 95/200 (target pack yok 105/200) — sayım sapmıyor.
 
 ---
 

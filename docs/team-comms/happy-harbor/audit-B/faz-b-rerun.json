@@ -1,12 +1,18 @@
 {
   "version": "happy-harbor.phaseB.rerun.v1",
-  "generatedAt": "2026-04-28T21:22:59.555Z",
+  "generatedAt": "2026-04-28T21:33:15.803Z",
   "rowCount": 200,
   "source": {
     "samplePath": "docs/team-comms/happy-harbor/audit-A/sample-200.json",
     "codexRatingPath": "docs/team-comms/happy-harbor/audit-A/codex-rating.json",
     "claudeRatingPath": "docs/team-comms/happy-harbor/audit-A/claude-rating.json",
     "resolver": "lib/creative-verdict.ts:resolveCreativeVerdict"
+  },
+  "integrity": {
+    "targetPackConfiguredCount": 95,
+    "expectedTargetPackConfiguredCount": 95,
+    "breakEvenProxyUsedCount": 105,
+    "expectedBreakEvenProxyUsedCount": 105
   },
   "acceptance": {
     "literalFleissAtLeast050": false,
@@ -225,7 +231,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -271,7 +277,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -312,7 +318,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:scale_maturity; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:scale_maturity; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -358,7 +364,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -399,7 +405,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:scale_maturity; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:scale_maturity; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -445,7 +451,7 @@
         "action": "protect",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -487,7 +493,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.8,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -527,7 +533,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.65,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -573,7 +579,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -619,7 +625,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -665,7 +671,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -712,7 +718,7 @@
         "action": "protect",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:near_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:near_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -754,7 +760,7 @@
         "action": "protect",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -796,7 +802,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -837,7 +843,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.65,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -884,7 +890,7 @@
         "action": "scale",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:inactive_pending_winner; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:inactive_pending_winner; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -926,7 +932,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.8,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -967,7 +973,7 @@
         "action": "scale",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:inactive_pending_winner; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:inactive_pending_winner; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -1009,7 +1015,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1056,7 +1062,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1103,7 +1109,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -1461,7 +1467,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1507,7 +1513,7 @@
         "action": "protect",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -1549,7 +1555,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:scale_maturity; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:scale_maturity; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -1591,7 +1597,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.85,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -1631,7 +1637,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1677,7 +1683,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -1717,7 +1723,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1763,7 +1769,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1809,7 +1815,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1855,7 +1861,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -1896,7 +1902,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.65,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1942,7 +1948,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.6,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -1988,7 +1994,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2031,7 +2037,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2074,7 +2080,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2120,7 +2126,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2163,7 +2169,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2206,7 +2212,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2253,7 +2259,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2300,7 +2306,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2347,7 +2353,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.6,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2394,7 +2400,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.6,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2441,7 +2447,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2485,7 +2491,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -2529,7 +2535,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -2571,7 +2577,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -2613,7 +2619,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -2655,7 +2661,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2702,7 +2708,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -2744,7 +2750,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2791,7 +2797,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2838,7 +2844,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2885,7 +2891,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -2927,7 +2933,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -2974,7 +2980,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3021,7 +3027,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3068,7 +3074,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3115,7 +3121,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -3159,7 +3165,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -3203,7 +3209,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3250,7 +3256,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3297,7 +3303,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -3341,7 +3347,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -3383,7 +3389,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -3425,7 +3431,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -3467,7 +3473,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -3514,7 +3520,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -5835,7 +5841,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:near_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:near_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -5875,7 +5881,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -5915,7 +5921,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -5961,7 +5967,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -6007,7 +6013,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6050,7 +6056,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6093,7 +6099,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6136,7 +6142,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6178,7 +6184,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6220,7 +6226,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6262,7 +6268,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6304,7 +6310,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6346,7 +6352,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6388,7 +6394,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6430,7 +6436,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6472,7 +6478,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6514,7 +6520,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -6554,7 +6560,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.6,
-        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6597,7 +6603,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6639,7 +6645,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6681,7 +6687,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6723,7 +6729,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6765,7 +6771,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6807,7 +6813,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6849,7 +6855,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -6891,7 +6897,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:large_spend_scale_phase; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:large_spend_scale_phase; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -6931,7 +6937,7 @@
         "action": "protect",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:large_spend_scale_phase; supporting:scale_maturity; primary:above_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -6971,7 +6977,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7011,7 +7017,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing",
@@ -7053,7 +7059,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7093,7 +7099,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7133,7 +7139,7 @@
         "action": "refresh",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:fatigue_recent_collapse; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:fatigue_recent_collapse; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7173,7 +7179,7 @@
         "action": "diagnose",
         "actionReadiness": "blocked",
         "confidence": 0.7,
-        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; supporting:deployment_limited; supporting:baseline_strong",
+        "primaryReason": "primary:trust_degraded_missing_truth; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:deployment_limited; supporting:baseline_strong",
         "blockers": [
           "trust_degraded_missing_truth",
           "business_validation_missing",
@@ -7219,7 +7225,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:near_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7259,7 +7265,7 @@
         "action": "scale",
         "actionReadiness": "needs_review",
         "confidence": 0.95,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:above_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:above_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7299,7 +7305,7 @@
         "action": "keep_testing",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; supporting:test_phase; primary:low_evidence; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
@@ -7339,7 +7345,7 @@
         "action": "cut",
         "actionReadiness": "needs_review",
         "confidence": 0.9,
-        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:below_break_even; supporting:baseline_strong",
+        "primaryReason": "supporting:trust_live_confident; supporting:business_validation_missing; supporting:target_pack_missing; primary:break_even_proxy_used; primary:below_break_even; supporting:baseline_strong",
         "blockers": [
           "business_validation_missing",
           "commercial_truth_target_pack_missing"
