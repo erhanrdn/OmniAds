@@ -1,0 +1,2563 @@
+{
+  "version": "happy-harbor.auditA.codexRating.v1",
+  "generatedAt": "2026-04-28T17:54:18.213Z",
+  "sourceSample": {
+    "path": "docs/team-comms/happy-harbor/audit-A/sample-200.json",
+    "sampleHash": "a62235a29e3f6b75f678b2d223e4be1d8d6a750b317e604d82b98262aabac69c",
+    "rowCount": 200
+  },
+  "rater": {
+    "team": "Codex",
+    "stance": "independent expert Meta media buyer",
+    "labelLeakGuard": "ratings are derived from metric/baseline/context fields; row-level Adsecute labels are HMAC-only in sample-200.json"
+  },
+  "schema": {
+    "phase": [
+      "test",
+      "scale",
+      "post-scale"
+    ],
+    "headline": [
+      "Test Winner",
+      "Test Loser",
+      "Test Inconclusive",
+      "Scale Performer",
+      "Scale Underperformer",
+      "Scale Fatiguing",
+      "Needs Diagnosis"
+    ],
+    "action": [
+      "scale",
+      "keep_testing",
+      "protect",
+      "refresh",
+      "cut",
+      "diagnose"
+    ],
+    "actionReadiness": [
+      "ready",
+      "needs_review",
+      "blocked"
+    ]
+  },
+  "rows": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "phase": "scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.84,
+      "primaryReason": "The creative has scale-level spend and purchase maturity, but recent ROAS is materially below the long-window read.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-19",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-03",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-20",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-04",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-05",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-10",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-06",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-07",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-25",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-26",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-28",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-29",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-30",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-31",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-32",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-33",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-34",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-35",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "ready",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-03",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "ready",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-04",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "ready",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-07",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-08",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-09",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-16",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-06",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-02|company-04-creative-05",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-07",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-19",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-25",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-26",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-30",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-31",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-39",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-41",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-43",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-42",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-20",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-21",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-36",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-18",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-22",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-24",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-28",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-32",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-35",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-23",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-33",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-34",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-37",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-38",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-40",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-11|company-04-adset-02|company-04-creative-27",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-12|company-04-adset-05|company-04-creative-29",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-16",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-17",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-18",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-34",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-02",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-21",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-03",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-05",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-19",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-22",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-24",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-26",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-27",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-28",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-29",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-31",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-33",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-35",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-36",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-37",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-43",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-44",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-45",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-04",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-08",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-09",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-10",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-12",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-13",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "ready",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": []
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-15",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-20",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-25",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-30",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-32",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-06",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-11",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-46",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-49",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-51",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-52",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-53",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "scale",
+      "actionReadiness": "ready",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": []
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-54",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-56",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-47",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-50",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-55",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-48",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-57",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-58",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-59",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-07",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-23",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "phase": "scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.84,
+      "primaryReason": "The creative has scale-level spend and purchase maturity, but recent ROAS is materially below the long-window read.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-06",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-25",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-27",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-29",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-38",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-46",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-48",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-57",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-59",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-63",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-64",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-65",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-02",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-21",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-40",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-44",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-49",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-54",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-55",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-58",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-66",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.86,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-12",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
+      "phase": "post-scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-39",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-40",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-34",
+      "phase": "post-scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.82,
+      "primaryReason": "Scale or post-scale spend is mature, but efficiency is materially below benchmark or conversion evidence is poor.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-37",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-38",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "phase": "scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-03",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-17",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-28",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-30",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-04",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "Spend and purchases are mature and efficiency is at or above benchmark, so preserve the winner unless validation supports more scale.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-29",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-05",
+      "phase": "scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.84,
+      "primaryReason": "The creative has scale-level spend and purchase maturity, but recent ROAS is materially below the long-window read.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.83,
+      "primaryReason": "The test has enough evidence and materially beats the benchmark/ROAS threshold, making it a scale candidate.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-18",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-19",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-06",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-11",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-13",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-15",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-31",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.82,
+      "primaryReason": "Decision is blocked by context, source trust, or insufficient benchmark reliability; diagnose before applying a buyer action.",
+      "blockers": [
+        "business_validation_unfavorable",
+        "trust_inactive_or_immaterial"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.72,
+      "primaryReason": "The test has enough spend to read, but conversion volume or efficiency is below the benchmark tolerance.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-14",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-16",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.78,
+      "primaryReason": "Spend or purchase evidence is below the minimum threshold, so the correct buyer move is to keep collecting signal.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
+      "phase": "post-scale",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "The creative has some signal but not enough clean relative evidence to promote, protect, refresh, or cut decisively.",
+      "blockers": [
+        "business_validation_missing",
+        "trust_degraded_missing_truth"
+      ]
+    }
+  ]
+}
