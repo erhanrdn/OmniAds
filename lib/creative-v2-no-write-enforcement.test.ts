@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest";
 const previewRouteFile = "app/api/creatives/decision-os-v2/preview/route.ts";
 const previewModelFile = "lib/creative-decision-os-v2-preview.ts";
 const previewComponentFile =
-  "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx";
+  "components/creatives/CreativeDecisionOsSurface.tsx";
 const creativesPageFile = "app/(dashboard)/creatives/page.tsx";
 const dataServiceFile = "src/services/data-service-ai.ts";
-const previewSurfaceMarker = "<CreativeDecisionOsV2PreviewSurface";
+const previewSurfaceMarker = "<CreativeDecisionOsSurface";
 const postPreviewMarker = "{creativesMetadataQuery.isLoading";
 const mutatingRouteHandlerPattern =
   /export async function (POST|PUT|PATCH|DELETE)\b/;

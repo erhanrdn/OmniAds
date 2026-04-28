@@ -453,9 +453,9 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Phase: bilinmiyor");
-    expect(html).toContain("Bu snapshot eski");
-    expect(html).toContain("Re-run analysis");
+    expect(html).toContain("NEEDS ANALYSIS");
+    expect(html).toContain("Needs Diagnosis");
+    expect(html).toContain("Action is blocked.");
   });
 
   it("shows the Promote to Scale CTA for ready test winners", () => {

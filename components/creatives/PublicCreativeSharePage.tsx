@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { CalendarRange, Copy, Rows3 } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { VerdictBand } from "@/components/creatives/VerdictBand";
 import {
   SHARE_TABLE_COLUMNS,
   buildShareDistributions,
@@ -103,14 +104,18 @@ function CreativeAnalysisCard({
           ) : null}
           <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">{analysis.summary}</p>
         </div>
-        <span
-          className={[
-            "shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide",
-            actionClasses(analysis.actionLabel),
-          ].join(" ")}
-        >
-          {analysis.actionLabel}
-        </span>
+        {analysis.verdict ? (
+          <VerdictBand verdict={analysis.verdict} size="compact" />
+        ) : (
+          <span
+            className={[
+              "shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide",
+              actionClasses(analysis.actionLabel),
+            ].join(" ")}
+          >
+            {analysis.actionLabel}
+          </span>
+        )}
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">

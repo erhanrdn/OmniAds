@@ -137,7 +137,7 @@ export interface CreativeDecisionOsV2PreviewDiagnoseGroup {
   rowIds: string[];
 }
 
-export interface CreativeDecisionOsV2PreviewSurfaceModel {
+export interface CreativeDecisionOsSurfaceModel {
   rows: CreativeDecisionOsV2PreviewRow[];
   buckets: CreativeDecisionOsV2PreviewBucket[];
   reviewGroups: CreativeDecisionOsV2PreviewReviewGroup[];
@@ -153,13 +153,15 @@ export interface CreativeDecisionOsV2PreviewSurfaceModel {
   };
 }
 
+export type CreativeDecisionOsV2PreviewSurfaceModel = CreativeDecisionOsSurfaceModel;
+
 export interface CreativeDecisionOsV2PreviewPayload {
   contractVersion: typeof CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION;
   generatedAt: string;
   sourceDecisionOsGeneratedAt: string | null;
   businessId: string;
   rowCount: number;
-  surface: CreativeDecisionOsV2PreviewSurfaceModel;
+  surface: CreativeDecisionOsSurfaceModel;
 }
 
 export interface CreativeDecisionOsV2PreviewApiResponse {
@@ -551,9 +553,9 @@ function humanizeKey(value: string) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-export function buildCreativeDecisionOsV2PreviewSurfaceModel(
+export function buildCreativeDecisionOsSurfaceModel(
   rows: CreativeDecisionOsV2PreviewSourceRow[],
-): CreativeDecisionOsV2PreviewSurfaceModel {
+): CreativeDecisionOsSurfaceModel {
   const normalizedRows = sortRows(
     rows
       .map(normalizeSourceRow)
@@ -702,7 +704,7 @@ export function buildCreativeDecisionOsV2PreviewPayloadFromDecisionOs(
     };
   });
 
-  const surface = buildCreativeDecisionOsV2PreviewSurfaceModel(rows);
+  const surface = buildCreativeDecisionOsSurfaceModel(rows);
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
     generatedAt,
@@ -712,6 +714,9 @@ export function buildCreativeDecisionOsV2PreviewPayloadFromDecisionOs(
     surface,
   };
 }
+
+export const buildCreativeDecisionOsV2PreviewSurfaceModel =
+  buildCreativeDecisionOsSurfaceModel;
 
 export function isCreativeDecisionOsV2PreviewEnabledForSearchParams(searchParams: URLSearchParams) {
   const value =

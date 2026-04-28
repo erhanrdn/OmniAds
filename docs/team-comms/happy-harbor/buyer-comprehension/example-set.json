@@ -1,0 +1,487 @@
+{
+  "version": "happy-harbor.faz-d.buyer-comprehension.example-set.v1",
+  "generatedAt": "2026-04-29T00:00:00.000Z",
+  "source": {
+    "sampleFile": "docs/team-comms/happy-harbor/audit-A/sample-200.json",
+    "resolver": "lib/creative-verdict.ts:resolveCreativeVerdict",
+    "note": "Rows are masked aliases from the Faz A sample; no private reveal labels are included."
+  },
+  "selectionRules": {
+    "rowCount": 10,
+    "eachActionClassAtLeastOne": true,
+    "minimumBusinesses": 4,
+    "eachPhaseAtLeastOne": true,
+    "eachReadinessAtLeastOne": true
+  },
+  "coverage": {
+    "actions": {
+      "scale": 1,
+      "keep_testing": 1,
+      "protect": 2,
+      "refresh": 2,
+      "cut": 3,
+      "diagnose": 1
+    },
+    "expectedAnswers": {
+      "Scale": 1,
+      "Keep Testing": 1,
+      "Protect": 2,
+      "Refresh": 2,
+      "Cut": 3,
+      "Investigate": 1
+    },
+    "phases": {
+      "test": 4,
+      "scale": 3,
+      "post-scale": 3
+    },
+    "readiness": {
+      "ready": 4,
+      "needs_review": 5,
+      "blocked": 1
+    },
+    "businesses": {
+      "company-02": 2,
+      "company-04": 1,
+      "company-05": 3,
+      "company-03": 1,
+      "company-07": 1,
+      "company-01": 1,
+      "company-06": 1
+    }
+  },
+  "rows": [
+    {
+      "sequence": 1,
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-03",
+      "companyAlias": "company-02",
+      "accountAlias": "company-02-account-01",
+      "campaignAlias": "company-02-campaign-01",
+      "adSetAlias": "company-02-adset-01",
+      "creativeAlias": "company-02-creative-03",
+      "expectedAnswer": "Scale",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "test",
+        "phaseSource": "default_test",
+        "headline": "Test Winner",
+        "action": "scale",
+        "actionReadiness": "ready",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "target_pack_configured", "weight": "supporting" },
+          { "tag": "test_phase", "weight": "supporting" },
+          { "tag": "above_break_even", "weight": "primary" },
+          { "tag": "baseline_medium", "weight": "supporting" }
+        ],
+        "blockers": [],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 740.3,
+        "purchases30d": 12,
+        "roas30d": 4.3,
+        "cpa30d": 61.69,
+        "activeStatus": true,
+        "baselineReliability": "medium",
+        "commercialTruthTargetPackConfigured": true,
+        "businessValidationStatus": "favorable",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 2,
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-06",
+      "companyAlias": "company-04",
+      "accountAlias": "company-04-account-01",
+      "campaignAlias": "company-04-campaign-01",
+      "adSetAlias": "company-04-adset-01",
+      "creativeAlias": "company-04-creative-06",
+      "expectedAnswer": "Keep Testing",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "test",
+        "phaseSource": "default_test",
+        "headline": "Test Inconclusive",
+        "action": "keep_testing",
+        "actionReadiness": "needs_review",
+        "confidence": 0.6,
+        "evidence": [
+          { "tag": "business_validation_missing", "weight": "supporting" },
+          { "tag": "target_pack_missing", "weight": "supporting" },
+          { "tag": "break_even_proxy_used", "weight": "primary" },
+          { "tag": "deployment_limited", "weight": "supporting" },
+          { "tag": "test_phase", "weight": "supporting" },
+          { "tag": "low_evidence", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [
+          "business_validation_missing",
+          "commercial_truth_target_pack_missing",
+          "deployment_lane_limited"
+        ],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 26.01,
+        "purchases30d": 0,
+        "roas30d": 0,
+        "cpa30d": 0,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": false,
+        "businessValidationStatus": "missing",
+        "trustState": "inactive_or_immaterial",
+        "deploymentCompatibility": "limited"
+      }
+    },
+    {
+      "sequence": 3,
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "companyAlias": "company-02",
+      "accountAlias": "company-02-account-01",
+      "campaignAlias": "company-02-campaign-01",
+      "adSetAlias": "company-02-adset-01",
+      "creativeAlias": "company-02-creative-02",
+      "expectedAnswer": "Protect",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "scale",
+        "phaseSource": "spend_threshold",
+        "headline": "Scale Performer",
+        "action": "protect",
+        "actionReadiness": "ready",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "target_pack_configured", "weight": "supporting" },
+          { "tag": "scale_maturity", "weight": "supporting" },
+          { "tag": "near_break_even", "weight": "primary" },
+          { "tag": "baseline_medium", "weight": "supporting" }
+        ],
+        "blockers": [],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 2020.14,
+        "purchases30d": 19,
+        "roas30d": 2.66,
+        "cpa30d": 106.32,
+        "activeStatus": true,
+        "baselineReliability": "medium",
+        "commercialTruthTargetPackConfigured": true,
+        "businessValidationStatus": "favorable",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 4,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-53",
+      "companyAlias": "company-05",
+      "accountAlias": "company-05-account-01",
+      "campaignAlias": "company-05-campaign-07",
+      "adSetAlias": "company-05-adset-06",
+      "creativeAlias": "company-05-creative-53",
+      "expectedAnswer": "Protect",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "scale",
+        "phaseSource": "spend_threshold",
+        "headline": "Scale Performer",
+        "action": "protect",
+        "actionReadiness": "needs_review",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "target_pack_configured", "weight": "supporting" },
+          { "tag": "scale_maturity", "weight": "supporting" },
+          { "tag": "above_break_even", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": ["inactive_scale_delivery"],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 22917.96,
+        "purchases30d": 14,
+        "roas30d": 4.74,
+        "cpa30d": 1637,
+        "activeStatus": false,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": true,
+        "businessValidationStatus": "favorable",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 5,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-13",
+      "companyAlias": "company-05",
+      "accountAlias": "company-05-account-01",
+      "campaignAlias": "company-05-campaign-04",
+      "adSetAlias": "company-05-adset-02",
+      "creativeAlias": "company-05-creative-13",
+      "expectedAnswer": "Refresh",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "post-scale",
+        "phaseSource": "fatigue_override_in_scale",
+        "headline": "Scale Fatiguing",
+        "action": "refresh",
+        "actionReadiness": "ready",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "target_pack_configured", "weight": "supporting" },
+          { "tag": "fatigue_recent_collapse", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 4025.69,
+        "purchases30d": 4,
+        "roas30d": 7.45,
+        "cpa30d": 1006.42,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": true,
+        "businessValidationStatus": "favorable",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 6,
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "companyAlias": "company-03",
+      "accountAlias": "company-03-account-01",
+      "campaignAlias": "company-03-campaign-01",
+      "adSetAlias": "company-03-adset-01",
+      "creativeAlias": "company-03-creative-06",
+      "expectedAnswer": "Refresh",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "post-scale",
+        "phaseSource": "fatigue_override_in_scale",
+        "headline": "Scale Fatiguing",
+        "action": "refresh",
+        "actionReadiness": "needs_review",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "business_validation_missing", "weight": "supporting" },
+          { "tag": "target_pack_missing", "weight": "supporting" },
+          { "tag": "break_even_proxy_used", "weight": "primary" },
+          { "tag": "fatigue_recent_collapse", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [
+          "business_validation_missing",
+          "commercial_truth_target_pack_missing"
+        ],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 111.02,
+        "purchases30d": 4,
+        "roas30d": 4.33,
+        "cpa30d": 27.76,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": false,
+        "businessValidationStatus": "missing",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 7,
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-54",
+      "companyAlias": "company-05",
+      "accountAlias": "company-05-account-01",
+      "campaignAlias": "company-05-campaign-07",
+      "adSetAlias": "company-05-adset-06",
+      "creativeAlias": "company-05-creative-54",
+      "expectedAnswer": "Cut",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "test",
+        "phaseSource": "default_test",
+        "headline": "Test Loser",
+        "action": "cut",
+        "actionReadiness": "ready",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "business_validation_unfavorable", "weight": "supporting" },
+          { "tag": "target_pack_configured", "weight": "supporting" },
+          { "tag": "test_phase", "weight": "supporting" },
+          { "tag": "below_break_even", "weight": "primary" },
+          { "tag": "confident_cut", "weight": "supporting" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": ["business_validation_unfavorable"],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 21747.06,
+        "purchases30d": 4,
+        "roas30d": 1.89,
+        "cpa30d": 5436.77,
+        "activeStatus": false,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": true,
+        "businessValidationStatus": "unfavorable",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 8,
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "companyAlias": "company-07",
+      "accountAlias": "company-07-account-01",
+      "campaignAlias": "company-07-campaign-01",
+      "adSetAlias": "company-07-adset-01",
+      "creativeAlias": "company-07-creative-03",
+      "expectedAnswer": "Cut",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "test",
+        "phaseSource": "default_test",
+        "headline": "Test Loser",
+        "action": "cut",
+        "actionReadiness": "needs_review",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "business_validation_missing", "weight": "supporting" },
+          { "tag": "target_pack_missing", "weight": "supporting" },
+          { "tag": "break_even_proxy_used", "weight": "primary" },
+          { "tag": "test_phase", "weight": "supporting" },
+          { "tag": "below_break_even", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [
+          "business_validation_missing",
+          "commercial_truth_target_pack_missing"
+        ],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 669.16,
+        "purchases30d": 5,
+        "roas30d": 1.88,
+        "cpa30d": 133.83,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": false,
+        "businessValidationStatus": "missing",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "compatible"
+      }
+    },
+    {
+      "sequence": 9,
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "companyAlias": "company-01",
+      "accountAlias": "company-01-account-01",
+      "campaignAlias": "company-01-campaign-02",
+      "adSetAlias": "company-01-adset-02",
+      "creativeAlias": "company-01-creative-02",
+      "expectedAnswer": "Investigate",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "post-scale",
+        "phaseSource": "fatigue_override_in_scale",
+        "headline": "Needs Diagnosis",
+        "action": "diagnose",
+        "actionReadiness": "blocked",
+        "confidence": 0.7,
+        "evidence": [
+          { "tag": "trust_degraded_missing_truth", "weight": "primary" },
+          { "tag": "business_validation_missing", "weight": "supporting" },
+          { "tag": "target_pack_missing", "weight": "supporting" },
+          { "tag": "break_even_proxy_used", "weight": "primary" },
+          { "tag": "deployment_limited", "weight": "supporting" },
+          { "tag": "large_spend_scale_phase", "weight": "supporting" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [
+          "trust_degraded_missing_truth",
+          "business_validation_missing",
+          "commercial_truth_target_pack_missing",
+          "deployment_lane_limited",
+          "hard_truth_blocker"
+        ],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 859.38,
+        "purchases30d": 20,
+        "roas30d": 4.04,
+        "cpa30d": 42.97,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": false,
+        "businessValidationStatus": "missing",
+        "trustState": "degraded_missing_truth",
+        "deploymentCompatibility": "limited"
+      }
+    },
+    {
+      "sequence": 10,
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-02",
+      "companyAlias": "company-06",
+      "accountAlias": "company-06-account-01",
+      "campaignAlias": "company-06-campaign-01",
+      "adSetAlias": "company-06-adset-02",
+      "creativeAlias": "company-06-creative-02",
+      "expectedAnswer": "Cut",
+      "verdict": {
+        "contractVersion": "creative-verdict.v1",
+        "phase": "scale",
+        "phaseSource": "spend_threshold",
+        "headline": "Scale Underperformer",
+        "action": "cut",
+        "actionReadiness": "needs_review",
+        "confidence": 0.95,
+        "evidence": [
+          { "tag": "trust_live_confident", "weight": "supporting" },
+          { "tag": "business_validation_missing", "weight": "supporting" },
+          { "tag": "target_pack_missing", "weight": "supporting" },
+          { "tag": "break_even_proxy_used", "weight": "primary" },
+          { "tag": "deployment_limited", "weight": "supporting" },
+          { "tag": "large_spend_scale_phase", "weight": "supporting" },
+          { "tag": "scale_maturity", "weight": "supporting" },
+          { "tag": "below_break_even", "weight": "primary" },
+          { "tag": "baseline_strong", "weight": "supporting" }
+        ],
+        "blockers": [
+          "business_validation_missing",
+          "commercial_truth_target_pack_missing",
+          "deployment_lane_limited"
+        ],
+        "derivedAt": "2026-04-29T00:00:00.000Z"
+      },
+      "displayFacts": {
+        "spend30d": 166.03,
+        "purchases30d": 11,
+        "roas30d": 4.5,
+        "cpa30d": 15.09,
+        "activeStatus": true,
+        "baselineReliability": "strong",
+        "commercialTruthTargetPackConfigured": false,
+        "businessValidationStatus": "missing",
+        "trustState": "live_confident",
+        "deploymentCompatibility": "limited"
+      }
+    }
+  ]
+}

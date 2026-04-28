@@ -378,7 +378,7 @@ describe("CreativesTableSection", () => {
     );
 
     expect(html).toContain("Verdict");
-    expect(html).toContain("needs analysis");
+    expect(html).toContain("NEEDS ANALYSIS");
   });
 
   it("renders the updated heatmap legend copy for the creatives table", () => {

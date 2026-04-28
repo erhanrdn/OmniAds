@@ -50,6 +50,7 @@ import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
 import type { CreativeVerdict } from "@/lib/creative-verdict";
+import { VerdictBand } from "@/components/creatives/VerdictBand";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -266,7 +267,7 @@ function logPerf(label: string, startMs: number, rowCount: number) {
 }
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
-  verdict: { minWidth: 112, preferredWidth: 120 },
+  verdict: { minWidth: 190, preferredWidth: 220 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
@@ -1946,20 +1947,8 @@ const CreativeTableRow = memo(function CreativeTableRow({
       </td>
 
       <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
-        {verdict?.phase === null ? (
-          <span
-            className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-500"
-            title="Bu snapshot eski sürümle üretildi. Re-run analysis tıklayarak güncel kararları alın."
-          >
-            needs analysis
-          </span>
-        ) : verdict?.phase ? (
-          <span
-            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-semibold text-slate-600"
-            title={verdict.phaseSource ? `Phase source: ${verdict.phaseSource}` : undefined}
-          >
-            {verdict.phase}
-          </span>
+        {verdict ? (
+          <VerdictBand verdict={verdict} size="compact" />
         ) : (
           <span className="text-[9px] text-slate-400">-</span>
         )}
