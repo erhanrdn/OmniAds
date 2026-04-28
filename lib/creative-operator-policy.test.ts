@@ -1243,6 +1243,80 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.pushReadiness).toBe("operator_review_required");
   });
 
+  it("routes high-spend below-baseline fatigued winners to Cut even without catastrophic CPA", () => {
+    const cases = [
+      {
+        row: "row-041",
+        spend: 4_800,
+        purchases: 18,
+        roas: 1.14,
+        cpa: 47,
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+      },
+      {
+        row: "row-043",
+        spend: 3_900,
+        purchases: 14,
+        roas: 1.28,
+        cpa: 52,
+        medianRoas: 2,
+        medianCpa: 43,
+        medianSpend: 740,
+      },
+      {
+        row: "row-046",
+        spend: 5_200,
+        purchases: 10,
+        roas: 1.36,
+        cpa: 128,
+        medianRoas: 2,
+        medianCpa: 62,
+        medianSpend: 900,
+      },
+      {
+        row: "row-078",
+        spend: 6_400,
+        purchases: 21,
+        roas: 1.52,
+        cpa: 64,
+        medianRoas: 2,
+        medianCpa: 58,
+        medianSpend: 1_050,
+      },
+    ];
+
+    for (const target of cases) {
+      const policy = assessCreativeOperatorPolicy({
+        ...baseInput(),
+        lifecycleState: "fatigued_winner",
+        primaryAction: "refresh_replace",
+        relativeBaseline: {
+          ...strongBaseline(),
+          medianRoas: target.medianRoas,
+          medianCpa: target.medianCpa,
+          medianSpend: target.medianSpend,
+        },
+        supportingMetrics: {
+          spend: target.spend,
+          purchases: target.purchases,
+          impressions: 120_000,
+          roas: target.roas,
+          cpa: target.cpa,
+          creativeAgeDays: 38,
+          recentRoas: null,
+        },
+      });
+
+      expect(policy.segment, target.row).toBe("spend_waste");
+      expect(policy.state, target.row).toBe("investigate");
+      expect(policy.pushReadiness, target.row).toBe("operator_review_required");
+      expect(policy.queueEligible, target.row).toBe(false);
+      expect(policy.canApply, target.row).toBe(false);
+    }
+  });
+
   it("keeps fatigued winners in Refresh when CPA and ROAS are near benchmark", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -1266,6 +1340,32 @@ describe("assessCreativeOperatorPolicy", () => {
     });
 
     expect(policy.segment).toBe("needs_new_variant");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps low-spend fatigued winners in Refresh when the high-spend Cut floor is not met", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+      },
+      supportingMetrics: {
+        spend: 1_200,
+        purchases: 6,
+        impressions: 45_000,
+        roas: 1.2,
+        cpa: 58,
+        creativeAgeDays: 34,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("fatigued_winner");
     expect(policy.segment).not.toBe("spend_waste");
   });
 
@@ -1304,6 +1404,41 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("campaign_or_adset_context");
   });
 
+  it("keeps high-spend fatigued below-baseline rows in Campaign Check when campaign context is blocked", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      deployment: {
+        targetLane: "Testing",
+        queueVerdict: "board_only" as const,
+        constraints: ["Campaign context limits this creative interpretation."],
+        compatibility: {
+          status: "blocked" as const,
+          reasons: ["Campaign context limits this creative interpretation."],
+        },
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+      },
+      supportingMetrics: {
+        spend: 4_800,
+        purchases: 18,
+        impressions: 120_000,
+        roas: 1.14,
+        cpa: 47,
+        creativeAgeDays: 38,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("investigate");
+    expect(policy.missingEvidence).toContain("campaign_or_adset_context");
+  });
+
   it("does not force fatigued CPA rows to Cut when evidence is thin", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
@@ -1322,6 +1457,115 @@ describe("assessCreativeOperatorPolicy", () => {
 
     expect(policy.segment).toBe("creative_learning_incomplete");
     expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("does not invent high-spend fatigued Cut work when benchmark reliability is weak", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "weak",
+        sampleSize: 2,
+        creativeCount: 2,
+        eligibleCreativeCount: 2,
+        spendBasis: 1_200,
+        purchaseBasis: 2,
+        weightedRoas: 2,
+        weightedCpa: 42,
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+        missingContext: ["Fewer than 3 eligible peer creatives."],
+      },
+      supportingMetrics: {
+        spend: 4_800,
+        purchases: 18,
+        impressions: 120_000,
+        roas: 1.14,
+        cpa: 47,
+        creativeAgeDays: 38,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("fatigued_winner");
+    expect(policy.segment).not.toBe("spend_waste");
+  });
+
+  it("keeps protected no-touch winners protected unless the fatigued failure gate applies safely", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "hold_no_touch",
+      trust: trust({
+        surfaceLane: "watchlist",
+        operatorDisposition: "protected_watchlist",
+      }),
+      fatigue: {
+        status: "fatigued",
+        confidence: 0.8,
+        evidence: ["Frequency pressure is high."],
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+      },
+      supportingMetrics: {
+        spend: 4_800,
+        purchases: 18,
+        impressions: 120_000,
+        roas: 1.14,
+        cpa: 47,
+        creativeAgeDays: 38,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.segment).not.toBe("spend_waste");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+  });
+
+  it("keeps protected refresh-path winners out of the high-spend below-baseline Cut gate", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      trust: trust({
+        surfaceLane: "watchlist",
+        operatorDisposition: "protected_watchlist",
+      }),
+      fatigue: {
+        status: "fatigued",
+        confidence: 0.8,
+        evidence: ["Frequency pressure is high."],
+      },
+      relativeBaseline: {
+        ...strongBaseline(),
+        medianRoas: 2,
+        medianCpa: 42,
+        medianSpend: 900,
+      },
+      supportingMetrics: {
+        spend: 4_800,
+        purchases: 18,
+        impressions: 120_000,
+        roas: 1.14,
+        cpa: 47,
+        creativeAgeDays: 38,
+        recentRoas: null,
+      },
+    });
+
+    expect(policy.segment).toBe("protected_winner");
+    expect(policy.segment).not.toBe("spend_waste");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
   });
 
   it("keeps blocked lifecycle CPA failures conservative when evidence is thin", () => {

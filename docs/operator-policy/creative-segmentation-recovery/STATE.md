@@ -4,11 +4,13 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Harden review-only Scale presentation after the primary-decision UI swap.
+Run the targeted fatigued-winner Cut recalibration before any broader Creative
+segmentation changes.
 
-Creative Recovery remains under product-truth review. PR #71 moved the UI to
-six primary decisions, but review-only Scale rows must never drive direct-scale
-surface emphasis.
+Creative Recovery is not accepted yet. The current pass follows the supervisor
+decision to implement Claude's targeted recalibration direction, not Codex's
+baseline-first rebuild recommendation. This pass changes only the
+`fatigued_winner` / `refresh_replace` Cut admission gate.
 
 ## Program Status
 
@@ -31,11 +33,75 @@ surface emphasis.
 - Creative Decision OS manual snapshots: merged through PR #66
 - Creative primary-decision resolver: merged through PR #69
 - Creative primary-decision UI swap: merged through PR #71
-- Creative review-only Scale surface hardening: implemented in current pass
+- Creative review-only Scale surface hardening: implemented in prior pass
+- fatigued-winner Cut recalibration: implemented in current pass; PR pending
+
+## Fatigued Winner Cut Recalibration
+
+Status: implemented in current branch; PR pending.
+
+Decision:
+
+- no full Creative segmentation rebuild
+- no baseline-first replacement classifier
+- no UI taxonomy change
+- no Scale / Scale Review floor change
+- no queue/push/apply safety change
+
+Issue:
+
+- the targeted issue was real
+- main already had a catastrophic-CPA `fatigued_winner` / `refresh_replace`
+  Cut gate
+- that gate did not cover high-spend below-baseline fatigued winners when CPA
+  was not catastrophic enough to trip the CPA-specific path
+
+Gate fixed:
+
+- added `isFatiguedHighSpendBelowBaselineCutCandidate`
+- admission requires reliable relative baseline, mature evidence, ROAS at or
+  below `0.80x` active benchmark, and spend at least
+  `max(1500, 3x peer median spend)`
+- campaign/ad set context blockers still route to Campaign Check behavior
+- weak/unreliable baselines do not invent Cut
+- protected no-touch winners remain Protect unless the failure gate applies
+  without a protected override
+
+Fixture targets now route to Cut:
+
+- `row-041`
+- `row-043`
+- `row-046`
+- `row-078`
+
+Remaining intentionally out of scope:
+
+- validating Watch -> Refresh
+- lifecycle fatigue classifier up-trend guard
+- Scale / Scale Review recalibration
+- baseline-first classifier replacement
+
+Next recommended action:
+
+- open PR `Recalibrate fatigued winner Cut admission`
+- after this lands, evaluate the validating Watch -> Refresh cluster as a
+  separate narrow pass
+
+Validation note:
+
+- live-firm audit rerun was retried through the SSH database tunnel
+- the tunnel connected, but the helper failed on a database query timeout after
+  `8000ms`
+- no live score movement is claimed from this pass; acceptance is fixture-backed
+  until a fresh audit can complete
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/fatigued-winner-cut-recalibration/final.md`
 
 ## PR #71 P1 Review-Only Scale Surface Issue
 
-Status: fixed in current branch; PR flow pending.
+Status: fixed in prior pass; PR flow pending in this state file.
 
 Issue:
 
@@ -310,8 +376,8 @@ Claude's independent re-review found the PR #59 score claim was overstated:
 - Watch score: `55/100`
 - Refresh score: `73/100`
 - Cut recall: below target because Cut-shaped rows were still hiding in Refresh
-- IwaStore: about `80/100`
-- TheSwaf: about `82/100`
+- pdf-company-01 context: about `80/100`
+- pdf-company-02 context: about `82/100`
 
 Decision: Creative Recovery remains not accepted until the final fixes are reviewed.
 
@@ -351,8 +417,8 @@ Before uses Claude Round 2 independent review. After uses deterministic replay o
 | Watch score | `55/100` | `75/100` |
 | Refresh score | `73/100` | `84/100` |
 | Cut recall | `~77%` | `~92%` |
-| IwaStore | `80/100` | `80/100` |
-| TheSwaf | `82/100` | `82/100` |
+| pdf-company-01 context | `80/100` | `80/100` |
+| pdf-company-02 context | `82/100` | `82/100` |
 
 ## Latest Segment Replay
 
