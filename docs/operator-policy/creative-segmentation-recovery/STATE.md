@@ -4,11 +4,12 @@ Last updated: 2026-04-25 by Codex
 
 ## Current Goal
 
-Harden review-only Scale presentation after the primary-decision UI swap.
+Run an independent media-buyer product-truth review before any further
+Creative segmentation implementation.
 
-Creative Recovery remains under product-truth review. PR #71 moved the UI to
-six primary decisions, but review-only Scale rows must never drive direct-scale
-surface emphasis.
+Creative Recovery is not accepted. The current pass is diagnosis and
+rebuild-planning only; no policy thresholds, UI, queue/push/apply behavior, or
+benchmark-scope behavior were changed.
 
 ## Program Status
 
@@ -31,11 +32,71 @@ surface emphasis.
 - Creative Decision OS manual snapshots: merged through PR #66
 - Creative primary-decision resolver: merged through PR #69
 - Creative primary-decision UI swap: merged through PR #71
-- Creative review-only Scale surface hardening: implemented in current pass
+- Creative review-only Scale surface hardening: merged through PR #72
+- independent media-buyer review: complete in current pass; draft PR pending
+
+## Independent Media Buyer Review
+
+Status: complete in current branch; draft PR pending.
+
+Runtime note:
+
+- a fresh live audit rerun was attempted first
+- it was blocked by the configured database refusing `127.0.0.1:15432`
+- the review used the latest local private live-firm artifact generated
+  `2026-04-25T01:39:10.910Z`
+- that artifact covers 8 readable businesses and 78 sampled creatives from the
+  30 completed days ending `2026-04-24`
+- committed reports and artifacts are sanitized; private names remain only in
+  `/tmp/adsecute-creative-independent-media-buyer-review-local.json`
+
+Agent review status:
+
+- 10 role-based media-buyer lenses were run blind from sanitized raw/live
+  metrics before revealing Adsecute's current segment
+- roles covered performance buying, e-commerce growth, creative strategy,
+  scaling, cut/pause risk, measurement skepticism, profitability, campaign
+  context, fatigue/lifecycle, and UX simplification
+- old-rule challenger output stayed comparison-only
+
+Score summary:
+
+- weighted media-buyer risk score: `83/100`
+- equal-segment macro score: `63/100`
+- raw row accuracy: `65%`
+- reviewed businesses: `8`
+- reviewed creatives: `78`
+
+Top failure patterns:
+
+- Watch hiding Refresh-shaped action
+- Refresh softening Cut-shaped waste
+- relative winners softened into Refresh instead of Scale Review
+- thin-evidence rows overclassified into active actions
+- eligibility/status rows not translating cleanly into media-buyer decisions
+
+Recommended direction:
+
+- **baseline-first rebuild needed** for the classifier layer
+- preserve existing safety, provenance, benchmark, snapshot, and instruction
+  layers
+- do not continue one-row threshold patching unless a new review proves the
+  remaining misses collapse to one narrow gate family
+
+Next recommended action:
+
+- open draft PR `Creative independent media buyer review`
+- ask for an independent review of the evidence
+- if accepted, implement a parallel report-only baseline-first media-buyer
+  action classifier before connecting anything to UI or policy
+
+Report:
+
+- `docs/operator-policy/creative-segmentation-recovery/reports/independent-media-buyer-review/final.md`
 
 ## PR #71 P1 Review-Only Scale Surface Issue
 
-Status: fixed in current branch; PR flow pending.
+Status: fixed and merged through PR #72.
 
 Issue:
 
@@ -82,8 +143,8 @@ Report:
 
 Next recommended action:
 
-- open PR `Harden review-only Scale surface emphasis`
-- after merge, rerun Claude primary-decision UI review
+- complete; use the independent media-buyer review as the next product-truth
+  input before any further implementation
 
 ## Creative Primary-Decision Resolver
 
@@ -310,8 +371,8 @@ Claude's independent re-review found the PR #59 score claim was overstated:
 - Watch score: `55/100`
 - Refresh score: `73/100`
 - Cut recall: below target because Cut-shaped rows were still hiding in Refresh
-- IwaStore: about `80/100`
-- TheSwaf: about `82/100`
+- pdf-company-01 context: about `80/100`
+- pdf-company-02 context: about `82/100`
 
 Decision: Creative Recovery remains not accepted until the final fixes are reviewed.
 
@@ -351,8 +412,8 @@ Before uses Claude Round 2 independent review. After uses deterministic replay o
 | Watch score | `55/100` | `75/100` |
 | Refresh score | `73/100` | `84/100` |
 | Cut recall | `~77%` | `~92%` |
-| IwaStore | `80/100` | `80/100` |
-| TheSwaf | `82/100` | `82/100` |
+| pdf-company-01 context | `80/100` | `80/100` |
+| pdf-company-02 context | `82/100` | `82/100` |
 
 ## Latest Segment Replay
 
