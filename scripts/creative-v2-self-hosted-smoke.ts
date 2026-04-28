@@ -26,12 +26,10 @@ const forbiddenInternalTerms = [
 
 const writeMethods = ["POST", "PUT", "PATCH", "DELETE"];
 const previewFlagQuery = "creativeDecisionOsV2Preview=1";
-const previewDisableQuery = "creativeDecisionOsV2Preview=0";
 const previewSurfaceTestId = "creative-v2-preview-surface";
 const previewVisibilityTimeoutMs = 45_000;
 const previewRoutes = {
-  default: "/creatives",
-  disabled: `/creatives?${previewDisableQuery}`,
+  withoutFlag: "/creatives",
   withFlag: `/creatives?${previewFlagQuery}`,
 } as const;
 
@@ -114,14 +112,8 @@ async function main() {
     });
   });
 
-  phase = "default";
-  await page.goto(`${baseUrl}${previewRoutes.default}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await expectPreviewSurfaceVisible(page);
-
-  phase = "disabled";
-  await page.goto(`${baseUrl}${previewRoutes.disabled}`, {
+  phase = "no_flag";
+  await page.goto(`${baseUrl}${previewRoutes.withoutFlag}`, {
     waitUntil: "domcontentloaded",
   });
   await expect(page.getByTestId(previewSurfaceTestId)).toHaveCount(0);
@@ -151,8 +143,7 @@ async function main() {
   const result = {
     selfHostedRuntimeSmoke: "completed",
     domainRecorded: false,
-    defaultV2PreviewVisible: true,
-    disabledV2PreviewVisible: false,
+    noFlagV2PreviewVisible: false,
     withFlagV2PreviewVisible: true,
     todayPriorityVisible: true,
     scaleReadyCopyVisible: true,
