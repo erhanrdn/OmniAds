@@ -414,6 +414,93 @@ describe("CreativeDetailExperience", () => {
     expect(html).toContain("/commercial-truth");
   });
 
+  it("shows an amber phase migration badge for legacy verdict snapshots", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const decisionOsRow = buildDecisionOsRow(row.id, {
+      verdict: {
+        contractVersion: "creative-verdict.v1",
+        phase: null,
+        headline: "Needs Diagnosis",
+        action: "diagnose",
+        actionReadiness: "blocked",
+        confidence: 0.6,
+        evidence: [],
+        blockers: [],
+        derivedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{ creatives: [decisionOsRow] } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Phase: bilinmiyor");
+    expect(html).toContain("Bu snapshot eski");
+    expect(html).toContain("Re-run analysis");
+  });
+
+  it("shows the Promote to Scale CTA for ready test winners", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const decisionOsRow = buildDecisionOsRow(row.id, {
+      verdict: {
+        contractVersion: "creative-verdict.v1",
+        phase: "test",
+        phaseSource: "default_test",
+        headline: "Test Winner",
+        action: "scale",
+        actionReadiness: "ready",
+        confidence: 0.86,
+        evidence: [{ tag: "above_break_even", weight: "primary" }],
+        blockers: [],
+        derivedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{ creatives: [decisionOsRow] } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Promote to Scale");
+  });
+
   it("keeps AI interpretation support-only when preview truth is ready", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({

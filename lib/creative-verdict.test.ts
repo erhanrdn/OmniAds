@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveCreativePhase,
+  deriveCreativePhaseResolution,
+  parseCreativePhaseNamingConvention,
   resolveCreativeBreakEvenRoas,
   resolveCreativeVerdict,
   type CreativeVerdictInput,
@@ -48,6 +50,7 @@ function row(overrides: Partial<CreativeVerdictInput> = {}): CreativeVerdictInpu
       deploymentCompatibility: "compatible",
       campaignIsTestLike: false,
     },
+    campaign: null,
     now: NOW,
   };
   return {
@@ -62,6 +65,12 @@ function row(overrides: Partial<CreativeVerdictInput> = {}): CreativeVerdictInpu
     },
     commercialTruth: { ...base.commercialTruth, ...overrides.commercialTruth },
     context: { ...base.context, ...overrides.context },
+    campaign:
+      overrides.campaign === undefined
+        ? base.campaign
+        : overrides.campaign === null
+          ? null
+          : { ...(base.campaign ?? {}), ...overrides.campaign },
   };
 }
 
@@ -107,8 +116,10 @@ describe("resolveCreativeVerdict fatigue policy", () => {
 });
 
 describe("resolveCreativeVerdict spend-tier phase exit", () => {
-  it("forces scale phase at 5000 spend", () => {
-    const result = resolveCreativeVerdict(row({ metrics: { spend30d: 5_000, purchases30d: 4 } }));
+  it("forces scale phase at 5000 spend when relative evidence and purchases are mature", () => {
+    const result = resolveCreativeVerdict(row({
+      metrics: { spend30d: 5_000, purchases30d: 8, relative: { spendToMedian: 1.5 } },
+    }));
 
     expect(result.phase).toBe("scale");
   });
@@ -121,13 +132,14 @@ describe("resolveCreativeVerdict spend-tier phase exit", () => {
     expect(result.phase).toBe("scale");
   });
 
-  it("does not keep large test-campaign spend in test phase", () => {
+  it("keeps large spend in test phase when it is below peer scale maturity", () => {
     const result = resolveCreativeVerdict(row({
       metrics: { spend30d: 12_000, purchases30d: 2 },
-      context: { campaignIsTestLike: true },
+      campaign: { namingConvention: "TEST_001" },
     }));
 
-    expect(result.phase).toBe("scale");
+    expect(result.phase).toBe("test");
+    expect(result.phaseSource).toBe("naming_convention");
   });
 });
 
@@ -340,6 +352,74 @@ describe("resolveCreativeVerdict action readiness", () => {
 });
 
 describe("deriveCreativePhase", () => {
+  it("parses test naming conventions", () => {
+    expect(parseCreativePhaseNamingConvention("TEST_creative_validation")).toBe("test");
+    expect(parseCreativePhaseNamingConvention("T_03 angle lab")).toBe("test");
+    expect(parseCreativePhaseNamingConvention("spring_offer_TEST")).toBe("test");
+  });
+
+  it("parses scale naming conventions", () => {
+    expect(parseCreativePhaseNamingConvention("SCALE_winners")).toBe("scale");
+    expect(parseCreativePhaseNamingConvention("S-12 evergreen")).toBe("scale");
+    expect(parseCreativePhaseNamingConvention("CBO_core")).toBe("scale");
+    expect(parseCreativePhaseNamingConvention("ABO_core")).toBe("scale");
+  });
+
+  it("lets explicit test families override spend until fatigue is present", () => {
+    const testFamily = deriveCreativePhaseResolution({
+      spend30d: 8_500,
+      purchases30d: 2,
+      activeStatus: true,
+      baseline: { medianSpend: 200 },
+      relative: { spendToMedian: 6 },
+      campaign: { metaFamily: "test_dct" },
+      breakEvenRoas: 2,
+    });
+
+    expect(testFamily.phase).toBe("test");
+    expect(testFamily.phaseSource).toBe("campaign_family_explicit");
+
+    const fatiguedTestFamily = deriveCreativePhaseResolution({
+      spend30d: 300,
+      purchases30d: 4,
+      activeStatus: true,
+      recent7d: { spend: 90, roas: 0 },
+      long90d: { roas: 3 },
+      baseline: { medianSpend: 200 },
+      campaign: { metaFamily: "test_dct" },
+      breakEvenRoas: 2,
+    });
+
+    expect(fatiguedTestFamily.phase).toBe("post-scale");
+    expect(fatiguedTestFamily.phaseSource).toBe("fatigue_override_in_test_family");
+  });
+
+  it("uses explicit scale families as campaign-family phase signals", () => {
+    const result = deriveCreativePhaseResolution({
+      spend30d: 120,
+      purchases30d: 1,
+      activeStatus: true,
+      baseline: { medianSpend: 200 },
+      campaign: { metaFamily: "scale_cbo" },
+      breakEvenRoas: 2,
+    });
+
+    expect(result.phase).toBe("scale");
+    expect(result.phaseSource).toBe("campaign_family_explicit");
+  });
+
+  it("keeps low-spend zero-recent rows in test instead of post-scale", () => {
+    expect(deriveCreativePhase({
+      spend30d: 62,
+      purchases30d: 5,
+      activeStatus: true,
+      recent7d: { spend: 20, roas: 0 },
+      long90d: { roas: 5.27 },
+      baseline: { medianSpend: 27 },
+      breakEvenRoas: 2,
+    })).toBe("test");
+  });
+
   it("derives scale for mature active rows above two median spends and eight purchases", () => {
     expect(deriveCreativePhase({
       spend30d: 450,

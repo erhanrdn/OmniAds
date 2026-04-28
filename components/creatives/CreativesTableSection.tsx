@@ -49,6 +49,7 @@ import { type CreativeDecisionOs } from "@/src/services";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
+import type { CreativeVerdict } from "@/lib/creative-verdict";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -218,6 +219,7 @@ export interface HeatEvaluation {
 
 interface CreativeTableRowProps {
   row: MetaCreativeRow;
+  verdict?: CreativeVerdict | null;
   isSelected: boolean;
   highlighted: boolean;
   defaultCurrency: string | null;
@@ -264,6 +266,7 @@ function logPerf(label: string, startMs: number, rowCount: number) {
 }
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
+  verdict: { minWidth: 112, preferredWidth: 120 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
@@ -276,6 +279,7 @@ function getDefaultColumnWidths(): Record<string, number> {
   }, {});
   return {
     creativeName: STATIC_COLUMN_SPECS.creativeName.preferredWidth,
+    verdict: STATIC_COLUMN_SPECS.verdict.preferredWidth,
     launchDate: STATIC_COLUMN_SPECS.launchDate.preferredWidth,
     activeStatus: STATIC_COLUMN_SPECS.activeStatus.preferredWidth,
     adLength: STATIC_COLUMN_SPECS.adLength.preferredWidth,
@@ -721,6 +725,7 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 export function CreativesTableSection({
   rows,
   creativeHistoryById,
+  decisionOs,
   defaultCurrency,
   initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
@@ -812,6 +817,13 @@ export function CreativesTableSection({
   }, [tagsSearch]);
 
   const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
+  const verdictByCreativeId = useMemo(() => {
+    const next = new Map<string, CreativeVerdict>();
+    for (const creative of decisionOs?.creatives ?? []) {
+      if (creative.verdict) next.set(creative.creativeId, creative.verdict);
+    }
+    return next;
+  }, [decisionOs]);
 
   const ctx: TableCalcContext = useMemo(
     () => ({
@@ -939,6 +951,7 @@ export function CreativesTableSection({
   const totalTableWidth = useMemo(() => {
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
     let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
+    w += cw("verdict", STATIC_COLUMN_SPECS.verdict.minWidth, STATIC_COLUMN_SPECS.verdict.preferredWidth);
     if (tablePreset.showLaunchDate) w += cw("launchDate", STATIC_COLUMN_SPECS.launchDate.minWidth, STATIC_COLUMN_SPECS.launchDate.preferredWidth);
     if (tablePreset.showActiveStatus) w += cw("activeStatus", STATIC_COLUMN_SPECS.activeStatus.minWidth, STATIC_COLUMN_SPECS.activeStatus.preferredWidth);
     if (tablePreset.showAdLength) w += cw("adLength", STATIC_COLUMN_SPECS.adLength.minWidth, STATIC_COLUMN_SPECS.adLength.preferredWidth);
@@ -952,7 +965,7 @@ export function CreativesTableSection({
     return w;
   }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
   const tableColumnCount =
-    1 +
+    2 +
     selectedColumns.length +
     selectedAiTagColumns.length +
     Number(tablePreset.showLaunchDate) +
@@ -1462,6 +1475,35 @@ export function CreativesTableSection({
                 </div>
               </th>
 
+              <th
+                className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
+                style={{
+                  minWidth: STATIC_COLUMN_SPECS.verdict.minWidth,
+                  width: getColumnWidth(
+                    "verdict",
+                    STATIC_COLUMN_SPECS.verdict.minWidth,
+                    STATIC_COLUMN_SPECS.verdict.preferredWidth
+                  ),
+                }}
+              >
+                Verdict
+                <button
+                  type="button"
+                  aria-label="Resize Verdict column"
+                  className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
+                  onMouseDown={(event) =>
+                    startColumnResize(
+                      event,
+                      "verdict",
+                      STATIC_COLUMN_SPECS.verdict.minWidth,
+                      STATIC_COLUMN_SPECS.verdict.preferredWidth
+                    )
+                  }
+                >
+                  <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
+                </button>
+              </th>
+
               {tablePreset.showLaunchDate && (
                 <th
                   className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
@@ -1679,6 +1721,7 @@ export function CreativesTableSection({
               <CreativeTableRow
                 key={row.id}
                 row={row}
+                verdict={verdictByCreativeId.get(row.id) ?? null}
                 isSelected={selectedRowIdSet.has(row.id)}
                 highlighted={highlightedRowId === row.id}
                 defaultCurrency={defaultCurrency}
@@ -1716,6 +1759,7 @@ export function CreativesTableSection({
                 Net Results
               </td>
 
+              <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>
               {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
@@ -1828,6 +1872,7 @@ export function CreativesTableSection({
 
 const CreativeTableRow = memo(function CreativeTableRow({
   row,
+  verdict,
   isSelected,
   highlighted,
   defaultCurrency,
@@ -1898,6 +1943,26 @@ const CreativeTableRow = memo(function CreativeTableRow({
             </p>
           </div>
         </div>
+      </td>
+
+      <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
+        {verdict?.phase === null ? (
+          <span
+            className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-500"
+            title="Bu snapshot eski sürümle üretildi. Re-run analysis tıklayarak güncel kararları alın."
+          >
+            needs analysis
+          </span>
+        ) : verdict?.phase ? (
+          <span
+            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-semibold text-slate-600"
+            title={verdict.phaseSource ? `Phase source: ${verdict.phaseSource}` : undefined}
+          >
+            {verdict.phase}
+          </span>
+        ) : (
+          <span className="text-[9px] text-slate-400">-</span>
+        )}
       </td>
 
       {tablePreset.showLaunchDate && (

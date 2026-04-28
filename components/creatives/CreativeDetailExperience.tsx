@@ -225,6 +225,7 @@ export function CreativeDetailExperience({
   const language = usePreferencesStore((state) => state.language);
   const creativeTranslations = getTranslations(language).creativeDetail;
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
+  const [scalePromotionNotice, setScalePromotionNotice] = useState<string | null>(null);
   const livePreviewStageRef = useRef<HTMLDivElement | null>(null);
   const livePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [livePreviewScale, setLivePreviewScale] = useState(1);
@@ -366,6 +367,24 @@ export function CreativeDetailExperience({
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("verdictContract") === "v0";
   const previewTruth = decisionOsCreative?.previewStatus ?? null;
+  const handlePromoteToScale = () => {
+    if (!row || !decisionOsCreative?.verdict) return;
+    const event = {
+      eventName: "creative_promote_to_scale_requested",
+      creativeId: row.id,
+      businessId,
+      verdict: {
+        headline: decisionOsCreative.verdict.headline,
+        action: decisionOsCreative.verdict.action,
+        actionReadiness: decisionOsCreative.verdict.actionReadiness,
+        phase: decisionOsCreative.verdict.phase,
+        phaseSource: decisionOsCreative.verdict.phaseSource ?? null,
+      },
+    };
+    console.info("[creative_promote_to_scale_requested]", event);
+    window.dispatchEvent(new CustomEvent("creative_promote_to_scale_requested", { detail: event }));
+    setScalePromotionNotice("Scale promotion logged. Live mutation will be available in Faz E.");
+  };
   const canGenerateAiInterpretation =
     decisionOsCreative?.trust.truthState === "live_confident" &&
     previewTruth?.liveDecisionWindow === "ready";
@@ -706,6 +725,12 @@ export function CreativeDetailExperience({
 
               {/* Block 1: Verdict */}
               {(() => {
+                const verdict = decisionOsCreative.verdict;
+                const phaseMissing = verdict?.phase === null;
+                const canPromoteToScale =
+                  verdict?.headline === "Test Winner" &&
+                  verdict.action === "scale" &&
+                  verdict.actionReadiness === "ready";
                 const breakEvenProxyUsed = decisionOsCreative.verdict?.evidence.some(
                   (item) => item.tag === "break_even_proxy_used",
                 );
@@ -740,6 +765,39 @@ export function CreativeDetailExperience({
                           </a>
                         </div>
                       </details>
+                    ) : null}
+                    {verdict ? (
+                      phaseMissing ? (
+                        <details className="group relative w-fit px-1">
+                          <summary className="inline-flex cursor-help list-none items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 [&::-webkit-details-marker]:hidden">
+                            Phase: bilinmiyor <span aria-hidden="true">i</span>
+                          </summary>
+                          <div className="absolute left-1 z-20 mt-1 w-72 rounded-lg border border-amber-200 bg-white p-3 text-[11px] leading-relaxed text-slate-600 shadow-lg">
+                            Bu snapshot eski sürümle üretildi. &apos;Re-run analysis&apos; tıklayarak güncel kararları alın.
+                          </div>
+                        </details>
+                      ) : (
+                        <span
+                          className="ml-1 inline-flex w-fit items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600"
+                          title={`Phase source: ${verdict.phaseSource ?? "resolver"}`}
+                        >
+                          Phase: {verdict.phase}
+                        </span>
+                      )
+                    ) : null}
+                    {canPromoteToScale ? (
+                      <div className="flex flex-col items-start gap-1 px-1">
+                        <button
+                          type="button"
+                          onClick={handlePromoteToScale}
+                          className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                        >
+                          Promote to Scale
+                        </button>
+                        {scalePromotionNotice ? (
+                          <p className="text-[11px] font-medium text-emerald-700">{scalePromotionNotice}</p>
+                        ) : null}
+                      </div>
                     ) : null}
                     <p className="px-1 text-[13px] leading-relaxed text-slate-600">{decisionOsCreative.summary}</p>
                     {previewTruth?.liveDecisionWindow !== "ready" ? (

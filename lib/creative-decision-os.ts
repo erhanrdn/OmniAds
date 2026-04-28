@@ -3163,6 +3163,7 @@ export function buildCreativeDecisionOs(
   }
 
   const campaignsById = new Map((input.campaigns ?? []).map((campaign) => [campaign.id, campaign]));
+  const campaignLaneSignals = buildMetaCampaignLaneSignals(input.campaigns ?? []);
   const locationRows = input.breakdowns?.location ?? [];
   const familySeeds = buildCreativeFamilySeeds(rows);
   const metricContext = buildMetricContext(rows);
@@ -3185,6 +3186,10 @@ export function buildCreativeDecisionOs(
     const familyRows = familyRowsById.get(familySeed.familyId) ?? [row];
     const familyProvenance = buildFamilyProvenance(familySeed, familyRows);
     const metaFamily = metaFamilyFromRow(row, campaignsById);
+    const currentCampaign = row.campaignId ? campaignsById.get(row.campaignId) ?? null : null;
+    const currentCampaignLane = currentCampaign
+      ? resolveCampaignLane(currentCampaign, campaignLaneSignals)
+      : null;
     const benchmark = selectBenchmark(row, familyRows, rows, metaFamily);
     const relativeBaseline = buildRelativeBaseline({
       row,
@@ -3420,6 +3425,11 @@ export function buildCreativeDecisionOs(
         trustState: trust.truthState,
         deploymentCompatibility: deployment.compatibility.status,
         campaignIsTestLike: deliveryContext.campaignIsTestLike,
+      },
+      campaign: {
+        metaFamily,
+        lane: currentCampaignLane,
+        namingConvention: deliveryContext.campaignName,
       },
       now: decisionMetadata.decisionAsOf,
     });

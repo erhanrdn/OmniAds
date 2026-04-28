@@ -120,7 +120,7 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
   };
 }
 
-function buildDecisionOsRow(rowId: string) {
+function buildDecisionOsRow(rowId: string, overrides: Record<string, unknown> = {}) {
   return {
     creativeId: rowId,
     familyId: "family_1",
@@ -257,6 +257,7 @@ function buildDecisionOsRow(rowId: string) {
         materiality: "material",
       },
     },
+    ...overrides,
   } as any;
 }
 
@@ -341,6 +342,43 @@ describe("CreativesTableSection", () => {
     expect(html).not.toContain("Blocked");
     expect(html).not.toContain("metrics-only");
     expect(html).not.toContain("Promote now");
+  });
+
+  it("marks legacy null-phase verdicts as needing analysis in the verdict column", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        decisionOs={{
+          creatives: [
+            buildDecisionOsRow(row.id, {
+              verdict: {
+                contractVersion: "creative-verdict.v1",
+                phase: null,
+                headline: "Needs Diagnosis",
+                action: "diagnose",
+                actionReadiness: "blocked",
+                confidence: 0.5,
+                evidence: [],
+                blockers: [],
+                derivedAt: "2026-04-29T00:00:00.000Z",
+              },
+            }),
+          ],
+        } as any}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Verdict");
+    expect(html).toContain("needs analysis");
   });
 
   it("renders the updated heatmap legend copy for the creatives table", () => {

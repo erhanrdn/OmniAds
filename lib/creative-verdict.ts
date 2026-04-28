@@ -1,6 +1,21 @@
-import { deriveCreativePhase, type CreativePhase } from "@/lib/creative-phase";
+import {
+  CREATIVE_PHASE_SOURCES,
+  deriveCreativePhase,
+  deriveCreativePhaseResolution,
+  parseCreativePhaseNamingConvention,
+  type CreativePhase,
+  type CreativePhaseSource,
+} from "@/lib/creative-phase";
 
-export { CREATIVE_PHASES, deriveCreativePhase, type CreativePhase } from "@/lib/creative-phase";
+export {
+  CREATIVE_PHASES,
+  CREATIVE_PHASE_SOURCES,
+  deriveCreativePhase,
+  deriveCreativePhaseResolution,
+  parseCreativePhaseNamingConvention,
+  type CreativePhase,
+  type CreativePhaseSource,
+} from "@/lib/creative-phase";
 
 export const CREATIVE_VERDICT_VERSION = "creative-verdict.v1" as const;
 
@@ -76,7 +91,8 @@ export interface CreativeReason {
 
 export interface CreativeVerdict {
   contractVersion: typeof CREATIVE_VERDICT_VERSION;
-  phase: CreativePhase;
+  phase: CreativePhase | null;
+  phaseSource?: CreativePhaseSource | null;
   headline: CreativeVerdictHeadline;
   action: CreativeAction;
   actionReadiness: CreativeActionReadiness;
@@ -84,6 +100,11 @@ export interface CreativeVerdict {
   evidence: CreativeReason[];
   blockers: CreativeBlockerReason[];
   derivedAt: string;
+}
+
+export interface ResolvedCreativeVerdict extends CreativeVerdict {
+  phase: CreativePhase;
+  phaseSource: CreativePhaseSource;
 }
 
 export type CreativeBusinessValidationStatus =
@@ -154,6 +175,11 @@ export interface CreativeVerdictInput {
     deploymentCompatibility?: string | null;
     campaignIsTestLike?: boolean | null;
   };
+  campaign?: {
+    metaFamily?: string | null;
+    lane?: string | null;
+    namingConvention?: string | null;
+  } | null;
   now?: string | Date | null;
 }
 
@@ -237,28 +263,6 @@ function spendToMedian(input: CreativeVerdictInput) {
   return spend / median;
 }
 
-function recentToLongRatio(input: CreativeVerdictInput) {
-  const explicit = input.metrics.relative?.recent7ToLong90Roas;
-  if (finite(explicit)) return explicit;
-  const recent = input.metrics.recent7d?.roas;
-  const long = input.metrics.long90d?.roas;
-  if (!finite(recent) || !finite(long) || long <= 0) return null;
-  return recent / long;
-}
-
-function hasFatigue(input: CreativeVerdictInput, breakEven: number) {
-  const recentRoas = input.metrics.recent7d?.roas;
-  const long90Roas = input.metrics.long90d?.roas;
-  if (!finite(recentRoas) || !finite(long90Roas) || long90Roas <= 0) {
-    return false;
-  }
-  const ratio = recentRoas / long90Roas;
-  if (ratio < 0.55 && recentRoas < breakEven * 0.6 && long90Roas >= breakEven) {
-    return true;
-  }
-  return ratio < 0.4 && n(input.metrics.recent7d?.spend) > 30;
-}
-
 function pushEvidence(
   evidence: CreativeReason[],
   seen: Set<CreativeReasonTag>,
@@ -332,7 +336,7 @@ function deriveReadiness(input: {
   return "needs_review" satisfies CreativeActionReadiness;
 }
 
-export function resolveCreativeVerdict(input: CreativeVerdictInput): CreativeVerdict {
+export function resolveCreativeVerdict(input: CreativeVerdictInput): ResolvedCreativeVerdict {
   const evidence: CreativeReason[] = [];
   const seenEvidence = new Set<CreativeReasonTag>();
   const blockers: CreativeBlockerReason[] = [];
@@ -351,20 +355,19 @@ export function resolveCreativeVerdict(input: CreativeVerdictInput): CreativeVer
   );
   const targetPackConfigured = input.commercialTruth.targetPackConfigured === true;
   const active = input.delivery.activeStatus === true;
-  const fatigue = hasFatigue(input, breakEven);
-
-  const phase = fatigue
-    ? "post-scale"
-    : deriveCreativePhase({
-        spend30d: input.metrics.spend30d,
-        purchases30d: input.metrics.purchases30d,
-        activeStatus: input.delivery.activeStatus,
-        baseline: { medianSpend: input.baseline.selected?.medianSpend },
-        relative: { spendToMedian: spendRatio },
-        recent7d: input.metrics.recent7d,
-        long90d: input.metrics.long90d,
-        breakEvenRoas: breakEven,
-      });
+  const phaseResolution = deriveCreativePhaseResolution({
+    spend30d: input.metrics.spend30d,
+    purchases30d: input.metrics.purchases30d,
+    activeStatus: input.delivery.activeStatus,
+    baseline: { medianSpend: input.baseline.selected?.medianSpend },
+    relative: { spendToMedian: spendRatio },
+    recent7d: input.metrics.recent7d,
+    long90d: input.metrics.long90d,
+    breakEvenRoas: breakEven,
+    campaign: input.campaign,
+  });
+  const phase = phaseResolution.phase;
+  const fatigue = phaseResolution.fatigueDetected;
 
   const hardTruthBlocker =
     trustState === "degraded_missing_truth" && validationStatus === "missing";
@@ -514,6 +517,7 @@ export function resolveCreativeVerdict(input: CreativeVerdictInput): CreativeVer
   return {
     contractVersion: CREATIVE_VERDICT_VERSION,
     phase,
+    phaseSource: phaseResolution.phaseSource,
     headline,
     action,
     actionReadiness,
