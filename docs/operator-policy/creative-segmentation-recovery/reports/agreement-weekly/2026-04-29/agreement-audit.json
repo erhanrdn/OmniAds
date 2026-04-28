@@ -1,0 +1,2571 @@
+{
+  "version": "creative-agreement-audit.v1",
+  "generatedAt": "2026-04-28T23:13:52.699Z",
+  "gold": {
+    "path": "docs/team-comms/happy-harbor/audit-E/gold-v1.json",
+    "version": "happy-harbor.gold-v1.v1",
+    "generatedAt": "2026-04-28T23:06:36.200Z",
+    "target": {
+      "requestedRows": 1500,
+      "actualRows": 304,
+      "status": "source_limited",
+      "note": "Runtime-readable live source contains fewer than 1,500 unique creative rows; artifact keeps real rows only and does not synthesize labels."
+    }
+  },
+  "result": {
+    "macroF1": 100,
+    "perDecision": [
+      {
+        "decision": "Scale",
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      },
+      {
+        "decision": "Cut",
+        "tp": 12,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      },
+      {
+        "decision": "Refresh",
+        "tp": 19,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      },
+      {
+        "decision": "Protect",
+        "tp": 9,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      },
+      {
+        "decision": "Test More",
+        "tp": 114,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      },
+      {
+        "decision": "Diagnose",
+        "tp": 144,
+        "fp": 0,
+        "fn": 0,
+        "precision": 100,
+        "recall": 100,
+        "f1": 100
+      }
+    ],
+    "confusionMatrix": {
+      "Scale": {
+        "Scale": 6,
+        "Cut": 0,
+        "Refresh": 0,
+        "Protect": 0,
+        "Test More": 0,
+        "Diagnose": 0
+      },
+      "Cut": {
+        "Scale": 0,
+        "Cut": 12,
+        "Refresh": 0,
+        "Protect": 0,
+        "Test More": 0,
+        "Diagnose": 0
+      },
+      "Refresh": {
+        "Scale": 0,
+        "Cut": 0,
+        "Refresh": 19,
+        "Protect": 0,
+        "Test More": 0,
+        "Diagnose": 0
+      },
+      "Protect": {
+        "Scale": 0,
+        "Cut": 0,
+        "Refresh": 0,
+        "Protect": 9,
+        "Test More": 0,
+        "Diagnose": 0
+      },
+      "Test More": {
+        "Scale": 0,
+        "Cut": 0,
+        "Refresh": 0,
+        "Protect": 0,
+        "Test More": 114,
+        "Diagnose": 0
+      },
+      "Diagnose": {
+        "Scale": 0,
+        "Cut": 0,
+        "Refresh": 0,
+        "Protect": 0,
+        "Test More": 0,
+        "Diagnose": 144
+      }
+    },
+    "mismatchCounts": {
+      "severe": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "none": 304
+    },
+    "passed": true,
+    "thresholds": {
+      "macroF1Min": 90,
+      "maxSevere": 0,
+      "maxHigh": 5
+    }
+  },
+  "rows": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-19",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-20",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-10",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-25",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-26",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-28",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-29",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-30",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-31",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-32",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-33",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-34",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-35",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-09",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-16",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-02|company-04-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-19",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-25",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-26",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-30",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-31",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-39",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-41",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-43",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-42",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-20",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-21",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-36",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-18",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-22",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-24",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-28",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-32",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-35",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-23",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-33",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-34",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-37",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-38",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-40",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-11|company-04-adset-02|company-04-creative-27",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-12|company-04-adset-05|company-04-creative-29",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-16",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-17",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-18",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-34",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-21",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-19",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-22",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-24",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-26",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-27",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-28",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-29",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-31",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-33",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-35",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-36",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-37",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-43",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-44",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-45",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-09",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-10",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-12",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-13",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-15",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-20",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-25",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-30",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-32",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-11",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-46",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-49",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-51",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-52",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-53",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-54",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-56",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-47",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-50",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-55",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-48",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-57",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-58",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-59",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-23",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-25",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-27",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-29",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-38",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-46",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-48",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-57",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-59",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-63",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-64",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-65",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-21",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-40",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-44",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-49",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-54",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-55",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-58",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-66",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-12",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-39",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-40",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-34",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-37",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-38",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-03",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-17",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-28",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-30",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-04",
+      "source": "sample-200-core",
+      "goldDecision": "Cut",
+      "resolverDecision": "Cut",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-29",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-05",
+      "source": "sample-200-core",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
+      "source": "sample-200-core",
+      "goldDecision": "Scale",
+      "resolverDecision": "Scale",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-18",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-19",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-06",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-11",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-13",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-15",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-31",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-08",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-14",
+      "source": "sample-200-core",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-16",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
+      "source": "sample-200-core",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "three_rater_joined"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-01",
+      "source": "extended-live-cohort",
+      "goldDecision": "Protect",
+      "resolverDecision": "Protect",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-09",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-11",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-12",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-13",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-14",
+      "source": "extended-live-cohort",
+      "goldDecision": "Refresh",
+      "resolverDecision": "Refresh",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-15",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-16",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-17",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-18",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-21",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-22",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-23",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-24",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-10",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-11",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-12",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-13",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-14",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-15",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-04",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-09",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-05|company-04-adset-04|company-04-creative-10",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-05|company-04-adset-04|company-04-creative-11",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-05|company-04-adset-04|company-04-creative-12",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-13",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-44",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-45",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-46",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-47",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-38",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-39",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-40",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-41",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-42",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-07",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-08",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-09",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-10",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-11",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-12",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-13",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-14",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-15",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-16",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-17",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-18",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-19",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-20",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-22",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-23",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-24",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-26",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-28",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-30",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-31",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-32",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-33",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-34",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-35",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-36",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-37",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-39",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-41",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-42",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-43",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-45",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-47",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-50",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-51",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-52",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-53",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-56",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-60",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-61",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-62",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-12",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-14",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-15",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-16",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-17",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-18",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-19",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-20",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-02|company-07-adset-02|company-07-creative-21",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-22",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-23",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-24",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-25",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-02|company-07-adset-02|company-07-creative-26",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-27",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-28",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-02|company-07-adset-02|company-07-creative-29",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-02|company-07-adset-02|company-07-creative-30",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-02|company-07-adset-02|company-07-creative-31",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-32",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-33",
+      "source": "extended-live-cohort",
+      "goldDecision": "Test More",
+      "resolverDecision": "Test More",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-21",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-22",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-23",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-24",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-25",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-26",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-27",
+      "source": "extended-live-cohort",
+      "goldDecision": "Diagnose",
+      "resolverDecision": "Diagnose",
+      "severity": "none",
+      "goldStatus": "resolver_codex_joined_claude_tbd"
+    }
+  ]
+}

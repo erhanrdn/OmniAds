@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "test": "vitest run",
+    "creative:agreement-audit": "node --import tsx scripts/creative-agreement-audit.ts",
     "creative:v2:safety": "node --import tsx scripts/creative-v2-safety-gate.ts",
     "creative:v2:self-hosted-smoke": "node --import tsx scripts/creative-v2-self-hosted-smoke.ts",
     "test:local-db": "node --import tsx scripts/with-local-postgres.ts -- vitest run",
