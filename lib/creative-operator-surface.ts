@@ -652,9 +652,64 @@ function finalizeCreativeOperatorDecision(
   };
 }
 
+function resolveCanonicalVerdictDecision(
+  creative: CreativeDecisionOsCreative,
+): CreativeOperatorDecisionResolution | null {
+  const verdict = creative.verdict ?? null;
+  if (!verdict) return null;
+  const primary: CreativeOperatorPrimaryDecision =
+    verdict.action === "keep_testing" ? "test_more" : verdict.action;
+  const reasons: CreativeOperatorReasonTag[] = [];
+  for (const evidence of verdict.evidence) {
+    switch (evidence.tag) {
+      case "business_validation_missing":
+        reasons.push("business_validation_missing");
+        break;
+      case "target_pack_missing":
+      case "trust_degraded_missing_truth":
+        reasons.push("commercial_truth_missing");
+        break;
+      case "deployment_limited":
+        reasons.push("campaign_context_blocker");
+        break;
+      case "fatigue_recent_collapse":
+        reasons.push("fatigue_pressure", "trend_collapse");
+        break;
+      case "below_break_even":
+        reasons.push("below_baseline_waste");
+        break;
+      case "low_evidence":
+        reasons.push("low_evidence");
+        break;
+      case "inactive_pending_winner":
+        reasons.push("paused_winner");
+        break;
+      case "baseline_weak":
+        reasons.push("weak_benchmark");
+        break;
+      default:
+        break;
+    }
+  }
+  const subTone: CreativeOperatorSubTone =
+    verdict.actionReadiness === "ready"
+      ? primary === "scale"
+        ? "queue_ready"
+        : "default"
+      : verdict.actionReadiness === "blocked"
+        ? "manual_review"
+        : primary === "scale"
+          ? "review_only"
+          : "manual_review";
+  return finalizeCreativeOperatorDecision(creative, primary, subTone, reasons);
+}
+
 export function resolveCreativeOperatorDecision(
   creative: CreativeDecisionOsCreative,
 ): CreativeOperatorDecisionResolution {
+  const canonical = resolveCanonicalVerdictDecision(creative);
+  if (canonical) return canonical;
+
   const segment = creative.operatorPolicy?.segment ?? null;
   const reasons: CreativeOperatorReasonTag[] = [];
   appendDecisionReasonSignals(creative, reasons, { includeStrength: true });

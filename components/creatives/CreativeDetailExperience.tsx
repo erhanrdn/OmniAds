@@ -33,6 +33,7 @@ import {
   creativeBenchmarkReliabilityLabel,
   creativeBusinessValidationNote,
 } from "@/lib/creative-operator-surface";
+import type { CreativeVerdict } from "@/lib/creative-verdict";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -361,6 +362,9 @@ export function CreativeDetailExperience({
       nextStep: report.summary,
     } satisfies CreativeDecision;
   }, [report]);
+  const useLegacyVerdictContract =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("verdictContract") === "v0";
   const previewTruth = decisionOsCreative?.previewStatus ?? null;
   const canGenerateAiInterpretation =
     decisionOsCreative?.trust.truthState === "live_confident" &&
@@ -702,12 +706,12 @@ export function CreativeDetailExperience({
 
               {/* Block 1: Verdict */}
               {(() => {
-                const vt = operatorItem
-                  ? getPrimaryDecisionVerdictTheme(
-                      operatorItem.primaryAction,
-                      operatorItem.authorityLabel,
+                const vt = useLegacyVerdictContract
+                  ? getLegacyVerdictTheme(
+                      decision.action,
+                      report.lifecycleState ?? decision.lifecycleState,
                     )
-                  : getVerdictTheme(decision.action, report.lifecycleState ?? decision.lifecycleState);
+                  : getVerdictTheme(decisionOsCreative.verdict);
                 return (
                   <div className="flex flex-col gap-2.5" data-testid="creative-detail-verdict">
                     <div className={cn("flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5", vt.band)} style={{ minHeight: 64 }}>
@@ -1049,7 +1053,7 @@ type VerdictTheme = {
   tagline: string;
 };
 
-function getVerdictTheme(
+function getLegacyVerdictTheme(
   action: CreativeDecision["action"],
   lifecycleState: CreativeDecision["lifecycleState"] | undefined,
 ): VerdictTheme {
@@ -1113,11 +1117,9 @@ function getVerdictTheme(
   };
 }
 
-function getPrimaryDecisionVerdictTheme(
-  primaryAction: string,
-  authorityLabel?: string | null,
-): VerdictTheme {
-  if (primaryAction === "Scale") {
+function getVerdictTheme(verdict: CreativeVerdict | null | undefined): VerdictTheme {
+  const readinessLabel = verdict?.actionReadiness === "needs_review" ? "Review only" : null;
+  if (verdict?.action === "scale") {
     return {
       band: "bg-[#ecfdf5] border-l-4 border-[#10b981]",
       titleClass: "text-[#047857]",
@@ -1125,12 +1127,12 @@ function getPrimaryDecisionVerdictTheme(
       pill: "bg-[#059669] text-white",
       label: "Scale",
       tagline:
-        authorityLabel === "Review only"
-          ? "Review only — business target missing"
+        readinessLabel
+          ? "Review only - validate before scaling"
           : "Ready to scale — above benchmark",
     };
   }
-  if (primaryAction === "Test More") {
+  if (verdict?.action === "keep_testing") {
     return {
       band: "bg-[#f0f9ff] border-l-4 border-[#0ea5e9]",
       titleClass: "text-[#0c4a6e]",
@@ -1140,7 +1142,7 @@ function getPrimaryDecisionVerdictTheme(
       tagline: "Promising — collect more evidence",
     };
   }
-  if (primaryAction === "Protect") {
+  if (verdict?.action === "protect") {
     return {
       band: "bg-[#eff6ff] border-l-4 border-[#3b82f6]",
       titleClass: "text-[#1e3a8a]",
@@ -1150,7 +1152,7 @@ function getPrimaryDecisionVerdictTheme(
       tagline: "Stable winner — do not change",
     };
   }
-  if (primaryAction === "Refresh") {
+  if (verdict?.action === "refresh") {
     return {
       band: "bg-[#fffbeb] border-l-4 border-[#f59e0b]",
       titleClass: "text-[#92400e]",
@@ -1158,12 +1160,12 @@ function getPrimaryDecisionVerdictTheme(
       pill: "bg-[#d97706] text-white",
       label: "Refresh",
       tagline:
-        authorityLabel === "Revive"
-          ? "Comeback candidate — review reactivation"
+        verdict.headline === "Scale Fatiguing"
+          ? "Fatigue detected — plan a new variant"
           : "Plan a new variant or refresh",
     };
   }
-  if (primaryAction === "Cut") {
+  if (verdict?.action === "cut") {
     return {
       band: "bg-[#fff1f2] border-l-4 border-[#f43f5e]",
       titleClass: "text-[#9f1239]",

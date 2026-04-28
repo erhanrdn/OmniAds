@@ -200,9 +200,11 @@ function RowCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn(compactPillClasses, decisionClasses(row.primaryDecision))}>
-              {row.primaryDecision}
+              {row.verdict.headline}
             </span>
-            <span className={mutedTinyPillClasses}>{row.actionabilityLabel}</span>
+            <span className={mutedTinyPillClasses}>
+              {row.verdict.action} / {row.verdict.actionReadiness.replaceAll("_", " ")}
+            </span>
             <span className={cn(compactPillClasses, riskClasses(row.riskLevel))}>
               {humanizeTag(row.riskLevel)} risk
             </span>

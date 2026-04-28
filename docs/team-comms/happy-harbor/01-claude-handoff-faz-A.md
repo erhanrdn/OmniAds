@@ -27,7 +27,7 @@ Bunu kazıyınca kök neden ortaya çıktı: Adsecute'ta **iki paralel karar sis
 - **Legacy** ([lib/creative-decision-os.ts](../../../lib/creative-decision-os.ts)): `CreativeDecision.action` (`scale_hard/scale/watch/test_more/pause/kill`) + `lifecycleState` (`stable_winner/scale_ready/fatigued_winner/...`).
 - **Operator/V2** ([lib/creative-operator-surface.ts](../../../lib/creative-operator-surface.ts), [lib/creative-decision-os-v2.ts](../../../lib/creative-decision-os-v2.ts)): `primaryDecision` (`scale/test_more/protect/refresh/cut/diagnose`) + `subTone`/`actionability` (`direct/review_only/blocked/diagnose`).
 
-[components/creatives/CreativeDetailExperience.tsx:705-731](../../../components/creatives/CreativeDetailExperience.tsx) ikisini iç içe çağırıyor (`getPrimaryDecisionVerdictTheme` + `getVerdictTheme` fallback). Aynı ekranda lifecycle pipeline "Protect", quick filter "Scale", evidence chip "Strong relative winner" diyebiliyor. Üstüne "test phase / scale phase" geçişi hiçbir yerde modellenmemiş — sadece `campaignIsTestLike` flag'i var.
+[components/creatives/CreativeDetailExperience.tsx:705-731](../../../components/creatives/CreativeDetailExperience.tsx) iki ayrı legacy verdict theme helper'ını iç içe çağırıyordu. Aynı ekranda lifecycle pipeline "Protect", quick filter "Scale", evidence chip "Strong relative winner" diyebiliyor. Üstüne "test phase / scale phase" geçişi hiçbir yerde modellenmemiş — sadece `campaignIsTestLike` flag'i var.
 
 Sonuç: kullanıcı için tutarsız, "winner var ama ne yapacağım?" hissi.
 

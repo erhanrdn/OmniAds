@@ -28,6 +28,11 @@ import {
   type CreativeOperatorRelativeBaseline,
   type CreativeRelativeBaselineReliability,
 } from "@/lib/creative-operator-policy";
+import {
+  resolveCreativeVerdict,
+  type CreativeBusinessValidationStatus,
+  type CreativeVerdict,
+} from "@/lib/creative-verdict";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
@@ -62,6 +67,7 @@ type MetaCampaignLaneSignalMap = ReturnType<typeof buildMetaCampaignLaneSignals>
 
 export const CREATIVE_DECISION_OS_CONTRACT_VERSION = "creative-decision-os.v1";
 export const CREATIVE_DECISION_OS_ENGINE_VERSION = "2026-04-11-phase-05-v2";
+export { resolveCreativeVerdict } from "@/lib/creative-verdict";
 
 export type CreativeDecisionAction = "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
 export type LegacyCreativeLifecycleState =
@@ -423,6 +429,7 @@ export interface CreativeRuleReportPayload {
 
 export interface CreativeDecisionOsCreative {
   creativeId: string;
+  verdict?: CreativeVerdict;
   provenance: OperatorDecisionProvenance;
   evidenceHash: string;
   actionFingerprint: string;
@@ -659,6 +666,7 @@ export interface CreativeDecisionOsV1Response {
   protectedWinners: CreativeDecisionProtectedWinner[];
   supplyPlan: CreativeDecisionSupplyPlanItem[];
   opportunityBoard: CreativeOpportunityBoardItem[];
+  verdicts?: CreativeVerdict[];
   lifecycleBoard: CreativeDecisionLifecycleBoardItem[];
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
@@ -1404,6 +1412,31 @@ function buildEconomics(
     breakEvenCpa,
     reasons: reasons.slice(0, 4),
   } satisfies CreativeDecisionEconomics;
+}
+
+function resolveVerdictBusinessValidationStatus(input: {
+  commercialTruthConfigured: boolean;
+  economics: CreativeDecisionEconomics;
+  trust: DecisionTrustMetadata;
+}): CreativeBusinessValidationStatus {
+  if (
+    !input.commercialTruthConfigured ||
+    input.trust.truthState === "degraded_missing_truth" ||
+    input.trust.operatorDisposition === "profitable_truth_capped"
+  ) {
+    return "missing";
+  }
+
+  if (
+    input.economics.status !== "eligible" ||
+    input.trust.truthState !== "live_confident" ||
+    input.trust.evidence?.aggressiveActionBlocked === true ||
+    input.trust.evidence?.suppressed === true
+  ) {
+    return "unfavorable";
+  }
+
+  return "favorable";
 }
 
 function selectBenchmark(
@@ -3115,6 +3148,7 @@ export function buildCreativeDecisionOs(
       protectedWinners: [],
       supplyPlan: [],
       opportunityBoard: [],
+      verdicts: [],
       lifecycleBoard: buildLifecycleBoard([]),
       operatorQueues: buildOperatorQueues([]),
       commercialTruthCoverage,
@@ -3308,6 +3342,87 @@ export function buildCreativeDecisionOs(
         recentRoas: row.historicalWindows?.last7?.roas ?? null,
       },
     });
+    const verdict = resolveCreativeVerdict({
+      metrics: {
+        spend30d: row.spend,
+        purchases30d: row.purchases,
+        roas30d: row.roas,
+        cpa30d: row.cpa,
+        recent7d: row.historicalWindows?.last7
+          ? {
+              spend: row.historicalWindows.last7.spend,
+              roas: row.historicalWindows.last7.roas,
+              purchases: row.historicalWindows.last7.purchases,
+            }
+          : null,
+        mid30d: row.historicalWindows?.last30
+          ? {
+              spend: row.historicalWindows.last30.spend,
+              roas: row.historicalWindows.last30.roas,
+              purchases: row.historicalWindows.last30.purchases,
+            }
+          : {
+              spend: row.spend,
+              roas: row.roas,
+              purchases: row.purchases,
+            },
+        long90d: row.historicalWindows?.last90
+          ? {
+              spend: row.historicalWindows.last90.spend,
+              roas: row.historicalWindows.last90.roas,
+              purchases: row.historicalWindows.last90.purchases,
+            }
+          : null,
+        relative: {
+          roasToBenchmark: relativeBaseline.medianRoas && relativeBaseline.medianRoas > 0
+            ? row.roas / relativeBaseline.medianRoas
+            : null,
+          cpaToBenchmark: relativeBaseline.medianCpa && relativeBaseline.medianCpa > 0
+            ? row.cpa / relativeBaseline.medianCpa
+            : null,
+          spendToMedian: relativeBaseline.medianSpend && relativeBaseline.medianSpend > 0
+            ? row.spend / relativeBaseline.medianSpend
+            : null,
+          recent7ToLong90Roas:
+            row.historicalWindows?.last7?.roas != null &&
+            row.historicalWindows?.last90?.roas != null &&
+            row.historicalWindows.last90.roas > 0
+              ? row.historicalWindows.last7.roas / row.historicalWindows.last90.roas
+              : null,
+        },
+      },
+      delivery: {
+        activeStatus: deliveryContext.activeDelivery,
+        campaignStatus: deliveryContext.campaignStatus,
+        adSetStatus: deliveryContext.adSetStatus,
+      },
+      baseline: {
+        reliability: relativeBaseline.reliability,
+        selected: {
+          medianRoas: relativeBaseline.medianRoas,
+          medianCpa: relativeBaseline.medianCpa,
+          medianSpend: relativeBaseline.medianSpend,
+        },
+      },
+      commercialTruth: {
+        targetPackConfigured: commercialTruthConfigured,
+        targetRoas:
+          input.commercialTruth?.targetPack?.targetRoas ??
+          input.commercialTruth?.coverage?.thresholds.targetRoas ??
+          economics.targetRoas,
+        businessValidationStatus: resolveVerdictBusinessValidationStatus({
+          commercialTruthConfigured,
+          economics,
+          trust,
+        }),
+      },
+      context: {
+        trustState: trust.truthState,
+        deploymentCompatibility: deployment.compatibility.status,
+        campaignIsTestLike: deliveryContext.campaignIsTestLike,
+      },
+      now: decisionMetadata.decisionAsOf,
+    });
     const benchmarkScopeVerdict = `${relativeBaseline.scopeLabel.toLowerCase()} benchmark (${relativeBaseline.reliability} reliability)`;
     const businessValidationNote =
       !commercialTruthConfigured
@@ -3422,6 +3537,7 @@ export function buildCreativeDecisionOs(
 
     return {
       creativeId: row.creativeId,
+      verdict,
       provenance,
       evidenceHash: provenance.evidenceHash,
       actionFingerprint: provenance.actionFingerprint,
@@ -3792,6 +3908,7 @@ export function buildCreativeDecisionOs(
     protectedWinners,
     supplyPlan,
     opportunityBoard,
+    verdicts: creatives.flatMap((creative) => creative.verdict ? [creative.verdict] : []),
     lifecycleBoard,
     operatorQueues,
     commercialTruthCoverage,

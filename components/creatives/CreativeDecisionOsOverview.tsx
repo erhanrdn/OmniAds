@@ -670,7 +670,7 @@ export function CreativeDecisionOsOverview({
                       </p>
                     </div>
                     <span className="rounded-full border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                      {family.lifecycleState.replaceAll("_", " ")}
+                      {family.primaryAction.replaceAll("_", " ")}
                     </span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
