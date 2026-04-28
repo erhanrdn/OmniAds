@@ -17,6 +17,7 @@ import type {
 import type {
   CreativeDecisionAction,
   CreativeDecisionOsCreative,
+  CreativeDecisionOsV1Response,
   CreativeDecisionPrimaryAction,
 } from "@/lib/creative-decision-os";
 import {
@@ -275,6 +276,96 @@ export function buildSharedCreativeAnalysis(
       impact: factor.impact,
     })),
   };
+}
+
+export function buildSharedCreativeAnalysisLookup(
+  decisionOs: Pick<CreativeDecisionOsV1Response, "creatives"> | null | undefined,
+) {
+  const lookup = new Map<string, SharedCreativeAnalysis>();
+  for (const creative of decisionOs?.creatives ?? []) {
+    const analysis = buildSharedCreativeAnalysis(creative);
+    if (!analysis) continue;
+    lookup.set(creative.creativeId, analysis);
+  }
+  return lookup;
+}
+
+function formatShareMetricNumber(value: number, suffix = "") {
+  if (!Number.isFinite(value)) return `0${suffix}`;
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`;
+}
+
+export function buildSharedCreativeMetricFallbackAnalysis(
+  row: Pick<
+    MetaCreativeRow,
+    "id" | "name" | "spend" | "purchaseValue" | "roas" | "cpa" | "purchases" | "ctrAll"
+  >,
+): SharedCreativeAnalysis {
+  const spend = formatShareMetricNumber(row.spend);
+  const revenue = formatShareMetricNumber(row.purchaseValue);
+  const roas = formatShareMetricNumber(row.roas, "x");
+  const cpa = formatShareMetricNumber(row.cpa);
+  const purchases = formatShareMetricNumber(row.purchases);
+  const ctr = formatShareMetricNumber(row.ctrAll, "%");
+
+  return {
+    creativeId: row.id,
+    actionLabel: "Review",
+    authorityLabel: "Metrics only",
+    confidenceLabel: "Limited",
+    headline: `Review: ${row.name}`,
+    summary:
+      "This selected creative is included for buyer review, but no matching Decision OS row was available for this export.",
+    whatToDo:
+      "Use this as a discussion item. Verify the current account context before scaling, cutting, or refreshing it.",
+    why: `${roas} ROAS on ${spend} spend, ${revenue} purchase value, ${purchases} purchases, ${cpa} CPA, and ${ctr} CTR in the selected report view.`,
+    evidenceStrength: "selected-period metrics",
+    urgency: "low",
+    amountGuidance: null,
+    benchmarkLabel: null,
+    benchmarkReliability: null,
+    previewState: null,
+    businessValidationNote:
+      "Do not treat this metrics-only card as authorization to change budget or delivery.",
+    nextObservation: [
+      "Compare against live Decision OS before taking action.",
+      "Confirm whether the creative is still active in the current buying window.",
+    ],
+    invalidActions: [
+      "Do not scale or cut from selected-period metrics alone.",
+    ],
+    factors: [
+      {
+        label: "ROAS",
+        value: roas,
+        reason: "Selected report view metric.",
+        impact: row.roas >= 1 ? "positive" : "negative",
+      },
+      {
+        label: "Purchases",
+        value: purchases,
+        reason: "Selected report view volume.",
+        impact: row.purchases > 0 ? "positive" : "neutral",
+      },
+    ],
+  };
+}
+
+export function getSharedCreativeAnalysisForRow(
+  row: Pick<
+    MetaCreativeRow,
+    "id" | "creativeId" | "name" | "spend" | "purchaseValue" | "roas" | "cpa" | "purchases" | "ctrAll"
+  >,
+  lookup: ReadonlyMap<string, SharedCreativeAnalysis>,
+  options?: { includeMetricsOnlyFallback?: boolean },
+) {
+  return (
+    lookup.get(row.id) ??
+    lookup.get(row.creativeId) ??
+    (options?.includeMetricsOnlyFallback
+      ? buildSharedCreativeMetricFallbackAnalysis(row)
+      : null)
+  );
 }
 
 export function toSharedCreative(

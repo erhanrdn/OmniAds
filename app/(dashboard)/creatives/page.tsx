@@ -57,7 +57,8 @@ import {
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
-  buildSharedCreativeAnalysis,
+  buildSharedCreativeAnalysisLookup,
+  getSharedCreativeAnalysisForRow,
   shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
@@ -623,13 +624,6 @@ export default function CreativesPage() {
     const selectedRowIdSet = new Set(selectionState.selectedRowIds);
     return orderedTableRows.filter((row) => selectedRowIdSet.has(row.id));
   }, [orderedTableRows, selectionState.selectedRowIds]);
-  const decisionOsCreativeById = useMemo(() => {
-    const map = new Map<string, NonNullable<typeof creativeDecisionOs>["creatives"][number]>();
-    for (const creative of creativeDecisionOs?.creatives ?? []) {
-      map.set(creative.creativeId, creative);
-    }
-    return map;
-  }, [creativeDecisionOs]);
   const topPanelRows = useMemo(
     () => (selectedRows.length > 0 ? selectedRows : orderedTableRows),
     [orderedTableRows, selectedRows]
@@ -776,6 +770,15 @@ export default function CreativesPage() {
     setShareError(null);
     setShareExportLoading(true);
     try {
+      let decisionOsForShare = creativeDecisionOs;
+      if (!decisionOsForShare || decisionSnapshotReportingRangeDiffers) {
+        const snapshotPayload = await runCreativeDecisionOsAnalysis(businessId, drStart, drEnd, {
+          benchmarkScope: activeBenchmarkScope,
+        });
+        queryClient.setQueryData(creativeDecisionOsSnapshotQueryKey, snapshotPayload);
+        decisionOsForShare = snapshotPayload.decisionOs ?? null;
+      }
+      const analysisLookup = buildSharedCreativeAnalysisLookup(decisionOsForShare);
       const selectedForShare =
         selectionState.selectedRowIds.length > 0
           ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
@@ -794,7 +797,12 @@ export default function CreativesPage() {
         includeNotes: false,
         note: "",
         creatives: selectedForShare.map((row) =>
-          toSharedCreative(row, buildSharedCreativeAnalysis(decisionOsCreativeById.get(row.id))),
+          toSharedCreative(
+            row,
+            getSharedCreativeAnalysisForRow(row, analysisLookup, {
+              includeMetricsOnlyFallback: true,
+            }),
+          ),
         ),
         // Keep share payload compact; public page falls back to `creatives` as benchmark when omitted.
         benchmarkCreatives: undefined,

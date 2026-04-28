@@ -16,6 +16,8 @@ describe("PublicCreativeSharePage", () => {
     );
 
     expect(html).toContain("Creative action plan");
+    expect(html).toContain("Scale review: UGC Reel - Morning routine hook");
+    expect(html).toContain("Amount: No safe amount calculated");
     expect(html).toContain("Send this to the media buyer for a controlled scale review.");
     expect(html).toContain("Do not scale from ROAS alone without buyer confirmation.");
     expect(html).toContain("Leave the creative active and monitor weekly movement.");

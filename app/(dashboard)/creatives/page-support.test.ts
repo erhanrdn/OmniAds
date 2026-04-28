@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSharedCreativeAnalysis,
+  buildSharedCreativeAnalysisLookup,
   mapApiRowToUiRow,
+  getSharedCreativeAnalysisForRow,
   toCsv,
   toSharedCreative,
 } from "@/app/(dashboard)/creatives/page-support";
@@ -303,6 +305,54 @@ describe("mapApiRowToUiRow", () => {
       label: "ROAS",
       value: "2.50",
     });
+  });
+
+  it("matches shared export analysis by row id or creative id", () => {
+    const row = mapApiRowToUiRow(buildApiRow({ id: "ad_1", creative_id: "cr_1" }));
+    const lookup = buildSharedCreativeAnalysisLookup({
+      creatives: [
+        {
+          creativeId: "cr_1",
+          name: row.name,
+          primaryAction: "promote_to_scaling",
+          legacyAction: "scale",
+          confidence: 0.84,
+          summary: "Creative-id match selected for buyer review.",
+          report: {
+            summary: "Review controlled scale.",
+            coreVerdict: "Creative id matched even though the visible row id is an ad id.",
+            factors: [],
+          },
+        } as never,
+      ],
+    });
+
+    const analysis = getSharedCreativeAnalysisForRow(row, lookup);
+
+    expect(analysis).toMatchObject({
+      creativeId: "cr_1",
+      actionLabel: "Scale",
+      summary: "Creative-id match selected for buyer review.",
+      whatToDo: "Review controlled scale.",
+      why: "Creative id matched even though the visible row id is an ad id.",
+    });
+  });
+
+  it("creates a metrics-only export analysis when no Decision OS row matches", () => {
+    const row = mapApiRowToUiRow(buildApiRow({ id: "ad_9", creative_id: "cr_9" }));
+    const analysis = getSharedCreativeAnalysisForRow(row, new Map(), {
+      includeMetricsOnlyFallback: true,
+    });
+
+    expect(analysis).toMatchObject({
+      creativeId: "ad_9",
+      actionLabel: "Review",
+      authorityLabel: "Metrics only",
+      confidenceLabel: "Limited",
+      headline: "Review: Creative name",
+    });
+    expect(analysis?.why).toContain("2.5x ROAS");
+    expect(analysis?.invalidActions).toContain("Do not scale or cut from selected-period metrics alone.");
   });
 
   it("exports truthful CSV headers and values without misleading duplicate columns", () => {

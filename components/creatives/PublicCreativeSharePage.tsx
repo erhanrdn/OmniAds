@@ -95,7 +95,12 @@ function CreativeAnalysisCard({
     <article className="rounded-lg border border-[#E5E7EB] bg-white p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="line-clamp-1 text-[13px] font-semibold text-[#111827]">{creative.name}</p>
+          <p className="line-clamp-1 text-[13px] font-semibold text-[#111827]">
+            {analysis.headline || creative.name}
+          </p>
+          {analysis.headline && analysis.headline !== creative.name ? (
+            <p className="mt-0.5 line-clamp-1 text-[10px] font-medium text-[#6B7280]">{creative.name}</p>
+          ) : null}
           <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">{analysis.summary}</p>
         </div>
         <span
@@ -126,6 +131,7 @@ function CreativeAnalysisCard({
         <AnalysisPill label={analysis.urgency ? `Urgency: ${analysis.urgency}` : null} />
         <AnalysisPill label={analysis.benchmarkLabel ? `Benchmark: ${analysis.benchmarkLabel}` : null} />
         <AnalysisPill label={analysis.benchmarkReliability ? `Benchmark reliability: ${analysis.benchmarkReliability}` : null} />
+        <AnalysisPill label={analysis.amountGuidance ? `Amount: ${analysis.amountGuidance}` : null} />
         <AnalysisPill label={analysis.previewState ? `Preview: ${analysis.previewState}` : null} />
       </div>
 
@@ -337,7 +343,7 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
                 <div>
                   <h2 className="text-[13px] font-semibold text-[#111827]">Creative action plan</h2>
                   <p className="mt-0.5 text-[11px] text-[#6B7280]">
-                    {analysisRows.length} selected creative{analysisRows.length === 1 ? "" : "s"} with Decision OS analysis
+                    {analysisRows.length} selected creative{analysisRows.length === 1 ? "" : "s"} with export analysis
                   </p>
                 </div>
               </div>
