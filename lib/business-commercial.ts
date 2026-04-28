@@ -70,6 +70,10 @@ type TargetPackRow = {
   aov_assumption: number | null;
   new_customer_weight: number | null;
   default_risk_posture: string | null;
+  cost_cogs_percent: number | null;
+  cost_shipping_percent: number | null;
+  cost_fulfillment_percent: number | null;
+  cost_payment_processing_percent: number | null;
 } & MetaRow;
 
 type CountryEconomicsRow = {
@@ -185,7 +189,8 @@ function dedupeStringList(values: Array<string | null | undefined>) {
 
 function hasTargetPackValue(targetPack: BusinessTargetPackData | null | undefined) {
   if (!targetPack) return false;
-  return [
+  const costStructure = targetPack.costStructure;
+  return targetPack.defaultRiskPosture !== "balanced" || [
     targetPack.targetCpa,
     targetPack.targetRoas,
     targetPack.breakEvenCpa,
@@ -193,7 +198,11 @@ function hasTargetPackValue(targetPack: BusinessTargetPackData | null | undefine
     targetPack.contributionMarginAssumption,
     targetPack.aovAssumption,
     targetPack.newCustomerWeight,
-  ].some((value) => value !== null);
+    costStructure?.cogsPercent,
+    costStructure?.shippingPercent,
+    costStructure?.fulfillmentPercent,
+    costStructure?.paymentProcessingPercent,
+  ].some((value) => value !== null && value !== undefined);
 }
 
 function hasOperatingConstraintValue(
@@ -246,10 +255,10 @@ const SECTION_META_RULES = {
       "Target pack thresholds are older than 30 days and should be reviewed.",
   },
   countryEconomics: {
-    blocking: true,
+    blocking: false,
     staleAfterHours: 24 * 30,
     missingReason:
-      "Country economics are not configured for deterministic GEO decisions.",
+      "Country economics are not configured, so all locations use the global cost structure.",
     staleReason:
       "Country economics are older than 30 days and should be refreshed.",
   },
@@ -396,6 +405,14 @@ function mapTargetPackRow(
       BUSINESS_RISK_POSTURES,
       "balanced",
     ),
+    costStructure: {
+      cogsPercent: normalizeUnitInterval(row.cost_cogs_percent),
+      shippingPercent: normalizeUnitInterval(row.cost_shipping_percent),
+      fulfillmentPercent: normalizeUnitInterval(row.cost_fulfillment_percent),
+      paymentProcessingPercent: normalizeUnitInterval(
+        row.cost_payment_processing_percent,
+      ),
+    },
     sourceLabel: normalizeString(row.source_label),
     updatedAt: normalizeTimestampValue(row.updated_at),
     updatedByUserId: row.updated_by_user_id,
@@ -660,7 +677,7 @@ function buildRequiredInputs(input: {
     if (section === "countryEconomics") {
       return {
         section,
-        blocking: true,
+        blocking: false,
         freshness: input.sectionMeta.countryEconomics.freshness ?? buildFreshnessMeta({
           configured: false,
           updatedAt: null,
@@ -670,12 +687,12 @@ function buildRequiredInputs(input: {
         }),
         reason:
           input.countryEconomics.length === 0
-            ? "Country economics are missing, so GEO-aware scaling remains review-safe."
+            ? "Country economics are not configured, so all locations use the global cost structure."
             : input.sectionMeta.countryEconomics.freshness?.status === "stale"
               ? input.sectionMeta.countryEconomics.freshness.reason ??
                 "Country economics need review."
               : "Country economics are configured.",
-        actionCeiling: input.countryEconomics.length === 0 ? "monitor_low_truth" : null,
+        actionCeiling: null,
       } satisfies BusinessCommercialRequiredInput;
     }
 
@@ -872,6 +889,19 @@ export function sanitizeBusinessCommercialTruthInput(
   input: Partial<BusinessCommercialTruthSnapshot> | null | undefined,
 ) {
   const targetPackInput = input?.targetPack;
+  const costStructureInput = targetPackInput?.costStructure;
+  const costStructure = costStructureInput
+    ? {
+        cogsPercent: normalizeUnitInterval(costStructureInput.cogsPercent),
+        shippingPercent: normalizeUnitInterval(costStructureInput.shippingPercent),
+        fulfillmentPercent: normalizeUnitInterval(
+          costStructureInput.fulfillmentPercent,
+        ),
+        paymentProcessingPercent: normalizeUnitInterval(
+          costStructureInput.paymentProcessingPercent,
+        ),
+      }
+    : null;
   const targetPack = targetPackInput
     ? {
         ...createEmptyTargetPack(),
@@ -889,6 +919,7 @@ export function sanitizeBusinessCommercialTruthInput(
           BUSINESS_RISK_POSTURES,
           "balanced",
         ),
+        costStructure,
         sourceLabel: normalizeString(targetPackInput.sourceLabel) ?? "settings_manual_entry",
       }
     : null;
@@ -1076,6 +1107,10 @@ export async function getBusinessCommercialTruthSnapshot(
           aov_assumption,
           new_customer_weight,
           default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
           source_label,
           updated_at,
           updated_by_user_id
@@ -1243,6 +1278,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         aov_assumption,
         new_customer_weight,
         default_risk_posture,
+        cost_cogs_percent,
+        cost_shipping_percent,
+        cost_fulfillment_percent,
+        cost_payment_processing_percent,
         source_label,
         updated_by_user_id,
         updated_at
@@ -1258,6 +1297,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         ${sanitized.targetPack.aovAssumption},
         ${sanitized.targetPack.newCustomerWeight},
         ${sanitized.targetPack.defaultRiskPosture},
+        ${sanitized.targetPack.costStructure?.cogsPercent ?? null},
+        ${sanitized.targetPack.costStructure?.shippingPercent ?? null},
+        ${sanitized.targetPack.costStructure?.fulfillmentPercent ?? null},
+        ${sanitized.targetPack.costStructure?.paymentProcessingPercent ?? null},
         ${sanitized.targetPack.sourceLabel},
         ${input.updatedByUserId},
         now()
@@ -1273,6 +1316,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         aov_assumption = EXCLUDED.aov_assumption,
         new_customer_weight = EXCLUDED.new_customer_weight,
         default_risk_posture = EXCLUDED.default_risk_posture,
+        cost_cogs_percent = EXCLUDED.cost_cogs_percent,
+        cost_shipping_percent = EXCLUDED.cost_shipping_percent,
+        cost_fulfillment_percent = EXCLUDED.cost_fulfillment_percent,
+        cost_payment_processing_percent = EXCLUDED.cost_payment_processing_percent,
         source_label = EXCLUDED.source_label,
         updated_by_user_id = EXCLUDED.updated_by_user_id,
         updated_at = now()

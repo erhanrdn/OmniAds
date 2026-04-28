@@ -134,6 +134,28 @@ describe("business operating mode", () => {
     expect(result.confidence).toBeGreaterThan(0.7);
   });
 
+  it("does not degrade decisions only because country economics are empty", () => {
+    const snapshot = buildBaseSnapshot();
+    snapshot.countryEconomics = [];
+
+    const result = buildAccountOperatingMode({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      snapshot,
+      campaigns: buildCampaigns({ spend: 1600, revenue: 5200, purchases: 48 }),
+      breakdowns: buildBreakdowns(),
+    });
+
+    expect(result.missingInputs.join(" ")).not.toContain("Country economics");
+    expect(result.degradedMode.reasons.join(" ")).not.toContain("Country economics");
+    expect(result.activeCommercialInputs).toContainEqual({
+      label: "Country economics",
+      detail: "No country overrides; global cost structure applies to every location.",
+    });
+    expect(result.recommendedMode).toBe("Exploit");
+  });
+
   it("soft-fails into Explore when commercial truth and signal volume are incomplete", () => {
     const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
     const result = buildAccountOperatingMode({

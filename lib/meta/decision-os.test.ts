@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildMetaDecisionOs as buildMetaDecisionOsBase } from "@/lib/meta/decision-os";
-import { createEmptyBusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
+import {
+  createEmptyBusinessCommercialTruthSnapshot,
+  createEmptyOperatingConstraints,
+} from "@/src/types/business-commercial";
 
 function buildMetaDecisionOs(
   input: Parameters<typeof buildMetaDecisionOsBase>[0],
@@ -270,6 +273,31 @@ describe("buildMetaDecisionOs", () => {
       truthState: "degraded_missing_truth",
       completeness: "missing",
     });
+  });
+
+  it("does not treat empty country economics as a missing Meta commercial blocker", () => {
+    const snapshot = configuredTruthSnapshot();
+    snapshot.operatingConstraints = createEmptyOperatingConstraints();
+    snapshot.countryEconomics = [];
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [adSet()],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.commercialTruthCoverage.countryEconomicsConfigured).toBe(false);
+    expect(result.commercialTruthCoverage.missingInputs).not.toContain(
+      "country_economics",
+    );
+    expect(result.commercialTruthCoverage.notes.join(" ")).toContain(
+      "global cost structure",
+    );
   });
 
   it("downgrades hard pauses to review-safe actions when commercial truth is missing", () => {
@@ -758,7 +786,7 @@ describe("buildMetaDecisionOs", () => {
     ).toContain("Thin-signal GEOs");
   });
 
-  it("trust-caps strong GEOs into the watchlist when country economics are missing", () => {
+  it("keeps strong GEOs action-core when country economics are empty and global economics apply", () => {
     const snapshot = configuredTruthSnapshot();
 
     const result = buildMetaDecisionOs({
@@ -794,22 +822,22 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.geoDecisions[0]).toMatchObject({
       action: "scale",
-      queueEligible: false,
+      queueEligible: true,
       materiality: {
         thinSignal: false,
         material: true,
         archiveContext: false,
       },
       trust: {
-        surfaceLane: "watchlist",
-        truthState: "degraded_missing_truth",
-        operatorDisposition: "profitable_truth_capped",
+        surfaceLane: "action_core",
+        truthState: "live_confident",
+        operatorDisposition: "standard",
       },
     });
     expect(result.summary.geoSummary).toMatchObject({
-      actionCoreCount: 0,
-      watchlistCount: 1,
-      queuedCount: 0,
+      actionCoreCount: 1,
+      watchlistCount: 0,
+      queuedCount: 1,
       pooledClusterCount: 0,
     });
   });

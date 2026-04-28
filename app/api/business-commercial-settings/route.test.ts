@@ -132,7 +132,30 @@ describe("business commercial settings route", () => {
           snapshot: {
             targetPack: {
               targetRoas: 2.8,
+              breakEvenRoas: 1.86,
+              defaultRiskPosture: "aggressive",
+              costStructure: {
+                cogsPercent: 0.3,
+                shippingPercent: 0.08,
+                fulfillmentPercent: 0.05,
+                paymentProcessingPercent: 0.03,
+              },
             },
+            calibrationProfiles: [
+              {
+                channel: "creative",
+                objectiveFamily: "sales",
+                bidRegime: "open",
+                archetype: "winner_scale",
+                targetRoasMultiplier: 1.05,
+                breakEvenRoasMultiplier: null,
+                targetCpaMultiplier: null,
+                breakEvenCpaMultiplier: null,
+                confidenceCap: 0.82,
+                actionCeiling: "review_hold",
+                notes: "Keep creative scaling reviewed.",
+              },
+            ],
           },
         }),
       }),
@@ -145,7 +168,30 @@ describe("business commercial settings route", () => {
       snapshot: {
         targetPack: {
           targetRoas: 2.8,
+          breakEvenRoas: 1.86,
+          defaultRiskPosture: "aggressive",
+          costStructure: {
+            cogsPercent: 0.3,
+            shippingPercent: 0.08,
+            fulfillmentPercent: 0.05,
+            paymentProcessingPercent: 0.03,
+          },
         },
+        calibrationProfiles: [
+          {
+            channel: "creative",
+            objectiveFamily: "sales",
+            bidRegime: "open",
+            archetype: "winner_scale",
+            targetRoasMultiplier: 1.05,
+            breakEvenRoasMultiplier: null,
+            targetCpaMultiplier: null,
+            breakEvenCpaMultiplier: null,
+            confidenceCap: 0.82,
+            actionCeiling: "review_hold",
+            notes: "Keep creative scaling reviewed.",
+          },
+        ],
       },
     });
   });

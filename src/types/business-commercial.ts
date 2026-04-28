@@ -128,9 +128,17 @@ export interface BusinessTargetPackData {
   aovAssumption: number | null;
   newCustomerWeight: number | null;
   defaultRiskPosture: BusinessRiskPosture;
+  costStructure?: BusinessTargetCostStructureData | null;
   sourceLabel: string | null;
   updatedAt: string | null;
   updatedByUserId: string | null;
+}
+
+export interface BusinessTargetCostStructureData {
+  cogsPercent: number | null;
+  shippingPercent: number | null;
+  fulfillmentPercent: number | null;
+  paymentProcessingPercent: number | null;
 }
 
 export interface BusinessCountryEconomicsRow {
@@ -336,6 +344,7 @@ export function createEmptyTargetPack(): BusinessTargetPackData {
     aovAssumption: null,
     newCustomerWeight: null,
     defaultRiskPosture: "balanced",
+    costStructure: null,
     sourceLabel: "settings_manual_entry",
     updatedAt: null,
     updatedByUserId: null,
@@ -428,13 +437,13 @@ export function createEmptyBusinessCommercialCoverageSummary(): BusinessCommerci
     },
     blockingReasons: [
       "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults.",
-      "Country economics are missing, so GEO-aware scaling remains review-safe.",
       "Operating constraints are missing, so action ceilings stay conservative.",
     ],
     nonBlockingReasons: [
+      "Country economics are not configured, so all locations use the global cost structure.",
       "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured.",
     ],
-    actionCeilings: ["review_hold", "monitor_low_truth", "degraded_no_scale"],
+    actionCeilings: ["review_hold", "degraded_no_scale"],
     thresholds: {
       source: "conservative_fallback",
       targetRoas: 2.5,
@@ -464,17 +473,17 @@ export function createEmptyBusinessCommercialCoverageSummary(): BusinessCommerci
       },
       {
         section: "countryEconomics",
-        blocking: true,
+        blocking: false,
         freshness: {
           status: "missing",
           updatedAt: null,
           ageHours: null,
           reason:
-            "Country economics are not configured for deterministic GEO decisions.",
+            "Country economics are not configured, so all locations use the global cost structure.",
         },
         reason:
-          "Country economics are missing, so GEO-aware scaling remains review-safe.",
-        actionCeiling: "monitor_low_truth",
+          "Country economics are not configured, so all locations use the global cost structure.",
+        actionCeiling: null,
       },
       {
         section: "promoCalendar",

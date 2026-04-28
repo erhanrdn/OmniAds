@@ -1,20 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Info } from "lucide-react";
 import {
   BUSINESS_COUNTRY_PRIORITY_TIERS,
   BUSINESS_COUNTRY_SCALE_OVERRIDES,
   BUSINESS_COUNTRY_SERVICEABILITY,
+  BUSINESS_DECISION_BID_REGIMES,
+  BUSINESS_DECISION_CALIBRATION_CHANNELS,
+  BUSINESS_DECISION_OBJECTIVE_FAMILIES,
   BUSINESS_ISSUE_STATUSES,
   BUSINESS_PROMO_SEVERITIES,
   BUSINESS_PROMO_TYPES,
   BUSINESS_STOCK_PRESSURE_STATUSES,
   createEmptyBusinessCommercialTruthSnapshot,
+  createEmptyDecisionCalibrationProfile,
   createEmptyCountryEconomicsRow,
   createEmptyOperatingConstraints,
   createEmptyPromoCalendarEvent,
   createEmptyTargetPack,
   type BusinessCommercialTruthSnapshot,
+  type BusinessDecisionCalibrationProfile,
 } from "@/src/types/business-commercial";
 
 // ---------------------------------------------------------------------------
@@ -38,12 +44,14 @@ function CtSection({
   eyebrow,
   title,
   subtitle,
+  tooltip,
   action,
   children,
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  tooltip?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -56,7 +64,10 @@ function CtSection({
               {eyebrow}
             </p>
           )}
-          <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h2>
+            {tooltip ? <CtTooltip content={tooltip} /> : null}
+          </div>
           {subtitle && (
             <p className="text-[12.5px] leading-snug text-slate-500">{subtitle}</p>
           )}
@@ -68,18 +79,43 @@ function CtSection({
   );
 }
 
+function CtTooltip({ content }: { content: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <span
+        tabIndex={0}
+        aria-label={content}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 outline-none hover:border-slate-300 hover:text-slate-700 focus:border-slate-400 focus:text-slate-700"
+      >
+        <Info size={12} strokeWidth={2.2} aria-hidden="true" />
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11.5px] font-medium leading-snug text-slate-600 shadow-lg group-hover:block group-focus-within:block"
+      >
+        {content}
+      </span>
+    </span>
+  );
+}
+
 function CtField({
   label,
   helper,
+  tooltip,
   children,
 }: {
   label: string;
   helper?: string;
+  tooltip?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <label className="text-[12.5px] font-semibold text-slate-900">{label}</label>
+      <div className="flex items-center gap-2">
+        <label className="text-[12.5px] font-semibold text-slate-900">{label}</label>
+        {tooltip ? <CtTooltip content={tooltip} /> : null}
+      </div>
       {children}
       {helper && (
         <p className="text-[11.5px] leading-snug text-slate-500">{helper}</p>
@@ -94,12 +130,14 @@ function CtNumberInput({
   suffix,
   prefix,
   disabled,
+  testId,
 }: {
   value: number | null | undefined;
   onChange: (v: number | null) => void;
   suffix?: string;
   prefix?: string;
   disabled?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-slate-200 bg-white px-3">
@@ -109,6 +147,7 @@ function CtNumberInput({
         step="0.01"
         value={value ?? ""}
         disabled={disabled}
+        data-testid={testId}
         onChange={(e) =>
           onChange(e.target.value === "" ? null : Number(e.target.value))
         }
@@ -124,11 +163,13 @@ function CtSelect({
   onChange,
   options,
   disabled,
+  testId,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
   disabled?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="relative">
@@ -136,6 +177,7 @@ function CtSelect({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
+        data-testid={testId}
         className="h-10 w-full appearance-none rounded-[10px] border border-slate-200 bg-white pl-3 pr-9 text-[13px] font-medium text-slate-900 outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         {options.map((o) => (
@@ -169,12 +211,14 @@ function CtTextInput({
   placeholder,
   multiline,
   disabled,
+  testId,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   multiline?: boolean;
   disabled?: boolean;
+  testId?: string;
 }) {
   const baseClass =
     "w-full rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-900 outline-none disabled:cursor-not-allowed disabled:opacity-60";
@@ -185,6 +229,7 @@ function CtTextInput({
       placeholder={placeholder}
       rows={3}
       disabled={disabled}
+      data-testid={testId}
       className={`${baseClass} resize-y`}
     />
   ) : (
@@ -194,6 +239,7 @@ function CtTextInput({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       disabled={disabled}
+      data-testid={testId}
       className={`${baseClass} h-10`}
     />
   );
@@ -246,10 +292,12 @@ function CtStatCard({
 function CtGhostBtn({
   onClick,
   disabled,
+  testId,
   children,
 }: {
   onClick?: () => void;
   disabled?: boolean;
+  testId?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -257,6 +305,7 @@ function CtGhostBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[12.5px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
@@ -267,10 +316,12 @@ function CtGhostBtn({
 function CtIconCircleBtn({
   onClick,
   disabled,
+  testId,
   children,
 }: {
   onClick?: () => void;
   disabled?: boolean;
+  testId?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -278,6 +329,7 @@ function CtIconCircleBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
@@ -303,18 +355,24 @@ const COVERAGE_TONE = {
   missing:  { dot: "bg-amber-400", ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]", badge: "bg-amber-50 text-amber-700", label: "Missing" },
   blocking: { dot: "bg-rose-500",  ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",  badge: "bg-rose-50 text-rose-700",   label: "Blocking" },
 };
+type CoverageToneKey = keyof typeof COVERAGE_TONE;
 
 function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTruthSnapshot }) {
   const coverage = snapshot.coverage;
 
-  const rows = [
+  const rows: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    status: CoverageToneKey;
+  }> = [
     {
       id: "thresholds",
       label: "Thresholds",
       detail: coverage?.thresholds
         ? `Target ROAS ${coverage.thresholds.targetRoas ?? "—"}x · Break-even ROAS ${coverage.thresholds.breakEvenRoas ?? "—"}x`
         : "Not configured",
-      status: coverage?.thresholds?.targetRoas ? "complete" : "missing",
+      status: snapshot.targetPack ? "complete" : "blocking",
     },
     {
       id: "actionCeil",
@@ -329,10 +387,8 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
       label: "Country economics",
       detail: snapshot.countryEconomics.length > 0
         ? `${snapshot.countryEconomics.length} GEO override${snapshot.countryEconomics.length !== 1 ? "s" : ""}`
-        : "No GEO overrides",
-      status: (coverage?.requiredInputs ?? []).find((r) => r.section === "countryEconomics")
-        ? ((coverage?.requiredInputs ?? []).find((r) => r.section === "countryEconomics")?.blocking ? "blocking" : "missing")
-        : "optional",
+        : "Global cost structure applies to all locations",
+      status: snapshot.countryEconomics.length > 0 ? "complete" : "optional",
     },
     {
       id: "calibration",
@@ -340,7 +396,7 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
       detail: (snapshot.calibrationProfiles?.length ?? 0) > 0
         ? `${snapshot.calibrationProfiles?.length ?? 0} calibration profile${(snapshot.calibrationProfiles?.length ?? 0) !== 1 ? "s" : ""}`
         : "No calibration profiles",
-      status: (snapshot.calibrationProfiles?.length ?? 0) > 0 ? "complete" : "missing",
+      status: (snapshot.calibrationProfiles?.length ?? 0) > 0 ? "complete" : "optional",
     },
     {
       id: "promo",
@@ -358,7 +414,7 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
         : "Not configured",
       status: snapshot.operatingConstraints ? "complete" : "optional",
     },
-  ] as const;
+  ];
 
   const blockingRows = rows.filter((r) => r.status === "blocking");
 
@@ -367,6 +423,7 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
       eyebrow="Section 1"
       title="Decision Coverage"
       subtitle="What Adsecute has so it can run with confidence. Blocking items hold the engine on conservative fallbacks."
+      tooltip="This summary separates true blockers from optional context. Empty Country Economics is informational; it means global economics are used for every location."
     >
       {blockingRows.length > 0 && (
         <div className="mb-4 flex gap-3 rounded-[10px] border-l-4 border-amber-400 bg-amber-50 px-4 py-3.5">
@@ -418,10 +475,44 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
 // ---------------------------------------------------------------------------
 
 interface CostInputs {
-  cogs: number;
-  shipping: number;
-  fulfillment: number;
-  processing: number;
+  cogs: number | null;
+  shipping: number | null;
+  fulfillment: number | null;
+  processing: number | null;
+}
+
+const EMPTY_COST_INPUTS: CostInputs = {
+  cogs: null,
+  shipping: null,
+  fulfillment: null,
+  processing: null,
+};
+
+function fromRatioToPct(value: number | null | undefined) {
+  return value == null ? null : Math.round(value * 10_000) / 100;
+}
+
+function fromPctToRatio(value: number | null | undefined) {
+  return value == null ? null : Math.max(0, Math.min(1, value / 100));
+}
+
+function costInputsFromSnapshot(snapshot: BusinessCommercialTruthSnapshot): CostInputs {
+  const costStructure = snapshot.targetPack?.costStructure;
+  if (!costStructure) return { ...EMPTY_COST_INPUTS };
+  return {
+    cogs: fromRatioToPct(costStructure.cogsPercent),
+    shipping: fromRatioToPct(costStructure.shippingPercent),
+    fulfillment: fromRatioToPct(costStructure.fulfillmentPercent),
+    processing: fromRatioToPct(costStructure.paymentProcessingPercent),
+  };
+}
+
+function hasAnyCostInput(costs: CostInputs) {
+  return Object.values(costs).some((value) => value !== null);
+}
+
+function roundRatio(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function CostStructureSection({
@@ -432,7 +523,7 @@ function CostStructureSection({
   disabled,
 }: {
   costs: CostInputs;
-  onChange: (k: keyof CostInputs, v: number) => void;
+  onChange: (k: keyof CostInputs, v: number | null) => void;
   totalCost: number;
   breakEven: number;
   disabled?: boolean;
@@ -442,19 +533,36 @@ function CostStructureSection({
       eyebrow="Section 2"
       title="Cost Structure"
       subtitle="All inputs are manual. SKU-level cost data isn't reliable from APIs — your blended numbers are what we use."
+      tooltip="These percentages are saved as Commercial Truth and used to derive break-even ROAS. They do not overwrite the separate Overview cost model."
     >
       <div className="grid grid-cols-2 gap-4">
-        <CtField label="Blended COGS" helper="Average cost of goods as % of revenue, blended across your product mix.">
-          <CtNumberInput value={costs.cogs} onChange={(v) => onChange("cogs", v ?? 0)} suffix="%" disabled={disabled} />
+        <CtField
+          label="Blended COGS"
+          helper="Average cost of goods as % of revenue, blended across your product mix."
+          tooltip="Use the average product cost across the order mix. If individual SKU margins vary, enter the blended rate you want decisions to assume."
+        >
+          <CtNumberInput value={costs.cogs} onChange={(v) => onChange("cogs", v)} suffix="%" disabled={disabled} testId="commercial-cost-cogs" />
         </CtField>
-        <CtField label="Shipping cost" helper="What you pay per shipment — not what the customer pays. Free-shipping stores still pay this.">
-          <CtNumberInput value={costs.shipping} onChange={(v) => onChange("shipping", v ?? 0)} suffix="%" disabled={disabled} />
+        <CtField
+          label="Shipping cost"
+          helper="What you pay per shipment — not what the customer pays. Free-shipping stores still pay this."
+          tooltip="Enter your actual outbound shipping cost as a share of revenue. This keeps ROAS targets from treating subsidized shipping as free margin."
+        >
+          <CtNumberInput value={costs.shipping} onChange={(v) => onChange("shipping", v)} suffix="%" disabled={disabled} testId="commercial-cost-shipping" />
         </CtField>
-        <CtField label="Fulfillment cost" helper="Warehouse, 3PL, or pick-and-pack cost per order.">
-          <CtNumberInput value={costs.fulfillment} onChange={(v) => onChange("fulfillment", v ?? 0)} suffix="%" disabled={disabled} />
+        <CtField
+          label="Fulfillment cost"
+          helper="Warehouse, 3PL, or pick-and-pack cost per order."
+          tooltip="Include warehouse handling, 3PL, packaging, and pick-and-pack costs that scale with order volume."
+        >
+          <CtNumberInput value={costs.fulfillment} onChange={(v) => onChange("fulfillment", v)} suffix="%" disabled={disabled} testId="commercial-cost-fulfillment" />
         </CtField>
-        <CtField label="Payment processing" helper="Credit card and gateway fees.">
-          <CtNumberInput value={costs.processing} onChange={(v) => onChange("processing", v ?? 0)} suffix="%" disabled={disabled} />
+        <CtField
+          label="Payment processing"
+          helper="Credit card and gateway fees."
+          tooltip="Add card, gateway, marketplace, or payment provider fees. This is a variable cost, so it directly affects break-even ROAS."
+        >
+          <CtNumberInput value={costs.processing} onChange={(v) => onChange("processing", v)} suffix="%" disabled={disabled} testId="commercial-cost-processing" />
         </CtField>
       </div>
       <div className="mt-5 grid gap-3" style={{ gridTemplateColumns: "1fr 1.4fr" }}>
@@ -669,11 +777,17 @@ function TargetRoasSection({
   targetRoas,
   onChange,
   breakEven,
+  manualBreakEven,
+  onManualBreakEvenChange,
+  costStructureActive,
   disabled,
 }: {
   targetRoas: number | null | undefined;
   onChange: (v: number | null) => void;
   breakEven: number;
+  manualBreakEven: number | null | undefined;
+  onManualBreakEvenChange: (v: number | null) => void;
+  costStructureActive: boolean;
   disabled?: boolean;
 }) {
   const val = targetRoas ?? 0;
@@ -700,6 +814,7 @@ function TargetRoasSection({
       eyebrow="Section 4"
       title="Target ROAS"
       subtitle="The single performance target the engine compares every campaign against."
+      tooltip="Target ROAS is persisted to the Commercial Truth target pack and is read by Creative and Meta decision engines as the primary efficiency threshold."
     >
       <div className="grid items-center gap-6" style={{ gridTemplateColumns: "minmax(240px, 360px) 1fr" }}>
         <div className="flex flex-col gap-3">
@@ -731,14 +846,22 @@ function TargetRoasSection({
             <p className="text-[11.5px] text-slate-500">Derived from your cost structure</p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">Break-even ROAS (manual)</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">Break-even ROAS (manual)</p>
+              <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
+            </div>
             <CtNumberInput
-              value={null}
-              onChange={() => {}}
+              value={costStructureActive ? breakEven : manualBreakEven}
+              onChange={onManualBreakEvenChange}
               suffix="x"
-              disabled={disabled}
+              disabled={disabled || costStructureActive}
+              testId="commercial-break-even-roas"
             />
-            <p className="text-[11.5px] text-slate-500">Override if cost inputs unavailable</p>
+            <p className="text-[11.5px] text-slate-500">
+              {costStructureActive
+                ? "Cost structure is filled, so derived break-even will be saved."
+                : "Override if cost inputs are unavailable."}
+            </p>
           </div>
         </div>
       </div>
@@ -782,10 +905,11 @@ function CountryEconomicsSection({
       eyebrow="Section 5"
       title="Country Economics"
       subtitle="Optional. Override the global cost structure for specific countries when shipping or COGS materially differ."
-      action={<CtGhostBtn onClick={onAdd} disabled={disabled}>+ Add country</CtGhostBtn>}
+      tooltip="Leave this empty when every country should use the same global cost structure. Add rows only for locations with materially different costs, margins, or serviceability."
+      action={<CtGhostBtn onClick={onAdd} disabled={disabled} testId="commercial-add-country">+ Add country</CtGhostBtn>}
     >
       {rows.length === 0 ? (
-        <CtEmptyState message="No GEO economics yet. Adsecute will use your global cost structure for every country." />
+        <CtEmptyState message="Country Economics is not filled in. Adsecute will evaluate every location with the same global cost structure." />
       ) : (
         <div className="flex flex-col gap-2">
           <div
@@ -793,8 +917,14 @@ function CountryEconomicsSection({
             style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1.6fr 36px" }}
           >
             <span>Country</span>
-            <span>Economics multiplier</span>
-            <span>Margin modifier</span>
+            <span className="flex items-center gap-1.5">
+              Economics multiplier
+              <CtTooltip content="Multiplier for country-level economics. Above 1 means this country needs stronger economics to scale; below 1 means economics are easier than the global baseline." />
+            </span>
+            <span className="flex items-center gap-1.5">
+              Margin modifier
+              <CtTooltip content="Adjustment to margin for this country when shipping, duties, returns, or local pricing materially changes profitability." />
+            </span>
             <span>Notes</span>
             <span />
           </div>
@@ -809,24 +939,28 @@ function CountryEconomicsSection({
                 onChange={(v) => onUpdate(i, "countryCode", v.toUpperCase())}
                 options={COUNTRY_OPTIONS}
                 disabled={disabled}
+                testId={`commercial-country-code-${i}`}
               />
               <CtNumberInput
                 value={r.economicsMultiplier}
                 onChange={(v) => onUpdate(i, "economicsMultiplier", v)}
                 disabled={disabled}
+                testId={`commercial-economics-multiplier-${i}`}
               />
               <CtNumberInput
                 value={r.marginModifier}
                 onChange={(v) => onUpdate(i, "marginModifier", v)}
                 disabled={disabled}
+                testId={`commercial-margin-modifier-${i}`}
               />
               <CtTextInput
                 value={r.notes ?? ""}
                 onChange={(v) => onUpdate(i, "notes", v || null)}
                 placeholder="Why this override?"
                 disabled={disabled}
+                testId={`commercial-country-notes-${i}`}
               />
-              <CtIconCircleBtn onClick={() => onRemove(i)} disabled={disabled}>
+              <CtIconCircleBtn onClick={() => onRemove(i)} disabled={disabled} testId={`commercial-remove-country-${i}`}>
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                   <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                 </svg>
@@ -943,29 +1077,31 @@ function SiteHealthSection({
       eyebrow="Section 7"
       title="Site Health &amp; Stock Pressure"
       subtitle="Operational blockers that should hold scaling decisions until cleared."
+      tooltip="These guardrails tell the decision engine when performance should not be scaled because fulfillment, tracking, checkout, feed, or inventory conditions are unreliable."
     >
       <div className="grid grid-cols-2 gap-4">
-        <CtField label="Site issue">
+        <CtField label="Site issue" tooltip="Use watch or critical when site speed, uptime, product pages, or landing pages could distort conversion performance.">
           <CtSelect value={constraints.siteIssueStatus} onChange={(v) => onUpdate("siteIssueStatus", v)} options={issueOpts} disabled={disabled} />
         </CtField>
-        <CtField label="Checkout issue">
+        <CtField label="Checkout issue" tooltip="Mark checkout issues when payment, shipping, discount, or checkout UX problems can suppress purchases independently of ad quality.">
           <CtSelect value={constraints.checkoutIssueStatus} onChange={(v) => onUpdate("checkoutIssueStatus", v)} options={issueOpts} disabled={disabled} />
         </CtField>
-        <CtField label="Conversion tracking">
+        <CtField label="Conversion tracking" tooltip="Use this when pixel/CAPI/event attribution is unreliable. Bad tracking should cap decision confidence even if ads appear strong or weak.">
           <CtSelect value={constraints.conversionTrackingIssueStatus} onChange={(v) => onUpdate("conversionTrackingIssueStatus", v)} options={issueOpts} disabled={disabled} />
         </CtField>
-        <CtField label="Feed issue">
+        <CtField label="Feed issue" tooltip="Use this for catalog, product availability, price, image, or feed sync issues that can affect campaign delivery and conversion quality.">
           <CtSelect value={constraints.feedIssueStatus} onChange={(v) => onUpdate("feedIssueStatus", v)} options={issueOpts} disabled={disabled} />
         </CtField>
-        <CtField label="Stock pressure">
+        <CtField label="Stock pressure" tooltip="Set watch when inventory is tight and blocked when scale should stop until stock recovers. This prevents profitable-looking demand from creating fulfillment risk.">
           <CtSelect
             value={constraints.stockPressureStatus}
             onChange={(v) => onUpdate("stockPressureStatus", v)}
             options={stockOpts}
             disabled={disabled}
+            testId="commercial-stock-pressure"
           />
         </CtField>
-        <CtField label="Manual do-not-scale reason">
+        <CtField label="Manual do-not-scale reason" tooltip="A human override that explains why scale actions should stay blocked even when metrics look eligible.">
           <CtTextInput
             value={constraints.manualDoNotScaleReason ?? ""}
             onChange={(v) => onUpdate("manualDoNotScaleReason", v || null)}
@@ -988,13 +1124,33 @@ const CALIBRATION_CARDS = [
   { id: "aggressive" as const, title: "Aggressive", desc: "Faster ceilings, larger increments. Mature accounts with stable signal only." },
 ];
 
+const ACTION_CEILING_OPTIONS = [
+  { value: "", label: "No ceiling" },
+  { value: "review_hold", label: "Review hold" },
+  { value: "review_reduce", label: "Review reduce" },
+  { value: "monitor_low_truth", label: "Monitor low truth" },
+  { value: "degraded_no_scale", label: "Degraded no scale" },
+];
+
 function CalibrationSection({
   riskPosture,
-  onChange,
+  onRiskPostureChange,
+  profiles,
+  onAddProfile,
+  onUpdateProfile,
+  onRemoveProfile,
   disabled,
 }: {
   riskPosture: string;
-  onChange: (v: string) => void;
+  onRiskPostureChange: (v: string) => void;
+  profiles: BusinessDecisionCalibrationProfile[];
+  onAddProfile: () => void;
+  onUpdateProfile: (
+    index: number,
+    field: keyof BusinessDecisionCalibrationProfile,
+    value: unknown,
+  ) => void;
+  onRemoveProfile: (index: number) => void;
   disabled?: boolean;
 }) {
   return (
@@ -1002,6 +1158,7 @@ function CalibrationSection({
       eyebrow="Section 8"
       title="Decision Calibration"
       subtitle="How aggressive the engine is with scale-up actions before live feedback exists."
+      tooltip="Risk posture sets the default operating stance. Calibration profiles add channel/objective/bid-regime multipliers and ceilings when a decision matches that profile."
     >
       <div className="grid grid-cols-3 gap-3">
         {CALIBRATION_CARDS.map((o) => {
@@ -1011,7 +1168,9 @@ function CalibrationSection({
               key={o.id}
               type="button"
               disabled={disabled}
-              onClick={() => onChange(o.id)}
+              onClick={() => onRiskPostureChange(o.id)}
+              data-testid={`commercial-risk-posture-${o.id}`}
+              aria-pressed={active}
               className={`flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors ${
                 active
                   ? "border-slate-900 bg-slate-900 text-white"
@@ -1033,6 +1192,116 @@ function CalibrationSection({
           );
         })}
       </div>
+
+      <div className="mt-5 flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <p className="text-[13px] font-bold text-slate-900">Calibration profiles</p>
+            <CtTooltip content="Use profiles to tune ROAS/CPA thresholds and confidence/action ceilings for a specific channel, objective family, bid regime, and decision archetype." />
+          </div>
+          <p className="text-[12px] text-slate-500">
+            Optional. Profiles are matched by channel + objective + bid regime + archetype.
+          </p>
+        </div>
+        <CtGhostBtn onClick={onAddProfile} disabled={disabled} testId="commercial-add-calibration-profile">
+          + Add profile
+        </CtGhostBtn>
+      </div>
+
+      {profiles.length === 0 ? (
+        <div className="mt-3">
+          <CtEmptyState message="No calibration profiles yet. The default risk posture is saved and generic thresholds remain in use." />
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-col gap-3">
+          {profiles.map((profile, index) => (
+            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 36px" }}>
+                <CtField label="Channel" tooltip="The decision surface this calibration applies to. Creative profiles affect creative decision hints; Meta profiles affect Meta decision hints.">
+                  <CtSelect
+                    value={profile.channel}
+                    onChange={(v) => onUpdateProfile(index, "channel", v)}
+                    options={BUSINESS_DECISION_CALIBRATION_CHANNELS.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    disabled={disabled}
+                    testId={`commercial-calibration-channel-${index}`}
+                  />
+                </CtField>
+                <CtField label="Objective" tooltip="Match the campaign/ad set objective family so sales, lead, traffic, and awareness logic can be tuned separately.">
+                  <CtSelect
+                    value={profile.objectiveFamily}
+                    onChange={(v) => onUpdateProfile(index, "objectiveFamily", v)}
+                    options={BUSINESS_DECISION_OBJECTIVE_FAMILIES.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    disabled={disabled}
+                    testId={`commercial-calibration-objective-${index}`}
+                  />
+                </CtField>
+                <CtField label="Bid regime" tooltip="Match the bidding mode. ROAS-floor, cost-cap, bid-cap, and open bidding can need different threshold multipliers.">
+                  <CtSelect
+                    value={profile.bidRegime}
+                    onChange={(v) => onUpdateProfile(index, "bidRegime", v)}
+                    options={BUSINESS_DECISION_BID_REGIMES.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    disabled={disabled}
+                    testId={`commercial-calibration-bid-regime-${index}`}
+                  />
+                </CtField>
+                <CtField label="Archetype" tooltip="The policy archetype or primary driver this profile matches, for example winner_scale or fatigue_refresh.">
+                  <CtTextInput
+                    value={profile.archetype}
+                    onChange={(v) => onUpdateProfile(index, "archetype", v)}
+                    disabled={disabled}
+                    testId={`commercial-calibration-archetype-${index}`}
+                  />
+                </CtField>
+                <div className="pt-7">
+                  <CtIconCircleBtn onClick={() => onRemoveProfile(index)} disabled={disabled} testId={`commercial-remove-calibration-profile-${index}`}>
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  </CtIconCircleBtn>
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-5 gap-3">
+                <CtField label="Target ROAS ×" tooltip="Multiplier applied to the target ROAS threshold for this matched profile. Values above 1 are stricter; below 1 are looser.">
+                  <CtNumberInput value={profile.targetRoasMultiplier} onChange={(v) => onUpdateProfile(index, "targetRoasMultiplier", v)} disabled={disabled} testId={`commercial-calibration-target-roas-multiplier-${index}`} />
+                </CtField>
+                <CtField label="Break-even ROAS ×" tooltip="Multiplier applied to break-even ROAS for this profile. Use cautiously because it changes loss-protection sensitivity.">
+                  <CtNumberInput value={profile.breakEvenRoasMultiplier} onChange={(v) => onUpdateProfile(index, "breakEvenRoasMultiplier", v)} disabled={disabled} testId={`commercial-calibration-break-even-roas-multiplier-${index}`} />
+                </CtField>
+                <CtField label="Target CPA ×" tooltip="Multiplier applied to target CPA. Values below 1 are stricter; above 1 are more permissive.">
+                  <CtNumberInput value={profile.targetCpaMultiplier} onChange={(v) => onUpdateProfile(index, "targetCpaMultiplier", v)} disabled={disabled} testId={`commercial-calibration-target-cpa-multiplier-${index}`} />
+                </CtField>
+                <CtField label="Break-even CPA ×" tooltip="Multiplier applied to break-even CPA for loss-protection checks.">
+                  <CtNumberInput value={profile.breakEvenCpaMultiplier} onChange={(v) => onUpdateProfile(index, "breakEvenCpaMultiplier", v)} disabled={disabled} testId={`commercial-calibration-break-even-cpa-multiplier-${index}`} />
+                </CtField>
+                <CtField label="Confidence cap" tooltip="Optional cap from 0 to 1. Example: 0.75 means matched decisions cannot exceed 75% confidence.">
+                  <CtNumberInput value={profile.confidenceCap} onChange={(v) => onUpdateProfile(index, "confidenceCap", v)} disabled={disabled} testId={`commercial-calibration-confidence-cap-${index}`} />
+                </CtField>
+              </div>
+
+              <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "220px 1fr" }}>
+                <CtField label="Action ceiling" tooltip="Optional safe-action ceiling for matched decisions. Use it when a channel/profile should stay review-only even if metrics look strong.">
+                  <CtSelect
+                    value={profile.actionCeiling ?? ""}
+                    onChange={(v) => onUpdateProfile(index, "actionCeiling", v || null)}
+                    options={ACTION_CEILING_OPTIONS}
+                    disabled={disabled}
+                    testId={`commercial-calibration-action-ceiling-${index}`}
+                  />
+                </CtField>
+                <CtField label="Notes" tooltip="Short operator note explaining why this calibration exists and when it should be revisited.">
+                  <CtTextInput
+                    value={profile.notes ?? ""}
+                    onChange={(v) => onUpdateProfile(index, "notes", v || null)}
+                    disabled={disabled}
+                    testId={`commercial-calibration-notes-${index}`}
+                  />
+                </CtField>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </CtSection>
   );
 }
@@ -1100,16 +1369,21 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
   const [notice, setNotice] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  // Local cost inputs (UI-only, used to compute break-even ROAS)
-  const [costs, setCostsState] = useState<CostInputs>({ cogs: 0, shipping: 0, fulfillment: 0, processing: 0 });
-  const setCost = (k: keyof CostInputs, v: number) => {
+  const [costs, setCostsState] = useState<CostInputs>({ ...EMPTY_COST_INPUTS });
+  const setCost = (k: keyof CostInputs, v: number | null) => {
     setCostsState((s) => ({ ...s, [k]: v }));
     setDirty(true);
   };
 
-  const totalCost = costs.cogs + costs.shipping + costs.fulfillment + costs.processing;
+  const costStructureActive = hasAnyCostInput(costs);
+  const totalCost =
+    (costs.cogs ?? 0) +
+    (costs.shipping ?? 0) +
+    (costs.fulfillment ?? 0) +
+    (costs.processing ?? 0);
   const totalCostPct = totalCost / 100;
-  const computedBreakEven = totalCostPct >= 1 ? Infinity : 1 / (1 - totalCostPct);
+  const computedBreakEven =
+    costStructureActive && totalCostPct < 1 ? 1 / (1 - totalCostPct) : Infinity;
 
   const canEdit = permissions?.canEdit ?? false;
   const effectiveDisabled = !canEdit || loading;
@@ -1127,11 +1401,14 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         throw new Error("Could not load commercial truth settings.");
       }
       setSnapshot(payload.snapshot);
+      setCostsState(costInputsFromSnapshot(payload.snapshot));
       setPermissions(payload.permissions);
       setDirty(false);
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : "Could not load commercial truth settings.");
-      setSnapshot(createEmptyBusinessCommercialTruthSnapshot(businessId));
+      const emptySnapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+      setSnapshot(emptySnapshot);
+      setCostsState(costInputsFromSnapshot(emptySnapshot));
       setPermissions(null);
     } finally {
       setLoading(false);
@@ -1139,7 +1416,9 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
   }, [businessId]);
 
   useEffect(() => {
-    setSnapshot(createEmptyBusinessCommercialTruthSnapshot(businessId));
+    const emptySnapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+    setSnapshot(emptySnapshot);
+    setCostsState(costInputsFromSnapshot(emptySnapshot));
     setPermissions(null);
     void loadSnapshot();
   }, [businessId, loadSnapshot]);
@@ -1148,14 +1427,24 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
     setSaving(true);
     setError(null);
     setNotice(null);
-    // Sync computed break-even ROAS into snapshot before saving
+    const costStructure = costStructureActive
+      ? {
+          cogsPercent: fromPctToRatio(costs.cogs),
+          shippingPercent: fromPctToRatio(costs.shipping),
+          fulfillmentPercent: fromPctToRatio(costs.fulfillment),
+          paymentProcessingPercent: fromPctToRatio(costs.processing),
+        }
+      : null;
+    const breakEvenRoas =
+      costStructureActive && isFinite(computedBreakEven)
+        ? roundRatio(computedBreakEven)
+        : (snapshot.targetPack?.breakEvenRoas ?? null);
     const snapshotToSave: BusinessCommercialTruthSnapshot = {
       ...snapshot,
       targetPack: {
         ...(snapshot.targetPack ?? createEmptyTargetPack()),
-        breakEvenRoas: isFinite(computedBreakEven) && totalCost > 0
-          ? Math.round(computedBreakEven * 100) / 100
-          : (snapshot.targetPack?.breakEvenRoas ?? null),
+        breakEvenRoas,
+        costStructure,
       },
     };
     try {
@@ -1169,6 +1458,7 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         throw new Error((payload as { message?: string } | null)?.message ?? "Could not save commercial truth settings.");
       }
       setSnapshot(payload.snapshot);
+      setCostsState(costInputsFromSnapshot(payload.snapshot));
       setPermissions(payload.permissions);
       setNotice("Commercial truth settings updated.");
       setDirty(false);
@@ -1230,14 +1520,50 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
     [],
   );
 
+  const addCalibrationProfile = useCallback(() => {
+    setSnapshot((current) => ({
+      ...current,
+      calibrationProfiles: [
+        ...(current.calibrationProfiles ?? []),
+        createEmptyDecisionCalibrationProfile(),
+      ],
+    }));
+    setDirty(true);
+  }, []);
+
+  const updateCalibrationProfile = useCallback(
+    (
+      index: number,
+      field: keyof BusinessDecisionCalibrationProfile,
+      value: unknown,
+    ) => {
+      setSnapshot((current) => ({
+        ...current,
+        calibrationProfiles: (current.calibrationProfiles ?? []).map((profile, i) =>
+          i === index ? { ...profile, [field]: value } : profile,
+        ),
+      }));
+      setDirty(true);
+    },
+    [],
+  );
+
+  const removeCalibrationProfile = useCallback((index: number) => {
+    setSnapshot((current) => ({
+      ...current,
+      calibrationProfiles: (current.calibrationProfiles ?? []).filter((_, i) => i !== index),
+    }));
+    setDirty(true);
+  }, []);
+
   const targetPack = snapshot.targetPack ?? createEmptyTargetPack();
   const operatingConstraints = snapshot.operatingConstraints ?? createEmptyOperatingConstraints();
 
   const countryRows = useMemo(() => snapshot.countryEconomics, [snapshot.countryEconomics]);
   const promoRows = useMemo(() => snapshot.promoCalendar, [snapshot.promoCalendar]);
 
-  const displayBreakEven = totalCost > 0 && isFinite(computedBreakEven)
-    ? computedBreakEven
+  const displayBreakEven = costStructureActive && isFinite(computedBreakEven)
+    ? roundRatio(computedBreakEven)
     : (targetPack.breakEvenRoas ?? 0);
 
   return (
@@ -1285,6 +1611,9 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         targetRoas={targetPack.targetRoas}
         onChange={(v) => updateTargetPack("targetRoas", v)}
         breakEven={displayBreakEven}
+        manualBreakEven={targetPack.breakEvenRoas}
+        onManualBreakEvenChange={(v) => updateTargetPack("breakEvenRoas", v)}
+        costStructureActive={costStructureActive}
         disabled={effectiveDisabled}
       />
 
@@ -1336,7 +1665,11 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
 
       <CalibrationSection
         riskPosture={targetPack.defaultRiskPosture}
-        onChange={(v) => updateTargetPack("defaultRiskPosture", v)}
+        onRiskPostureChange={(v) => updateTargetPack("defaultRiskPosture", v)}
+        profiles={snapshot.calibrationProfiles ?? []}
+        onAddProfile={addCalibrationProfile}
+        onUpdateProfile={updateCalibrationProfile}
+        onRemoveProfile={removeCalibrationProfile}
         disabled={effectiveDisabled}
       />
 
@@ -1346,7 +1679,6 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         onSave={() => void handleSave()}
         onDiscard={() => {
           void loadSnapshot();
-          setCostsState({ cogs: 0, shipping: 0, fulfillment: 0, processing: 0 });
         }}
         disabled={effectiveDisabled || saving}
       />

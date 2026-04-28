@@ -158,6 +158,73 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     expect(queryLog.some((query) => query.includes("business_ref_id"))).toBe(true);
   });
 
+  it("persists cost structure on the target pack without changing the target ROAS path", async () => {
+    await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+      businessId: "11111111-1111-4111-8111-111111111111",
+      updatedByUserId: "22222222-2222-4222-8222-222222222222",
+      snapshot: {
+        targetPack: {
+          targetCpa: null,
+          targetRoas: 2.8,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.9,
+          contributionMarginAssumption: null,
+          aovAssumption: null,
+          newCustomerWeight: null,
+          defaultRiskPosture: "aggressive",
+          costStructure: {
+            cogsPercent: 0.3,
+            shippingPercent: 0.08,
+            fulfillmentPercent: 0.05,
+            paymentProcessingPercent: 0.03,
+          },
+          sourceLabel: "test",
+          updatedAt: null,
+          updatedByUserId: null,
+        },
+      },
+    });
+
+    const joinedQueries = queryLog.join("\n");
+    expect(joinedQueries).toContain("target_roas");
+    expect(joinedQueries).toContain("cost_cogs_percent");
+    expect(joinedQueries).toContain("cost_shipping_percent");
+    expect(joinedQueries).toContain("cost_fulfillment_percent");
+    expect(joinedQueries).toContain("cost_payment_processing_percent");
+
+    const sanitized = businessCommercial.sanitizeBusinessCommercialTruthInput(
+      "11111111-1111-4111-8111-111111111111",
+      {
+        targetPack: {
+          targetCpa: null,
+          targetRoas: 2.8,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.9,
+          contributionMarginAssumption: null,
+          aovAssumption: null,
+          newCustomerWeight: null,
+          defaultRiskPosture: "aggressive",
+          costStructure: {
+            cogsPercent: 0.3,
+            shippingPercent: 0.08,
+            fulfillmentPercent: 0.05,
+            paymentProcessingPercent: 0.03,
+          },
+          sourceLabel: "test",
+          updatedAt: null,
+          updatedByUserId: null,
+        },
+      },
+    );
+    expect(sanitized.targetPack?.targetRoas).toBe(2.8);
+    expect(sanitized.targetPack?.costStructure).toEqual({
+      cogsPercent: 0.3,
+      shippingPercent: 0.08,
+      fulfillmentPercent: 0.05,
+      paymentProcessingPercent: 0.03,
+    });
+  });
+
   it("normalizes database timestamps before building coverage summaries", async () => {
     const updatedAt = new Date("2026-04-10T09:00:00.000Z");
     tableResponses.targetPack = [
@@ -170,6 +237,10 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
         aov_assumption: 110,
         new_customer_weight: 0.35,
         default_risk_posture: "balanced",
+        cost_cogs_percent: 0.31,
+        cost_shipping_percent: 0.09,
+        cost_fulfillment_percent: 0.06,
+        cost_payment_processing_percent: 0.03,
         source_label: "seed",
         updated_at: updatedAt,
         updated_by_user_id: "22222222-2222-4222-8222-222222222222",
@@ -230,5 +301,67 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     expect(snapshot?.sectionMeta.targetPack.updatedAt).toBe(updatedAt.toISOString());
     expect(snapshot?.coverage?.freshness.updatedAt).toBe(updatedAt.toISOString());
     expect(snapshot?.coverage?.calibration.updatedAt).toBe(updatedAt.toISOString());
+    expect(snapshot?.targetPack?.costStructure).toEqual({
+      cogsPercent: 0.31,
+      shippingPercent: 0.09,
+      fulfillmentPercent: 0.06,
+      paymentProcessingPercent: 0.03,
+    });
+  });
+
+  it("treats missing country economics as non-blocking global economics context", async () => {
+    const updatedAt = new Date("2026-04-10T09:00:00.000Z");
+    tableResponses.targetPack = [
+      {
+        target_cpa: null,
+        target_roas: 2.8,
+        break_even_cpa: null,
+        break_even_roas: 1.9,
+        contribution_margin_assumption: null,
+        aov_assumption: null,
+        new_customer_weight: null,
+        default_risk_posture: "balanced",
+        cost_cogs_percent: null,
+        cost_shipping_percent: null,
+        cost_fulfillment_percent: null,
+        cost_payment_processing_percent: null,
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+    tableResponses.countryEconomics = [];
+    tableResponses.operatingConstraints = [
+      {
+        site_issue_status: "none",
+        checkout_issue_status: "none",
+        conversion_tracking_issue_status: "none",
+        feed_issue_status: "none",
+        stock_pressure_status: "healthy",
+        landing_page_concern: null,
+        merchandising_concern: null,
+        manual_do_not_scale_reason: null,
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+
+    const snapshot = await businessCommercial.getBusinessCommercialTruthSnapshot(
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    const countryRequirement = snapshot.coverage?.requiredInputs.find(
+      (input) => input.section === "countryEconomics",
+    );
+    expect(countryRequirement?.blocking).toBe(false);
+    expect(countryRequirement?.actionCeiling).toBeNull();
+    expect(snapshot.coverage?.blockingReasons.join(" ")).not.toContain(
+      "Country economics",
+    );
+    expect(snapshot.coverage?.nonBlockingReasons.join(" ")).toContain(
+      "global cost structure",
+    );
+    expect(snapshot.coverage?.actionCeilings).not.toContain("monitor_low_truth");
   });
 });

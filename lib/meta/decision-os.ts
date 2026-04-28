@@ -1062,7 +1062,6 @@ function collectCommercialTruthCoverage(snapshot: BusinessCommercialTruthSnapsho
   const thresholds = determineThresholds(snapshot);
   const missingInputs: string[] = [];
   if (!snapshot.targetPack) missingInputs.push("target_pack");
-  if (snapshot.countryEconomics.length === 0) missingInputs.push("country_economics");
   if (snapshot.promoCalendar.length === 0) missingInputs.push("promo_calendar");
   if (!snapshot.operatingConstraints) missingInputs.push("operating_constraints");
 
@@ -1076,10 +1075,18 @@ function collectCommercialTruthCoverage(snapshot: BusinessCommercialTruthSnapsho
     summary: snapshot.coverage,
     notes:
       thresholds.mode === "configured_targets"
-        ? ["Commercial targets are configured, so decision aggressiveness can scale to business-specific thresholds."]
+        ? [
+            "Commercial targets are configured, so decision aggressiveness can scale to business-specific thresholds.",
+            ...(snapshot.countryEconomics.length === 0
+              ? ["Country economics are not configured, so all GEOs use the global cost structure."]
+              : []),
+          ]
         : [
             "Commercial targets are missing, so Decision OS is using conservative fallback thresholds.",
             "Safe actions stay preferred while missing truth lowers confidence.",
+            ...(snapshot.countryEconomics.length === 0
+              ? ["Country economics are not configured, so all GEOs use the global cost structure."]
+              : []),
           ],
   };
 }
@@ -1388,8 +1395,7 @@ function buildGeoAction(input: {
   }
 
   const degradedMissingTruth =
-    input.thresholds.mode === "conservative_fallback" ||
-    input.snapshot.countryEconomics.length === 0;
+    input.thresholds.mode === "conservative_fallback";
   const watchlistAction = action === "monitor" || action === "pool" || action === "validate";
   const entityState = input.row.spend <= 0 ? "inactive" : "active";
   const materiality = archiveContext
@@ -1399,7 +1405,6 @@ function buildGeoAction(input: {
       : "material";
   const missingInputs = [
     ...(input.thresholds.mode === "conservative_fallback" ? ["target_pack"] : []),
-    ...(input.snapshot.countryEconomics.length === 0 ? ["country_economics"] : []),
   ];
   const trust = archiveContext
     ? compileDecisionTrust({
@@ -2778,15 +2783,17 @@ function buildMetaGeoOpportunityFloors(input: {
   const commercialFloor = buildDecisionEvidenceFloor({
     key: "commercial_context",
     label: "Commercial context",
-    current: `${input.decision.commercialContext.serviceability ?? "unknown"} / ${input.decision.commercialContext.scaleOverride ?? "default"}`,
-    required: "configured country economics",
+    current: input.decision.commercialContext.countryEconomicsConfigured
+      ? `${input.decision.commercialContext.serviceability ?? "unknown"} / ${input.decision.commercialContext.scaleOverride ?? "default"}`
+      : "global cost structure",
+    required: "global cost structure or configured country override",
     status: !input.decision.commercialContext.countryEconomicsConfigured
-      ? "blocked"
+      ? "met"
       : input.decision.commercialContext.serviceability == null
         ? "watch"
         : "met",
     reason: !input.decision.commercialContext.countryEconomicsConfigured
-      ? "Country economics are not configured, so GEO decisions stay trust-capped."
+      ? "Country economics are not configured; all locations use the same global cost structure."
       : input.decision.commercialContext.serviceability == null
         ? "Country economics exist, but this GEO has no explicit serviceability row yet."
         : null,

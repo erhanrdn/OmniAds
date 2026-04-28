@@ -887,6 +887,48 @@ describe("buildCreativeDecisionOs", () => {
     expect(winner?.report.timeframeContext?.note ?? null).toBeNull();
   });
 
+  it("uses Commercial Truth target ROAS and break-even ROAS in creative economics", () => {
+    const commercialTruth = configuredCommercialTruth();
+    commercialTruth.targetPack = {
+      ...commercialTruth.targetPack!,
+      targetRoas: 3.6,
+      breakEvenRoas: 1.9,
+    };
+
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      ...buildCampaignContext(),
+      commercialTruth,
+      rows: [
+        buildRow({
+          creativeId: "winner",
+          name: "Strong But Below Business Target",
+          previewManifest: livePreviewManifest,
+          spend: 500,
+          purchaseValue: 1700,
+          roas: 3.4,
+          cpa: 22,
+          purchases: 12,
+          impressions: 24_000,
+          objectStoryId: "winner",
+          effectiveObjectStoryId: "winner",
+          postId: "winner",
+        }),
+        ...strongBaselineRows(),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "winner");
+
+    expect(winner?.economics.targetRoas).toBe(3.6);
+    expect(winner?.economics.breakEvenRoas).toBe(1.9);
+    expect(winner?.economics.reasons.join(" ")).toContain("below target ROAS 3.6x");
+    expect(winner?.operatorPolicy.segment).not.toBe("scale_ready");
+  });
+
   it("can activate true Scale inside an explicit campaign benchmark when that cohort is strong", () => {
     const payload = buildCreativeDecisionOs({
       businessId: "biz",

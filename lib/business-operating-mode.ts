@@ -294,11 +294,6 @@ function buildDegradedMode(input: {
     confidenceCap = 0.68;
     safeActionLabels.push("review_hold", "review_reduce", "degraded_no_scale");
   }
-  if (input.snapshot.countryEconomics.length === 0) {
-    reasons.push("Country economics are missing, so GEO-aware scaling remains confidence-capped.");
-    confidenceCap = confidenceCap == null ? 0.68 : Math.min(confidenceCap, 0.68);
-    safeActionLabels.push("review_hold", "monitor_low_truth", "degraded_no_scale");
-  }
   if (!input.snapshot.operatingConstraints) {
     reasons.push("Operating constraints are missing, so commercial guardrails stay conservative.");
     confidenceCap = confidenceCap == null ? 0.72 : Math.min(confidenceCap, 0.72);
@@ -383,9 +378,6 @@ export function buildAccountOperatingMode(input: {
   if (!input.snapshot.targetPack) {
     missingInputs.push("Target pack is not configured yet.");
   }
-  if (input.snapshot.countryEconomics.length === 0) {
-    missingInputs.push("Country economics are not configured for the live decision window.");
-  }
   if (!platform.hasCampaignData) {
     missingInputs.push("Meta live decision-window campaign data is unavailable.");
   }
@@ -464,6 +456,12 @@ export function buildAccountOperatingMode(input: {
       detail: input.snapshot.targetPack.defaultRiskPosture,
     });
   }
+  if (input.snapshot.countryEconomics.length === 0) {
+    activeCommercialInputs.push({
+      label: "Country economics",
+      detail: "No country overrides; global cost structure applies to every location.",
+    });
+  }
   for (const promo of activePromos.slice(0, 2)) {
     activeCommercialInputs.push({
       label: "Active promo",
@@ -539,7 +537,6 @@ export function buildAccountOperatingMode(input: {
 
   let confidence = 0.9;
   if (!input.snapshot.targetPack) confidence -= 0.18;
-  if (input.snapshot.countryEconomics.length === 0) confidence -= 0.08;
   if (!platform.hasCampaignData) confidence -= 0.2;
   if (!platform.hasLocationData) confidence -= 0.08;
   if (!input.snapshot.operatingConstraints) confidence -= 0.08;
