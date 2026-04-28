@@ -82,6 +82,46 @@ describe("creative live firm audit helpers", () => {
     expect(result.source).toBe("campaign_and_adset");
   });
 
+  it("uses Decision OS delivery context without requiring an extra campaign/ad set map read", () => {
+    const result = deriveCurrentActiveContext({
+      contextRow: {
+        campaignId: "cmp-active",
+        adSetId: "adset-active",
+      },
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        activeDelivery: true,
+        pausedDelivery: false,
+      },
+    });
+
+    expect(result).toEqual({
+      isActive: true,
+      campaignStatus: "ACTIVE",
+      adSetStatus: "ACTIVE",
+      source: "campaign_and_adset",
+    });
+  });
+
+  it("keeps paused Decision OS delivery context inactive even when statuses are active", () => {
+    const result = deriveCurrentActiveContext({
+      contextRow: {
+        campaignId: "cmp-active",
+        adSetId: "adset-active",
+      },
+      deliveryContext: {
+        campaignStatus: "ACTIVE",
+        adSetStatus: "ACTIVE",
+        activeDelivery: true,
+        pausedDelivery: true,
+      },
+    });
+
+    expect(result.isActive).toBe(false);
+    expect(result.source).toBe("campaign_and_adset");
+  });
+
   it("prioritizes active creatives by spend and then fills with inactive creatives", () => {
     const sample = selectDeterministicAuditSample(
       [

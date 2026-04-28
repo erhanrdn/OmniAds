@@ -13,6 +13,10 @@ import type {
   OperatorPolicyAssessment,
   OperatorPolicyState,
 } from "@/src/types/operator-decision";
+import {
+  buildCreativeMediaBuyerScorecard,
+  type CreativeMediaBuyerScorecard,
+} from "@/lib/creative-media-buyer-scoring";
 
 export const CREATIVE_OPERATOR_POLICY_VERSION = "creative-operator-policy.v1";
 
@@ -92,6 +96,7 @@ export interface CreativeOperatorPolicyAssessment
   segment: CreativeOperatorSegment;
   actionClass: CreativeOperatorActionClass;
   evidenceSource: CreativeEvidenceSource;
+  mediaBuyerScorecard?: CreativeMediaBuyerScorecard;
 }
 
 export interface CreativeOperatorPolicyInput {
@@ -400,6 +405,44 @@ function isReviewOnlyScaleCandidate(
   );
 }
 
+function isNonTestHighRelativeReviewCandidate(
+  input: CreativeOperatorPolicyInput,
+  businessValidationStatus: CreativeBusinessValidationStatus,
+) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (businessValidationStatus === "unfavorable") return false;
+  if (isActiveTestCampaign(input)) return false;
+  if (input.lifecycleState !== "validating") return false;
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (!hasStrongRelativeBaselineContext(input)) return false;
+  if (!hasRelativeScaleReviewEvidence(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(500, medianSpend * 0.75)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 6) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 20_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas < medianRoas * 2.5) return false;
+  if (
+    hasNumber(metrics.cpa) &&
+    metrics.cpa > 0 &&
+    hasNumber(medianCpa) &&
+    medianCpa > 0 &&
+    metrics.cpa > medianCpa
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function hasKillEvidence(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const spend = metrics.spend ?? null;
@@ -444,6 +487,24 @@ function hasMeaningfulPositiveSupport(input: CreativeOperatorPolicyInput) {
     hasNumber(metrics.roas) &&
     metrics.roas > 0
   );
+}
+
+function hasUnderSampledTestMoreEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (!hasMeaningfulPositiveSupport(input)) return false;
+  if (hasRelativeScaleReviewEvidence(input)) return true;
+  if (!hasRelativeBaselineContext(input)) return true;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(60, medianSpend * 0.5)) {
+    return false;
+  }
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  return metrics.roas >= medianRoas * 0.8;
 }
 
 function isMatureZeroPurchaseWeakCase(input: CreativeOperatorPolicyInput) {
@@ -548,7 +609,39 @@ function isProtectedTrendCollapseRefreshCandidate(input: CreativeOperatorPolicyI
   if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
   if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
   if (metrics.recentRoas >= medianRoas) return false;
-  return metrics.recentRoas / metrics.roas <= 0.4;
+  const benchmarkRatio = metrics.roas / medianRoas;
+  const trendRatio = metrics.recentRoas / metrics.roas;
+  if (input.lifecycleState === "stable_winner" && benchmarkRatio >= 1 && benchmarkRatio < 1.4) {
+    return trendRatio <= 0.5;
+  }
+  return trendRatio <= 0.4;
+}
+
+function isProtectedBelowBaselineMonitorCandidate(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (input.lifecycleState !== "stable_winner") return false;
+  if (input.primaryAction !== "hold_no_touch") return false;
+  if (input.trust?.operatorDisposition === "protected_watchlist") return false;
+  if (hasWeakCampaignContext(input)) return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(1_000, medianSpend * 1.25)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 4) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.9) return false;
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  return metrics.cpa >= medianCpa * 1.5;
 }
 
 function isFatiguedCpaRatioCutCandidate(input: CreativeOperatorPolicyInput) {
@@ -646,6 +739,43 @@ function isBlockedCpaRatioLoser(input: CreativeOperatorPolicyInput) {
   return metrics.cpa >= medianCpa * 2;
 }
 
+function isLowPurchaseCatastrophicCpaLoser(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (
+    input.lifecycleState !== "blocked" &&
+    input.lifecycleState !== "validating"
+  ) {
+    return false;
+  }
+  if (
+    input.primaryAction !== "block_deploy" &&
+    input.primaryAction !== "keep_in_test"
+  ) {
+    return false;
+  }
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 1 || metrics.purchases >= 4) {
+    return false;
+  }
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(300, medianSpend * 2)) {
+    return false;
+  }
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 8_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays <= 10) return false;
+  if (!hasNumber(metrics.roas) || !hasNumber(medianRoas) || medianRoas <= 0) {
+    return false;
+  }
+  if (metrics.roas > medianRoas * 0.4) return false;
+  if (!hasNumber(metrics.cpa) || metrics.cpa <= 0) return false;
+  if (!hasNumber(medianCpa) || medianCpa <= 0) return false;
+  return metrics.cpa >= medianCpa * 3;
+}
+
 function isHighSpendBelowBaselineCutCandidate(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -691,7 +821,30 @@ function isValidatingTrendCollapseRefreshCandidate(input: CreativeOperatorPolicy
   if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
   if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
   if (metrics.roas < medianRoas * 0.95) return false;
-  return metrics.recentRoas / metrics.roas <= 0.2;
+  return metrics.recentRoas / metrics.roas <= 0.25;
+}
+
+function isValidatingBelowBaselineCollapseRefreshCandidate(
+  input: CreativeOperatorPolicyInput,
+) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+
+  if (input.lifecycleState !== "validating") return false;
+  if (input.primaryAction !== "keep_in_test") return false;
+  if (!hasRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < 300) return false;
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 2) return false;
+  if (!hasNumber(metrics.impressions) || metrics.impressions < 3_000) return false;
+  if (!hasNumber(metrics.creativeAgeDays) || metrics.creativeAgeDays < 7) {
+    return false;
+  }
+  if (!hasNumber(metrics.roas) || metrics.roas <= 0) return false;
+  if (!hasNumber(metrics.recentRoas) || metrics.recentRoas < 0) return false;
+  if (!hasNumber(medianRoas) || medianRoas <= 0) return false;
+  if (metrics.roas > medianRoas * 0.4) return false;
+  return metrics.recentRoas === 0 || metrics.recentRoas / metrics.roas <= 0.3;
 }
 
 function shouldRefreshMatureLoser(input: CreativeOperatorPolicyInput) {
@@ -750,142 +903,11 @@ function resolveSegment(params: {
   blockers: string[];
   missingEvidence: string[];
   aggressive: boolean;
+  scorecard?: CreativeMediaBuyerScorecard;
 }): CreativeOperatorSegment {
   const { policyInput: input } = params;
-  const trust = input.trust ?? null;
-  const businessValidationStatus = resolveBusinessValidationStatus(input);
-  const reviewOnlyScaleCandidate = isReviewOnlyScaleCandidate(
-    input,
-    businessValidationStatus,
-  );
-  const activeTestScaleReviewCandidate =
-    isActiveTestStrongRelativeReviewCandidate(input);
-  const scaleIntent =
-    isScaleIntent(input) ||
-    reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
-  const relativeScaleReviewIntent =
-    isRelativeScaleReviewIntent(input) ||
-    reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
-
-  if (!input.provenance) return "blocked";
-  if (!trust) return "blocked";
-  if (input.evidenceSource !== "live") return "contextual_only";
-  if (input.previewStatus?.liveDecisionWindow === "missing") return "blocked";
-  if (
-    input.previewStatus?.liveDecisionWindow === "metrics_only_degraded" &&
-    (params.aggressive || relativeScaleReviewIntent)
-  ) {
-    return "investigate";
-  }
-  if (trust?.truthState === "inactive_or_immaterial") return "contextual_only";
-  if (trust?.operatorDisposition === "archive_only") return "contextual_only";
-  if (
-    hasWeakCampaignContext(input) &&
-    (isActiveTestStrongRelativeReviewCandidate(input) ||
-      isActiveTestStrongRelativeTestMoreCandidate(input))
-  ) {
-    return "investigate";
-  }
-  if (scaleIntent && hasWeakCampaignContext(input)) {
-    return "investigate";
-  }
-  if (
-    scaleIntent &&
-    businessValidationStatus === "favorable" &&
-    hasTrueScaleEvidence(input)
-  ) {
-    return "scale_ready";
-  }
-  if (isActiveTestStrongRelativeReviewCandidate(input)) {
-    return businessValidationStatus === "unfavorable" ? "hold_monitor" : "scale_review";
-  }
-  if (isActiveTestStrongRelativeTestMoreCandidate(input)) {
-    return "promising_under_sampled";
-  }
-  if (isPausedHistoricalWinnerRetestCandidate(input)) {
-    return "needs_new_variant";
-  }
-  if (isFatiguedHighSpendBelowBaselineCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isFatiguedCpaRatioCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isProtectedTrendCollapseRefreshCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
-  }
-  if (isBlockedCpaRatioLoser(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (input.primaryAction === "hold_no_touch" && !reviewOnlyScaleCandidate) {
-    return "protected_winner";
-  }
-  if (trust?.operatorDisposition === "protected_watchlist" && !reviewOnlyScaleCandidate) {
-    return "protected_winner";
-  }
-  if (scaleIntent && hasRelativeScaleReviewEvidence(input)) {
-    if (businessValidationStatus === "unfavorable") {
-      return "hold_monitor";
-    }
-    return "scale_review";
-  }
-  if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
-  if (isMatureTrendCollapseLoser(input) || isMatureCpaRatioLoser(input)) {
-    if (hasWeakCampaignContext(input)) return "investigate";
-    return shouldRefreshMatureLoser(input) ? "needs_new_variant" : "spend_waste";
-  }
-  if (isMatureZeroPurchaseCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
-  if (isValidatingTrendCollapseRefreshCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "needs_new_variant";
-  }
-  if (isUnderSampled(input)) {
-    if (
-      !hasMeaningfulPositiveSupport(input) ||
-      input.lifecycleState === "incubating"
-    ) {
-      return "creative_learning_incomplete";
-    }
-    return "promising_under_sampled";
-  }
-  if (isMatureBelowBaselinePurchaseLoser(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (isHighSpendBelowBaselineCutCandidate(input)) {
-    return hasWeakCampaignContext(input) ? "investigate" : "spend_waste";
-  }
-  if (scaleIntent && hasRelativeBaselineContext(input) && !hasRelativeScaleReviewEvidence(input)) {
-    return "hold_monitor";
-  }
-  if (input.primaryAction === "promote_to_scaling" && !hasScaleEvidence(input)) {
-    return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
-  }
-  if (input.primaryAction === "promote_to_scaling") {
-    if (!input.commercialTruthConfigured && !hasRelativeBaselineContext(input)) {
-      return "blocked";
-    }
-    return "hold_monitor";
-  }
-  if (input.lifecycleState === "fatigued_winner" || input.fatigue?.status === "fatigued") {
-    return input.primaryAction === "refresh_replace"
-      ? "fatigued_winner"
-      : "needs_new_variant";
-  }
-  if (input.primaryAction === "block_deploy") {
-    return hasKillEvidence(input)
-      ? "kill_candidate"
-      : hasNumber(input.supportingMetrics?.spend) && input.supportingMetrics!.spend! >= 250
-        ? "spend_waste"
-        : "creative_learning_incomplete";
-  }
-  if (input.primaryAction === "retest_comeback") return "needs_new_variant";
-  if (params.blockers.length > 0) return params.aggressive ? "blocked" : "investigate";
-  if (input.primaryAction === "keep_in_test") return "hold_monitor";
-  return "investigate";
+  const scorecard = params.scorecard ?? buildCreativeMediaBuyerScorecard(input);
+  return scorecard.operatorSegment;
 }
 
 function resolveState(input: {
@@ -965,6 +987,7 @@ function resolvePushReadiness(input: {
 export function assessCreativeOperatorPolicy(
   input: CreativeOperatorPolicyInput,
 ): CreativeOperatorPolicyAssessment {
+  const mediaBuyerScorecard = buildCreativeMediaBuyerScorecard(input);
   const trust = input.trust ?? null;
   const provenance = input.provenance ?? null;
   const evidenceSource = input.evidenceSource ?? "unknown";
@@ -978,6 +1001,8 @@ export function assessCreativeOperatorPolicy(
   );
   const activeTestScaleReviewCandidate =
     isActiveTestStrongRelativeReviewCandidate(input);
+  const nonTestHighRelativeReviewCandidate =
+    isNonTestHighRelativeReviewCandidate(input, businessValidationStatus);
   const scaleIntent =
     isScaleIntent(input) ||
     reviewOnlyScaleCandidate ||
@@ -993,7 +1018,8 @@ export function assessCreativeOperatorPolicy(
   const relativeScaleReviewIntent =
     isRelativeScaleReviewIntent(input) ||
     reviewOnlyScaleCandidate ||
-    activeTestScaleReviewCandidate;
+    activeTestScaleReviewCandidate ||
+    nonTestHighRelativeReviewCandidate;
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const matureZeroPurchaseCutCandidate = isMatureZeroPurchaseCutCandidate(input);
   const matureBelowBaselinePurchaseLoser = isMatureBelowBaselinePurchaseLoser(input);
@@ -1005,10 +1031,14 @@ export function assessCreativeOperatorPolicy(
     isFatiguedHighSpendBelowBaselineCutCandidate(input);
   const fatiguedCpaRatioCutCandidate = isFatiguedCpaRatioCutCandidate(input);
   const blockedCpaRatioLoser = isBlockedCpaRatioLoser(input);
+  const lowPurchaseCatastrophicCpaLoser =
+    isLowPurchaseCatastrophicCpaLoser(input);
   const highSpendBelowBaselineCutCandidate =
     isHighSpendBelowBaselineCutCandidate(input);
   const validatingTrendCollapseRefreshCandidate =
     isValidatingTrendCollapseRefreshCandidate(input);
+  const validatingBelowBaselineCollapseRefreshCandidate =
+    isValidatingBelowBaselineCollapseRefreshCandidate(input);
   const negativeActionIntent =
     killOrRefreshAction ||
     matureZeroPurchaseCutCandidate ||
@@ -1019,12 +1049,15 @@ export function assessCreativeOperatorPolicy(
     fatiguedHighSpendBelowBaselineCutCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
+    lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
-    validatingTrendCollapseRefreshCandidate;
+    validatingTrendCollapseRefreshCandidate ||
+    validatingBelowBaselineCollapseRefreshCandidate;
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
   const requiresCampaignContext =
     scaleIntent ||
+    nonTestHighRelativeReviewCandidate ||
     matureZeroPurchaseCutCandidate ||
     matureBelowBaselinePurchaseLoser ||
     matureTrendCollapseLoser ||
@@ -1033,9 +1066,13 @@ export function assessCreativeOperatorPolicy(
     fatiguedHighSpendBelowBaselineCutCandidate ||
     fatiguedCpaRatioCutCandidate ||
     blockedCpaRatioLoser ||
+    lowPurchaseCatastrophicCpaLoser ||
     highSpendBelowBaselineCutCandidate ||
-    validatingTrendCollapseRefreshCandidate;
-  const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
+    validatingTrendCollapseRefreshCandidate ||
+    validatingBelowBaselineCollapseRefreshCandidate;
+  const businessValidationMissing =
+    (scaleIntent || nonTestHighRelativeReviewCandidate) &&
+    businessValidationStatus === "missing";
   const businessValidationUnfavorable =
     scaleIntent && businessValidationStatus === "unfavorable";
 
@@ -1046,8 +1083,8 @@ export function assessCreativeOperatorPolicy(
     "row_trust",
     "preview_truth",
     requiresCommercialTruth ? "commercial_truth" : null,
-    scaleIntent ? "relative_baseline" : null,
-    scaleIntent ? "business_validation" : null,
+    scaleIntent || nonTestHighRelativeReviewCandidate ? "relative_baseline" : null,
+    scaleIntent || nonTestHighRelativeReviewCandidate ? "business_validation" : null,
     scaleIntent || negativeActionIntent ? "evidence_floor" : null,
     requiresCampaignContext ? "campaign_or_adset_context" : null,
     negativeActionIntent ? "sufficient_negative_evidence" : null,
@@ -1060,6 +1097,7 @@ export function assessCreativeOperatorPolicy(
     previewState === "missing" ? "preview_truth" : null,
     requiresCommercialTruth && !commercialTruthConfigured ? "commercial_truth" : null,
     needsRelativeBaseline ? "relative_baseline" : null,
+    businessValidationMissing && !requiresCommercialTruth ? "business_validation" : null,
     businessValidationUnfavorable ? "business_validation" : null,
     (scaleIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     matureZeroPurchaseCutCandidate && !hasKillEvidence(input) ? "evidence_floor" : null,
@@ -1069,8 +1107,10 @@ export function assessCreativeOperatorPolicy(
       fatiguedHighSpendBelowBaselineCutCandidate ||
       fatiguedCpaRatioCutCandidate ||
       blockedCpaRatioLoser ||
+      lowPurchaseCatastrophicCpaLoser ||
       highSpendBelowBaselineCutCandidate ||
-      validatingTrendCollapseRefreshCandidate) &&
+      validatingTrendCollapseRefreshCandidate ||
+      validatingBelowBaselineCollapseRefreshCandidate) &&
     !hasKillEvidence(input)
       ? "evidence_floor"
       : null,
@@ -1165,6 +1205,7 @@ export function assessCreativeOperatorPolicy(
     blockers,
     missingEvidence,
     aggressive,
+    scorecard: mediaBuyerScorecard,
   });
   const state = resolveState({
     segment,
@@ -1201,6 +1242,7 @@ export function assessCreativeOperatorPolicy(
     segment,
     actionClass,
     evidenceSource,
+    mediaBuyerScorecard,
     pushReadiness,
     queueEligible,
     canApply: false,
