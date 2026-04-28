@@ -1,12 +1,8 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import {
-  collectMetaSyncReadinessSnapshot,
-  type MetaSyncBenchmarkSnapshot,
-} from "@/lib/meta-sync-benchmark";
+import type { MetaSyncBenchmarkSnapshot } from "@/lib/meta-sync-benchmark";
 import {
   getRuntimeRegistryStatus,
-  getSyncReleaseCanaryBusinessIds,
   readSyncGateMode,
   type SyncGateMode,
 } from "@/lib/sync/runtime-contract";
@@ -98,10 +94,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function toErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function gateModeForKind(kind: SyncGateKind, env: NodeJS.ProcessEnv = process.env) {
   return kind === "deploy_gate"
     ? readSyncGateMode("SYNC_DEPLOY_GATE_MODE", env)
@@ -117,6 +109,44 @@ function mapVerdict(
   if (mode === "measure_only") return "measure_only";
   if (mode === "warn_only") return "warn_only";
   return "blocked";
+}
+
+function summarizeRuntimeServingReadiness(
+  registry: Awaited<ReturnType<typeof getRuntimeRegistryStatus>>,
+) {
+  return {
+    sampledAt: registry.sampledAt,
+    buildId: registry.buildId,
+    freshnessWindowMinutes: registry.freshnessWindowMinutes,
+    contractValid: registry.contractValid,
+    webPresent: registry.webPresent,
+    workerPresent: registry.workerPresent,
+    dbFingerprintMatch: registry.dbFingerprintMatch,
+    configFingerprintMatch: registry.configFingerprintMatch,
+    serviceHealth: {
+      web: registry.serviceHealth.web
+        ? {
+            service: registry.serviceHealth.web.service,
+            runtimeRole: registry.serviceHealth.web.runtimeRole,
+            buildId: registry.serviceHealth.web.buildId,
+            healthState: registry.serviceHealth.web.healthState,
+            fresh: registry.serviceHealth.web.fresh,
+            lastSeenAt: registry.serviceHealth.web.lastSeenAt,
+          }
+        : null,
+      worker: registry.serviceHealth.worker
+        ? {
+            service: registry.serviceHealth.worker.service,
+            runtimeRole: registry.serviceHealth.worker.runtimeRole,
+            buildId: registry.serviceHealth.worker.buildId,
+            healthState: registry.serviceHealth.worker.healthState,
+            fresh: registry.serviceHealth.worker.fresh,
+            lastSeenAt: registry.serviceHealth.worker.lastSeenAt,
+          }
+        : null,
+    },
+    issues: registry.issues,
+  };
 }
 
 async function assertGateTablesReady(context: string) {
@@ -451,48 +481,6 @@ export function classifyProviderReleaseTruth(input: ProviderReleaseTruthInput) {
   };
 }
 
-async function collectReleaseGateCanarySnapshot(input: {
-  businessId: string;
-  recentDays: number;
-  priorityWindowDays: number;
-  recentWindowMinutes: number;
-}) {
-  let lastError: string | null = null;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const snapshot = await collectMetaSyncReadinessSnapshot({
-        businessId: input.businessId,
-        recentDays: input.recentDays,
-        priorityWindowDays: input.priorityWindowDays,
-        recentWindowMinutes: input.recentWindowMinutes,
-      });
-      return {
-        businessId: input.businessId,
-        businessName: snapshot.businessName ?? null,
-        snapshot,
-        snapshotError: null,
-        attempts: attempt,
-      };
-    } catch (error) {
-      lastError = toErrorMessage(error);
-      console.error("[release-gates] canary_snapshot_failed", {
-        businessId: input.businessId,
-        attempt,
-        error: lastError,
-      });
-    }
-  }
-
-  return {
-    businessId: input.businessId,
-    businessName: null,
-    snapshot: null,
-    snapshotError: lastError ?? "unknown_release_snapshot_error",
-    attempts: 3,
-  };
-}
-
 export async function evaluateDeployGate(input?: {
   buildId?: string;
   persist?: boolean;
@@ -594,124 +582,52 @@ export async function evaluateReleaseGate(input?: {
     environment: input?.environment,
   });
   const mode = gateModeForKind("release_gate");
-  const canaryBusinessIds = getSyncReleaseCanaryBusinessIds();
-  const missingMandatoryCanaries = ["172d0ab8-495b-4679-a4c6-ffa404c389d3"].filter(
-    (businessId) => !canaryBusinessIds.includes(businessId),
-  );
-
-  if (canaryBusinessIds.length === 0 || missingMandatoryCanaries.length > 0) {
-    const record: SyncGateRecord = {
-      id: null,
-      gateKind: "release_gate",
-      gateScope: "release_readiness",
-      buildId,
-      environment,
-      mode,
-      baseResult: "misconfigured",
-      verdict: "misconfigured",
-      blockerClass: "misconfigured",
-      summary:
-        canaryBusinessIds.length === 0
-          ? "Release gate is misconfigured: SYNC_RELEASE_CANARY_BUSINESSES is empty."
-          : `Release gate is misconfigured: missing mandatory canary ${missingMandatoryCanaries.join(", ")}.`,
-      breakGlass: Boolean(input?.breakGlass),
-      overrideReason: input?.overrideReason ?? null,
-      evidence: {
-        canaryBusinessIds,
-        missingMandatoryCanaries,
-      },
-      emittedAt: nowIso(),
-    };
-    if (input?.persist ?? true) {
-      return upsertSyncGateRecord(record);
-    }
-    return record;
-  }
-
-  const canarySnapshots = [] as Awaited<
-    ReturnType<typeof collectReleaseGateCanarySnapshot>
-  >[];
-  for (const businessId of canaryBusinessIds) {
-    canarySnapshots.push(
-      await collectReleaseGateCanarySnapshot({
-        businessId,
-        recentDays: 7,
-        priorityWindowDays: 3,
-        recentWindowMinutes: 15,
-      }),
-    );
-  }
-
-  const evaluations = canarySnapshots.map((row) => {
-    if (row.snapshot) {
-      const classified = classifyReleaseSnapshot(row.snapshot);
-      return {
-        businessId: row.businessId,
-        businessName: row.businessName,
-        ...classified,
-        evidence: {
-          ...classified.evidence,
-          snapshotCollectionAttempts: row.attempts,
-        },
-      };
-    }
-
-    return {
-      businessId: row.businessId,
-      businessName: row.businessName,
-      pass: false,
-      blockerClass: "service_unavailable" as const,
-      evidence: {
-        activityState: null,
-        progressState: null,
-        workerOnline: null,
-        queueDepth: 0,
-        leasedPartitions: 0,
-        drainState: "unknown",
-        recentTruthState: null,
-        priorityTruthState: null,
-        truthReady: false,
-        retryableFailedPartitions: 0,
-        deadLetterPartitions: 0,
-        staleLeasePartitions: 0,
-        repairBacklog: 0,
-        validationFailures24h: 0,
-        reclaimCandidateCount: 0,
-        staleRunCount24h: 0,
-        d1FinalizeNonTerminalCount: 0,
-        stallFingerprints: [],
-        snapshotError: row.snapshotError,
-        snapshotCollectionAttempts: row.attempts,
-      },
-    };
-  });
-  const failing = evaluations.filter((row) => !row.pass);
-  const baseResult: SyncGateBaseResult = failing.length === 0 ? "pass" : "fail";
-  const blockerClass =
-    failing[0]?.blockerClass && failing[0].blockerClass !== "none"
-      ? failing[0].blockerClass
-      : null;
+  const registry = await getRuntimeRegistryStatus({ buildId });
+  const servicesHealthy =
+    registry.webPresent &&
+    registry.workerPresent &&
+    registry.serviceHealth.web?.healthState === "healthy" &&
+    registry.serviceHealth.worker?.healthState === "healthy";
+  const baseResult: SyncGateBaseResult =
+    servicesHealthy &&
+    registry.dbFingerprintMatch &&
+    registry.configFingerprintMatch &&
+    registry.contractValid
+      ? "pass"
+      : "fail";
+  const blockerClass: SyncBlockerClass =
+    !registry.contractValid || !registry.dbFingerprintMatch || !registry.configFingerprintMatch
+      ? "runtime_contract_invalid"
+      : !servicesHealthy
+        ? "service_unavailable"
+        : "none";
   const record: SyncGateRecord = {
     id: null,
     gateKind: "release_gate",
-    gateScope: "release_readiness",
+    gateScope:
+      blockerClass === "runtime_contract_invalid" ? "runtime_contract" : "release_readiness",
     buildId,
     environment,
     mode,
     baseResult,
     verdict: mapVerdict(baseResult, mode),
-    blockerClass,
+    blockerClass: blockerClass === "none" ? null : blockerClass,
     summary:
       baseResult === "pass"
-        ? "Release gate canary snapshot passed."
-        : `Release gate canary snapshot failed for ${failing
-            .map((row) => row.businessName ?? row.businessId)
-            .join(", ")}.`,
+        ? "Release gate serving readiness passed."
+        : `Release gate serving readiness failed: ${
+            registry.issues[0] ??
+            (blockerClass === "service_unavailable"
+              ? "service_unavailable"
+              : blockerClass === "runtime_contract_invalid"
+                ? "runtime_contract_invalid"
+                : "unknown")
+          }`,
     breakGlass: Boolean(input?.breakGlass),
     overrideReason: input?.overrideReason ?? null,
     evidence: {
-      canaryBusinessIds,
-      canaries: evaluations,
+      buildId,
+      runtimeRegistry: summarizeRuntimeServingReadiness(registry),
     },
     emittedAt: nowIso(),
   };

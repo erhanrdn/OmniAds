@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MetaSyncBenchmarkSnapshot } from "@/lib/meta-sync-benchmark";
 
 vi.mock("@/lib/sync/soak-gate", () => ({
   runSyncSoakGate: vi.fn(),
-}));
-
-vi.mock("@/lib/meta-sync-benchmark", () => ({
-  collectMetaSyncReadinessSnapshot: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/worker-health", () => ({
@@ -23,133 +18,9 @@ vi.mock("@/lib/sync/runtime-contract", async (importOriginal) => {
 });
 
 const soakGate = await import("@/lib/sync/soak-gate");
-const benchmark = await import("@/lib/meta-sync-benchmark");
 const runtimeContract = await import("@/lib/sync/runtime-contract");
 const workerHealth = await import("@/lib/sync/worker-health");
 const releaseGates = await import("@/lib/sync/release-gates");
-
-function makeReadySnapshot(): MetaSyncBenchmarkSnapshot {
-  return {
-    businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
-    businessName: "TheSwaf",
-    capturedAt: "2026-04-15T00:00:00.000Z",
-    windows: {
-      recent: { startDate: "2026-04-09", endDate: "2026-04-15", totalDays: 7 },
-      priority: { startDate: "2026-04-13", endDate: "2026-04-15", totalDays: 3 },
-      recentWindowMinutes: 15,
-    },
-    latestSync: null,
-    operator: {
-      progressState: "syncing",
-      activityState: "busy",
-      stallFingerprints: [],
-      repairBacklog: 0,
-      validationFailures24h: 0,
-      lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
-      d1FinalizeNonTerminalCount: 0,
-      workerOnline: true,
-      workerLastHeartbeatAt: "2026-04-15T00:00:00.000Z",
-      dbConstraint: null,
-      dbBacklogState: null,
-    },
-    queue: {
-      queueDepth: 6,
-      leasedPartitions: 1,
-      retryableFailedPartitions: 0,
-      deadLetterPartitions: 0,
-      staleLeasePartitions: 0,
-      oldestQueuedPartition: null,
-      latestActivityAt: "2026-04-15T00:00:00.000Z",
-      pendingByLane: {},
-      pendingByScope: {},
-      laneSourceStatusCounts: [],
-      laneScopeStatusCounts: [],
-    },
-    userFacing: {
-      recentCore: {
-        summary: {
-          completedDays: 7,
-          totalDays: 7,
-          readyThroughDate: "2026-04-15",
-          percent: 100,
-          complete: true,
-        },
-        campaigns: {
-          completedDays: 7,
-          totalDays: 7,
-          readyThroughDate: "2026-04-15",
-          percent: 100,
-          complete: true,
-        },
-        percent: 100,
-        complete: true,
-        readyThroughDate: "2026-04-15",
-      },
-      recentExtended: {
-        adsets: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-        creatives: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-        ads: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-      },
-      recentSelectedRangeTruth: {
-        startDate: "2026-04-09",
-        endDate: "2026-04-15",
-        totalDays: 7,
-        completedCoreDays: 7,
-        percent: 100,
-        truthReady: true,
-        state: "finalized_verified",
-        verificationState: "finalized_verified",
-        blockingReasons: [],
-        detectorReasonCodes: [],
-        asOf: "2026-04-15T00:00:00.000Z",
-      },
-      priorityWindowTruth: {
-        startDate: "2026-04-13",
-        endDate: "2026-04-15",
-        totalDays: 3,
-        completedCoreDays: 3,
-        percent: 100,
-        truthReady: true,
-        state: "finalized_verified",
-        verificationState: "finalized_verified",
-        blockingReasons: [],
-        detectorReasonCodes: [],
-        asOf: "2026-04-15T00:00:00.000Z",
-      },
-    },
-    syncState: {
-      lastCheckpointUpdatedAt: "2026-04-15T00:00:00.000Z",
-      readyThroughDates: {
-        account_daily: "2026-04-15",
-        campaign_daily: "2026-04-15",
-      },
-    },
-    velocity: {
-      completedLastWindow: 6,
-      cancelledLastWindow: 0,
-      deadLetteredLastWindow: 0,
-      createdLastWindow: 2,
-      failedLastWindow: 0,
-      reclaimedLastWindow: 0,
-      skippedActiveLeaseLastWindow: 0,
-      netDrainEstimate: 4,
-      drainState: "large_but_draining",
-    },
-    counters: {
-      totalSucceeded: 12,
-      totalCancelled: 0,
-      totalDeadLettered: 0,
-      totalPartitions: 6,
-    },
-    authoritative: {
-      publishedProgression: 1,
-      repairBacklog: 0,
-      validationFailures24h: 0,
-      d1SlaBreaches: 0,
-      lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
-    },
-  };
-}
 
 describe("sync release gates", () => {
   it("passes release truth when serving data is ready and background backfill is progressing", () => {
@@ -556,267 +427,9 @@ describe("sync release gates", () => {
     expect(verdict.gateScope).toBe("service_liveness");
   });
 
-  it("marks release gate misconfigured when the canary set is empty", async () => {
+  it("passes release gate from runtime serving readiness without sync canaries", async () => {
     delete process.env.SYNC_RELEASE_CANARY_BUSINESSES;
-
-    const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
-
-    expect(verdict.baseResult).toBe("misconfigured");
-    expect(verdict.verdict).toBe("misconfigured");
-    expect(verdict.blockerClass).toBe("misconfigured");
-    expect(verdict.gateScope).toBe("release_readiness");
-  });
-
-  it("keeps failing canaries read-only under measure_only mode", async () => {
-    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
-    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue({
-      businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
-      businessName: "TheSwaf",
-      capturedAt: "2026-04-15T00:00:00.000Z",
-      windows: {
-        recent: { startDate: "2026-04-09", endDate: "2026-04-15", totalDays: 7 },
-        priority: { startDate: "2026-04-13", endDate: "2026-04-15", totalDays: 3 },
-        recentWindowMinutes: 15,
-      },
-      latestSync: null,
-      operator: {
-        progressState: "partial_stuck",
-        activityState: "stalled",
-        stallFingerprints: ["checkpoint_not_advancing"],
-        repairBacklog: 0,
-        validationFailures24h: 0,
-        lastSuccessfulPublishAt: null,
-        d1FinalizeNonTerminalCount: 0,
-        workerOnline: false,
-        workerLastHeartbeatAt: null,
-        dbConstraint: null,
-        dbBacklogState: null,
-      },
-      queue: {
-        queueDepth: 3,
-        leasedPartitions: 0,
-        retryableFailedPartitions: 0,
-        deadLetterPartitions: 0,
-        staleLeasePartitions: 0,
-        oldestQueuedPartition: null,
-        latestActivityAt: null,
-        pendingByLane: {},
-        pendingByScope: {},
-        laneSourceStatusCounts: [],
-        laneScopeStatusCounts: [],
-      },
-      userFacing: {
-        recentCore: {
-          summary: {
-            completedDays: 1,
-            totalDays: 7,
-            readyThroughDate: null,
-            percent: 14,
-            complete: false,
-          },
-          campaigns: {
-            completedDays: 1,
-            totalDays: 7,
-            readyThroughDate: null,
-            percent: 14,
-            complete: false,
-          },
-          percent: 14,
-          complete: false,
-          readyThroughDate: null,
-        },
-        recentExtended: {
-          adsets: { completedDays: 0, totalDays: 7, readyThroughDate: null, percent: 0, complete: false },
-          creatives: { completedDays: 0, totalDays: 7, readyThroughDate: null, percent: 0, complete: false },
-          ads: { completedDays: 0, totalDays: 7, readyThroughDate: null, percent: 0, complete: false },
-        },
-        recentSelectedRangeTruth: {
-          startDate: "2026-04-09",
-          endDate: "2026-04-15",
-          totalDays: 7,
-          completedCoreDays: 1,
-          percent: 14,
-          truthReady: false,
-          state: "processing",
-          verificationState: "processing",
-          blockingReasons: [],
-          detectorReasonCodes: [],
-          asOf: null,
-        },
-        priorityWindowTruth: {
-          startDate: "2026-04-13",
-          endDate: "2026-04-15",
-          totalDays: 3,
-          completedCoreDays: 0,
-          percent: 0,
-          truthReady: false,
-          state: "processing",
-          verificationState: "processing",
-          blockingReasons: [],
-          detectorReasonCodes: [],
-          asOf: null,
-        },
-      },
-      syncState: {
-        lastCheckpointUpdatedAt: null,
-        readyThroughDates: {},
-      },
-      velocity: {
-        completedLastWindow: 0,
-        cancelledLastWindow: 0,
-        deadLetteredLastWindow: 0,
-        createdLastWindow: 0,
-        failedLastWindow: 0,
-        reclaimedLastWindow: 0,
-        skippedActiveLeaseLastWindow: 0,
-        netDrainEstimate: 0,
-        drainState: "large_and_not_draining",
-      },
-      counters: {
-        totalSucceeded: 0,
-        totalCancelled: 0,
-        totalDeadLettered: 0,
-        totalPartitions: 3,
-      },
-      authoritative: {
-        publishedProgression: 0,
-        repairBacklog: 0,
-        validationFailures24h: 0,
-        d1SlaBreaches: 0,
-        lastSuccessfulPublishAt: null,
-      },
-    } as never);
-
-    const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
-
-    expect(verdict.baseResult).toBe("fail");
-    expect(verdict.verdict).toBe("measure_only");
-    expect(verdict.blockerClass).toBe("worker_unavailable");
-    expect(verdict.gateScope).toBe("release_readiness");
-  });
-
-  it("passes release gate when backlog is active but truth is ready and activity is busy", async () => {
-    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
-    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue({
-      businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
-      businessName: "TheSwaf",
-      capturedAt: "2026-04-15T00:00:00.000Z",
-      windows: {
-        recent: { startDate: "2026-04-09", endDate: "2026-04-15", totalDays: 7 },
-        priority: { startDate: "2026-04-13", endDate: "2026-04-15", totalDays: 3 },
-        recentWindowMinutes: 15,
-      },
-      latestSync: null,
-      operator: {
-        progressState: "syncing",
-        activityState: "busy",
-        stallFingerprints: [],
-        repairBacklog: 0,
-        validationFailures24h: 0,
-        lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
-        d1FinalizeNonTerminalCount: 0,
-        workerOnline: true,
-        workerLastHeartbeatAt: "2026-04-15T00:00:00.000Z",
-        dbConstraint: null,
-        dbBacklogState: null,
-      },
-      queue: {
-        queueDepth: 6,
-        leasedPartitions: 1,
-        retryableFailedPartitions: 0,
-        deadLetterPartitions: 0,
-        staleLeasePartitions: 0,
-        oldestQueuedPartition: null,
-        latestActivityAt: "2026-04-15T00:00:00.000Z",
-        pendingByLane: {},
-        pendingByScope: {},
-        laneSourceStatusCounts: [],
-        laneScopeStatusCounts: [],
-      },
-      userFacing: {
-        recentCore: {
-          summary: {
-            completedDays: 7,
-            totalDays: 7,
-            readyThroughDate: "2026-04-15",
-            percent: 100,
-            complete: true,
-          },
-          campaigns: {
-            completedDays: 7,
-            totalDays: 7,
-            readyThroughDate: "2026-04-15",
-            percent: 100,
-            complete: true,
-          },
-          percent: 100,
-          complete: true,
-          readyThroughDate: "2026-04-15",
-        },
-        recentExtended: {
-          adsets: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-          creatives: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-          ads: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
-        },
-        recentSelectedRangeTruth: {
-          startDate: "2026-04-09",
-          endDate: "2026-04-15",
-          totalDays: 7,
-          completedCoreDays: 7,
-          percent: 100,
-          truthReady: true,
-          state: "finalized_verified",
-          verificationState: "finalized_verified",
-          blockingReasons: [],
-          detectorReasonCodes: [],
-          asOf: "2026-04-15T00:00:00.000Z",
-        },
-        priorityWindowTruth: {
-          startDate: "2026-04-13",
-          endDate: "2026-04-15",
-          totalDays: 3,
-          completedCoreDays: 3,
-          percent: 100,
-          truthReady: true,
-          state: "finalized_verified",
-          verificationState: "finalized_verified",
-          blockingReasons: [],
-          detectorReasonCodes: [],
-          asOf: "2026-04-15T00:00:00.000Z",
-        },
-      },
-      syncState: {
-        lastCheckpointUpdatedAt: "2026-04-15T00:00:00.000Z",
-        readyThroughDates: {
-          account_daily: "2026-04-15",
-          campaign_daily: "2026-04-15",
-        },
-      },
-      velocity: {
-        completedLastWindow: 6,
-        cancelledLastWindow: 0,
-        deadLetteredLastWindow: 0,
-        createdLastWindow: 2,
-        failedLastWindow: 0,
-        reclaimedLastWindow: 0,
-        skippedActiveLeaseLastWindow: 0,
-        netDrainEstimate: 4,
-        drainState: "large_but_draining",
-      },
-      counters: {
-        totalSucceeded: 12,
-        totalCancelled: 0,
-        totalDeadLettered: 0,
-        totalPartitions: 6,
-      },
-      authoritative: {
-        publishedProgression: 1,
-        repairBacklog: 0,
-        validationFailures24h: 0,
-        d1SlaBreaches: 0,
-        lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
-      },
-    } as never);
+    process.env.SYNC_RELEASE_GATE_MODE = "block";
 
     const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
 
@@ -824,120 +437,112 @@ describe("sync release gates", () => {
     expect(verdict.verdict).toBe("pass");
     expect(verdict.blockerClass).toBeNull();
     expect(verdict.gateScope).toBe("release_readiness");
+    expect(verdict.summary).toBe("Release gate serving readiness passed.");
     expect(verdict.evidence).toMatchObject({
-      canaries: [
-        expect.objectContaining({
-          pass: true,
-          blockerClass: "none",
-          evidence: expect.objectContaining({
-            queueDepth: 6,
-            activityState: "busy",
-            truthReady: true,
-            recentTruthState: "finalized_verified",
-            priorityTruthState: "finalized_verified",
-          }),
-        }),
-      ],
+      buildId: "dev-build",
+      runtimeRegistry: expect.objectContaining({
+        webPresent: true,
+        workerPresent: true,
+        contractValid: true,
+      }),
     });
+    expect(verdict.evidence).not.toHaveProperty("canaryBusinessIds");
+    expect(verdict.evidence).not.toHaveProperty("canaries");
+    expect(JSON.stringify(verdict.evidence)).not.toMatch(/canary|queue|deadLetter/i);
   });
 
-  it("retries transient canary snapshot failures before passing the release gate", async () => {
-    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
-    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot)
-      .mockRejectedValueOnce(new Error("temporary timeout"))
-      .mockRejectedValueOnce(new Error("temporary timeout"))
-      .mockResolvedValueOnce(makeReadySnapshot());
-
-    const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
-
-    expect(verdict.baseResult).toBe("pass");
-    expect(verdict.verdict).toBe("pass");
-    expect(benchmark.collectMetaSyncReadinessSnapshot).toHaveBeenCalledTimes(3);
-    expect(verdict.evidence).toMatchObject({
-      canaries: [
-        expect.objectContaining({
-          pass: true,
-          evidence: expect.objectContaining({
-            snapshotCollectionAttempts: 3,
-          }),
-        }),
-      ],
-    });
-  });
-
-  it("collects canary snapshots serially", async () => {
-    const firstBusinessId = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
-    const secondBusinessId = "5dbc7147-f051-4681-a4d6-20617170074f";
-    process.env.SYNC_RELEASE_CANARY_BUSINESSES = `${firstBusinessId},${secondBusinessId}`;
-
-    let resolveFirst: (() => void) | undefined;
-    let resolveSecond: (() => void) | undefined;
-    const callOrder: string[] = [];
-
-    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockImplementation(({ businessId }) => {
-      callOrder.push(businessId);
-      return new Promise((resolve) => {
-        const snapshot = {
-          ...makeReadySnapshot(),
-          businessId,
-          businessName: businessId === firstBusinessId ? "TheSwaf" : "Grandmix",
-        } as ReturnType<typeof makeReadySnapshot>;
-        if (businessId === firstBusinessId) {
-          resolveFirst = () => resolve(snapshot);
-          return;
-        }
-        resolveSecond = () => resolve(snapshot);
-      });
-    });
-
-    const verdictPromise = releaseGates.evaluateReleaseGate({ persist: false });
-    await Promise.resolve();
-
-    expect(callOrder).toEqual([firstBusinessId]);
-    expect(resolveFirst).toBeDefined();
-    expect(resolveSecond).toBeUndefined();
-
-    resolveFirst?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(callOrder).toEqual([firstBusinessId, secondBusinessId]);
-    expect(resolveSecond).toBeDefined();
-
-    resolveSecond?.();
-    const verdict = await verdictPromise;
-
-    expect(verdict.baseResult).toBe("pass");
-    expect(verdict.verdict).toBe("pass");
-    expect(benchmark.collectMetaSyncReadinessSnapshot).toHaveBeenCalledTimes(2);
-  });
-
-  it("fails closed with a persisted release-gate record shape when canary snapshots keep throwing", async () => {
-    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+  it("blocks release gate when runtime contract evidence fails under block mode", async () => {
     process.env.SYNC_RELEASE_GATE_MODE = "block";
-    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockRejectedValue(
-      new Error("Meta benchmark business 172d0ab8-495b-4679-a4c6-ffa404c389d3 is not visible in admin sync health."),
-    );
+    vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue({
+      sampledAt: "2026-04-15T00:00:00.000Z",
+      buildId: "dev-build",
+      freshnessWindowMinutes: 10,
+      contractValid: false,
+      serviceHealth: {
+        web: {
+          instanceId: "web:test:1",
+          service: "web",
+          runtimeRole: "web",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "invalid",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
+        worker: {
+          instanceId: "worker:test:1",
+          service: "worker",
+          runtimeRole: "worker",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "healthy",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
+      },
+      webPresent: true,
+      workerPresent: true,
+      dbFingerprintMatch: false,
+      configFingerprintMatch: true,
+      issues: ["Web and worker DB fingerprints do not match."],
+    });
 
     const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
 
     expect(verdict.baseResult).toBe("fail");
     expect(verdict.verdict).toBe("blocked");
-    expect(verdict.blockerClass).toBe("service_unavailable");
-    expect(benchmark.collectMetaSyncReadinessSnapshot).toHaveBeenCalledTimes(3);
-    expect(verdict.evidence).toMatchObject({
-      canaries: [
-        expect.objectContaining({
-          pass: false,
-          blockerClass: "service_unavailable",
-          evidence: expect.objectContaining({
-            truthReady: false,
-            snapshotCollectionAttempts: 3,
-            snapshotError:
-              "Meta benchmark business 172d0ab8-495b-4679-a4c6-ffa404c389d3 is not visible in admin sync health.",
-          }),
-        }),
-      ],
+    expect(verdict.blockerClass).toBe("runtime_contract_invalid");
+    expect(verdict.gateScope).toBe("runtime_contract");
+    expect(verdict.summary).toContain("Release gate serving readiness failed");
+    expect(verdict.evidence).not.toHaveProperty("canaries");
+  });
+
+  it("keeps serving release gate read-only under measure_only mode", async () => {
+    process.env.SYNC_RELEASE_GATE_MODE = "measure_only";
+    vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue({
+      sampledAt: "2026-04-15T00:00:00.000Z",
+      buildId: "dev-build",
+      freshnessWindowMinutes: 10,
+      contractValid: true,
+      serviceHealth: {
+        web: {
+          instanceId: "web:test:1",
+          service: "web",
+          runtimeRole: "web",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "healthy",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
+        worker: null,
+      },
+      webPresent: true,
+      workerPresent: false,
+      dbFingerprintMatch: true,
+      configFingerprintMatch: true,
+      issues: ["Worker runtime registry heartbeat missing."],
     });
+
+    const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+    expect(verdict.baseResult).toBe("fail");
+    expect(verdict.verdict).toBe("measure_only");
+    expect(verdict.blockerClass).toBe("service_unavailable");
+    expect(verdict.gateScope).toBe("release_readiness");
+    expect(verdict.evidence).not.toHaveProperty("canaries");
   });
 
   it("enforces only blocked or misconfigured verdicts", () => {
