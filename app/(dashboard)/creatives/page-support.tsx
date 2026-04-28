@@ -9,7 +9,21 @@ import {
   calculateCreativePurchaseValueShare,
   hasCreativeVideoEvidence,
 } from "@/components/creatives/creative-truth";
-import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
+import type {
+  ShareMetricKey,
+  SharedCreative,
+  SharedCreativeAnalysis,
+} from "@/components/creatives/shareCreativeTypes";
+import type {
+  CreativeDecisionAction,
+  CreativeDecisionOsCreative,
+  CreativeDecisionPrimaryAction,
+} from "@/lib/creative-decision-os";
+import {
+  buildCreativeOperatorItem,
+  creativeBenchmarkReliabilityLabel,
+  creativeBusinessValidationNote,
+} from "@/lib/creative-operator-surface";
 import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
@@ -160,7 +174,113 @@ export function toCsv(rows: MetaCreativeRow[]): string {
   return [headers.map(escape).join(","), ...body].join("\n");
 }
 
-export function toSharedCreative(row: MetaCreativeRow): SharedCreative {
+function safeText(value: string | null | undefined, fallback = "") {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function uniqueLimited(values: Array<string | null | undefined>, limit: number) {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
+  ).slice(0, limit);
+}
+
+function primaryActionLabel(
+  primaryAction: CreativeDecisionPrimaryAction | null | undefined,
+  legacyAction: CreativeDecisionAction | null | undefined,
+) {
+  if (primaryAction === "promote_to_scaling") return "Scale";
+  if (primaryAction === "keep_in_test") return "Test More";
+  if (primaryAction === "hold_no_touch") return "Protect";
+  if (primaryAction === "refresh_replace" || primaryAction === "retest_comeback") return "Refresh";
+  if (primaryAction === "block_deploy") return "Diagnose";
+  if (legacyAction === "scale" || legacyAction === "scale_hard") return "Scale";
+  if (legacyAction === "test_more") return "Test More";
+  if (legacyAction === "pause" || legacyAction === "kill") return "Cut";
+  return "Diagnose";
+}
+
+function confidenceLabel(value: number | null | undefined): SharedCreativeAnalysis["confidenceLabel"] {
+  if ((value ?? 0) >= 0.82) return "High";
+  if ((value ?? 0) >= 0.66) return "Medium";
+  return "Limited";
+}
+
+export function buildSharedCreativeAnalysis(
+  creative: CreativeDecisionOsCreative | null | undefined,
+): SharedCreativeAnalysis | null {
+  if (!creative) return null;
+
+  const report = creative.report;
+  const operatorItem = (() => {
+    try {
+      return buildCreativeOperatorItem(creative);
+    } catch {
+      return null;
+    }
+  })();
+  const instruction = operatorItem?.instruction ?? null;
+  const businessValidationNote = (() => {
+    try {
+      return creativeBusinessValidationNote(creative);
+    } catch {
+      return null;
+    }
+  })();
+  const actionLabel =
+    operatorItem?.primaryAction ??
+    primaryActionLabel(creative.primaryAction, creative.legacyAction);
+  const summary = safeText(creative.summary, report?.summary ?? `${actionLabel} review is available.`);
+  const why = safeText(
+    operatorItem?.reason,
+    report?.coreVerdict ?? report?.summary ?? summary,
+  );
+  const whatToDo = safeText(
+    instruction?.primaryMove,
+    report?.summary ?? summary,
+  );
+  const benchmarkLabel =
+    safeText(creative.benchmarkScopeLabel, creative.relativeBaseline?.scopeLabel ?? "") ||
+    null;
+
+  return {
+    creativeId: creative.creativeId,
+    actionLabel,
+    authorityLabel: operatorItem?.authorityLabel ?? actionLabel,
+    confidenceLabel: operatorItem?.confidence ?? confidenceLabel(creative.confidence),
+    headline: safeText(instruction?.headline, `${actionLabel}: ${creative.name}`),
+    summary,
+    whatToDo,
+    why,
+    evidenceStrength: instruction?.evidenceStrength ?? null,
+    urgency: instruction?.urgency ?? null,
+    amountGuidance: instruction?.amountGuidance?.label ?? null,
+    benchmarkLabel,
+    benchmarkReliability: creativeBenchmarkReliabilityLabel(creative.benchmarkReliability),
+    previewState: creative.previewStatus?.liveDecisionWindow ?? null,
+    businessValidationNote,
+    nextObservation: uniqueLimited(
+      [
+        ...(instruction?.nextObservation ?? []),
+        ...(creative.deployment?.whatWouldChangeThisDecision ?? []),
+        ...(creative.deployment?.constraints ?? []),
+      ],
+      4,
+    ),
+    invalidActions: uniqueLimited(instruction?.invalidActions ?? [], 3),
+    factors: (report?.factors ?? []).slice(0, 4).map((factor) => ({
+      label: factor.label,
+      value: factor.value,
+      reason: factor.reason,
+      impact: factor.impact,
+    })),
+  };
+}
+
+export function toSharedCreative(
+  row: MetaCreativeRow,
+  analysis?: SharedCreativeAnalysis | null,
+): SharedCreative {
   return {
     id: row.id,
     name: row.name,
@@ -195,6 +315,7 @@ export function toSharedCreative(row: MetaCreativeRow): SharedCreative {
     video75: row.video75,
     video100: row.video100,
     atcToPurchaseRatio: row.atcToPurchaseRatio,
+    analysis: analysis ?? null,
   };
 }
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mapApiRowToUiRow, toCsv, toSharedCreative } from "@/app/(dashboard)/creatives/page-support";
+import {
+  buildSharedCreativeAnalysis,
+  mapApiRowToUiRow,
+  toCsv,
+  toSharedCreative,
+} from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
@@ -241,6 +246,63 @@ describe("mapApiRowToUiRow", () => {
     expect(shared.linkCtr).toBe(4);
     expect(shared.clickToAddToCart).toBe(30);
     expect(shared.clickToPurchase).toBe(15);
+  });
+
+  it("attaches compact Decision OS analysis to shared creative payloads", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const analysis = buildSharedCreativeAnalysis({
+      creativeId: row.id,
+      name: row.name,
+      primaryAction: "promote_to_scaling",
+      legacyAction: "scale",
+      confidence: 0.91,
+      summary: "Strong relative winner selected for buyer review.",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkReliability: "strong",
+      previewStatus: {
+        selectedWindow: "ready",
+        liveDecisionWindow: "ready",
+        reason: null,
+      },
+      relativeBaseline: {
+        scopeLabel: "Account-wide",
+      },
+      deployment: {
+        whatWouldChangeThisDecision: ["CPA rises above target."],
+        constraints: ["Do not change spend without buyer confirmation."],
+      },
+      report: {
+        summary: "Review controlled scale.",
+        coreVerdict: "ROAS and purchase volume clear the evidence bar.",
+        factors: [
+          {
+            label: "ROAS",
+            value: "2.50",
+            reason: "Above the selected benchmark.",
+            impact: "positive",
+          },
+        ],
+      },
+    } as never);
+
+    const shared = toSharedCreative(row, analysis);
+
+    expect(shared.analysis).toMatchObject({
+      creativeId: row.id,
+      actionLabel: "Scale",
+      confidenceLabel: "High",
+      summary: "Strong relative winner selected for buyer review.",
+      whatToDo: "Review controlled scale.",
+      why: "ROAS and purchase volume clear the evidence bar.",
+      benchmarkLabel: "Account-wide",
+      benchmarkReliability: "Strong",
+      previewState: "ready",
+    });
+    expect(shared.analysis?.nextObservation).toContain("CPA rises above target.");
+    expect(shared.analysis?.factors[0]).toMatchObject({
+      label: "ROAS",
+      value: "2.50",
+    });
   });
 
   it("exports truthful CSV headers and values without misleading duplicate columns", () => {

@@ -11,7 +11,12 @@ import {
   isShareMetricApplicable,
   toShareHeatColor,
 } from "@/components/creatives/shareTableEngine";
-import { ShareMetricKey, SharePayload, SharedCreative } from "./shareCreativeTypes";
+import {
+  ShareMetricKey,
+  SharePayload,
+  SharedCreative,
+  SharedCreativeAnalysis,
+} from "./shareCreativeTypes";
 
 type TopMetricLabelMap = Record<ShareMetricKey, string>;
 
@@ -55,6 +60,118 @@ function topMetricValue(creative: SharedCreative, key: ShareMetricKey): number {
   return creative[key];
 }
 
+function actionClasses(actionLabel: string) {
+  const normalized = actionLabel.toLowerCase();
+  if (normalized.includes("scale")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (normalized.includes("cut")) return "border-rose-200 bg-rose-50 text-rose-800";
+  if (normalized.includes("refresh")) return "border-amber-200 bg-amber-50 text-amber-800";
+  if (normalized.includes("protect")) return "border-blue-200 bg-blue-50 text-blue-800";
+  if (normalized.includes("test")) return "border-sky-200 bg-sky-50 text-sky-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function compactLabel(value: string | null | undefined) {
+  return value?.replaceAll("_", " ").trim() || null;
+}
+
+function AnalysisPill({ label }: { label: string | null | undefined }) {
+  const normalized = compactLabel(label);
+  if (!normalized) return null;
+  return (
+    <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-0.5 text-[10px] font-medium text-[#4B5563]">
+      {normalized}
+    </span>
+  );
+}
+
+function CreativeAnalysisCard({
+  creative,
+  analysis,
+}: {
+  creative: PublicShareCreative;
+  analysis: SharedCreativeAnalysis;
+}) {
+  return (
+    <article className="rounded-lg border border-[#E5E7EB] bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="line-clamp-1 text-[13px] font-semibold text-[#111827]">{creative.name}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">{analysis.summary}</p>
+        </div>
+        <span
+          className={[
+            "shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide",
+            actionClasses(analysis.actionLabel),
+          ].join(" ")}
+        >
+          {analysis.actionLabel}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <div className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">What to do</p>
+          <p className="mt-1 text-[12px] font-semibold leading-snug text-[#111827]">{analysis.whatToDo}</p>
+        </div>
+        <div className="rounded-md border border-[#E5E7EB] bg-[#FAFAFA] px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">Why</p>
+          <p className="mt-1 text-[12px] leading-snug text-[#374151]">{analysis.why}</p>
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <AnalysisPill label={analysis.authorityLabel} />
+        <AnalysisPill label={`Confidence: ${analysis.confidenceLabel}`} />
+        <AnalysisPill label={analysis.evidenceStrength ? `Evidence: ${analysis.evidenceStrength}` : null} />
+        <AnalysisPill label={analysis.urgency ? `Urgency: ${analysis.urgency}` : null} />
+        <AnalysisPill label={analysis.benchmarkLabel ? `Benchmark: ${analysis.benchmarkLabel}` : null} />
+        <AnalysisPill label={analysis.benchmarkReliability ? `Benchmark reliability: ${analysis.benchmarkReliability}` : null} />
+        <AnalysisPill label={analysis.previewState ? `Preview: ${analysis.previewState}` : null} />
+      </div>
+
+      {analysis.factors.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {analysis.factors.slice(0, 4).map((factor) => (
+            <div key={`${analysis.creativeId}_${factor.label}`} className="rounded-md border border-[#EEF0F3] px-2.5 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">{factor.label}</p>
+                <span className="text-[11px] font-semibold tabular-nums text-[#111827]">{factor.value}</span>
+              </div>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#6B7280]">{factor.reason}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {analysis.nextObservation.length > 0 || analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {analysis.nextObservation.length > 0 ? (
+            <div className="rounded-md border border-[#E5E7EB] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">Watch next</p>
+              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-[#4B5563]">
+                {analysis.nextObservation.map((item) => (
+                  <li key={item}>- {item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {analysis.invalidActions.length > 0 || analysis.businessValidationNote ? (
+            <div className="rounded-md border border-[#F3D4D4] bg-[#FFF7F7] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#9F1239]">Do not</p>
+              <ul className="mt-1 space-y-1 text-[11px] leading-snug text-[#7F1D1D]">
+                {analysis.businessValidationNote ? <li>- {analysis.businessValidationNote}</li> : null}
+                {analysis.invalidActions.map((item) => (
+                  <li key={item}>- {item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 interface PublicCreativeSharePageProps {
   payload: SharePayload;
 }
@@ -76,6 +193,14 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
   } = payload;
 
   const displayRows = creatives as PublicShareCreative[];
+  const analysisRows = useMemo(
+    () =>
+      displayRows.filter(
+        (creative): creative is PublicShareCreative & { analysis: SharedCreativeAnalysis } =>
+          Boolean(creative.analysis),
+      ),
+    [displayRows],
+  );
   const benchmarkRows = useMemo(
     () => ((benchmarkCreatives && benchmarkCreatives.length > 0 ? benchmarkCreatives : creatives) as PublicShareCreative[]),
     [benchmarkCreatives, creatives]
@@ -205,6 +330,28 @@ export function PublicCreativeSharePage({ payload }: PublicCreativeSharePageProp
               ))}
             </div>
           </div>
+
+          {analysisRows.length > 0 ? (
+            <section className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2.5">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+                <div>
+                  <h2 className="text-[13px] font-semibold text-[#111827]">Creative action plan</h2>
+                  <p className="mt-0.5 text-[11px] text-[#6B7280]">
+                    {analysisRows.length} selected creative{analysisRows.length === 1 ? "" : "s"} with Decision OS analysis
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-2">
+                {analysisRows.map((creative) => (
+                  <CreativeAnalysisCard
+                    key={`analysis_${creative.id}`}
+                    creative={creative}
+                    analysis={creative.analysis}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <div className="overflow-x-auto rounded-lg border border-[#E5E7EB]">
             <table className="text-[12px]" style={{ minWidth: tableMinWidth }}>

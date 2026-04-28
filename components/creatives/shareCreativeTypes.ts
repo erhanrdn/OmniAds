@@ -24,6 +24,34 @@ export interface ShareCreativePreview {
   is_catalog: boolean;
 }
 
+export interface SharedCreativeAnalysisFactor {
+  label: string;
+  value: string;
+  reason: string;
+  impact: "positive" | "negative" | "neutral";
+}
+
+export interface SharedCreativeAnalysis {
+  creativeId: string;
+  actionLabel: string;
+  authorityLabel: string | null;
+  confidenceLabel: "High" | "Medium" | "Limited";
+  headline: string;
+  summary: string;
+  whatToDo: string;
+  why: string;
+  evidenceStrength: string | null;
+  urgency: string | null;
+  amountGuidance: string | null;
+  benchmarkLabel: string | null;
+  benchmarkReliability: string | null;
+  previewState: string | null;
+  businessValidationNote: string | null;
+  nextObservation: string[];
+  invalidActions: string[];
+  factors: SharedCreativeAnalysisFactor[];
+}
+
 /**
  * Creative object used in public share pages
  */
@@ -76,6 +104,8 @@ export interface SharedCreative {
   video75?: number;
   video100?: number;
   atcToPurchaseRatio?: number;
+
+  analysis?: SharedCreativeAnalysis | null;
 }
 
 /**

@@ -57,6 +57,7 @@ import {
   PLATFORM_LABELS,
   PreviewStripState,
   SHARE_METRIC_IDS,
+  buildSharedCreativeAnalysis,
   shouldPollForPreviewReadiness,
   toCsv,
   toSharedCreative,
@@ -622,6 +623,13 @@ export default function CreativesPage() {
     const selectedRowIdSet = new Set(selectionState.selectedRowIds);
     return orderedTableRows.filter((row) => selectedRowIdSet.has(row.id));
   }, [orderedTableRows, selectionState.selectedRowIds]);
+  const decisionOsCreativeById = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof creativeDecisionOs>["creatives"][number]>();
+    for (const creative of creativeDecisionOs?.creatives ?? []) {
+      map.set(creative.creativeId, creative);
+    }
+    return map;
+  }, [creativeDecisionOs]);
   const topPanelRows = useMemo(
     () => (selectedRows.length > 0 ? selectedRows : orderedTableRows),
     [orderedTableRows, selectedRows]
@@ -785,7 +793,9 @@ export default function CreativesPage() {
         metrics: shareMetrics.length > 0 ? shareMetrics : ["spend", "roas"],
         includeNotes: false,
         note: "",
-        creatives: selectedForShare.map(toSharedCreative),
+        creatives: selectedForShare.map((row) =>
+          toSharedCreative(row, buildSharedCreativeAnalysis(decisionOsCreativeById.get(row.id))),
+        ),
         // Keep share payload compact; public page falls back to `creatives` as benchmark when omitted.
         benchmarkCreatives: undefined,
       };
