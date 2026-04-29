@@ -4,6 +4,8 @@ Date: 2026-04-29
 
 Scope: owner-approved production promotion path for PR #84 after Round 4 review. Adsecute is currently single-user, so the owner is overriding the earlier gradual cohort path and moving directly to 100% activation on first production deploy. This runbook does not authorize merge, deploy, or activation by itself; the owner executes those steps manually.
 
+2026-04-30 reorder note: Step 2 originally assumed canonical/legacy dual-write already existed; in the single-user direct cutover, dual-write does not exist until Step 3 deploys the canonical-aware worker.
+
 ## Step 1: Merge Without Auto-Deploy
 
 Action:
@@ -22,24 +24,7 @@ Approvers:
 - Engineering owner.
 - Product/media-buyer owner.
 
-## Step 2: Nightly Snapshot Confirmation
-
-Action:
-
-- Wait for the next nightly snapshot generation cycle after merge.
-- Confirm canonical resolver computes alongside legacy without errors.
-- Confirm `canonicalDecision` attaches to all new creative snapshots.
-
-Go/no-go:
-
-- Go only if fallback/re-run badge rate is `<=10%` and all new snapshots have canonical payloads.
-- No-go if canonical computation errors, null payloads, or snapshot schema issues appear.
-
-Approvers:
-
-- Engineering owner.
-
-## Step 3: Kill-Switch Dry-Run
+## Step 2: Kill-Switch Dry-Run
 
 Action:
 
@@ -86,7 +71,7 @@ Approvers:
 
 - Engineering owner.
 
-## Step 4: Manual Deploy
+## Step 3: Manual Deploy
 
 Action:
 
@@ -100,15 +85,61 @@ break_glass=false
 override_reason=canonical resolver direct cutover, single-user owner activation
 ```
 
+Deploy verification:
+
+- Verify deploy gate, release gate, web image build, worker image build, migrations, and build-info publish all succeed.
+- Verify `adsecute-web-1` and `adsecute-worker-1` both run images tagged with the exact deploy SHA.
+- Verify `/api/build-info` returns the exact deploy SHA.
+- Verify these tables exist after migrations: `creative_canonical_resolver_flags`, `creative_canonical_cohort_assignments`, `admin_feature_flag_kill_switches`, `creative_canonical_decision_events`, `creative_canonical_resolver_admin_controls`.
+
 Go/no-go:
 
-- Go only if deploy gate, release gate, web image, worker image, and build-info all converge to the exact SHA.
-- No-go on any failed gate, stale worker heartbeat, failed migration, or non-matching build SHA.
+- Go only if deploy gate, release gate, web image, worker image, migrations, and build-info all converge to the exact SHA.
+- No-go on any failed gate, stale worker heartbeat, failed migration, missing canonical table, or non-matching build SHA.
 
 Approvers:
 
 - Engineering owner.
 - Product/media-buyer owner.
+
+## Step 4: Snapshot Confirmation
+
+Action:
+
+- Run only after Step 3 deploy is fully verified.
+- Trigger or wait for one snapshot generation cycle on the canonical-aware worker.
+- Confirm `creative_decision_os_snapshots` rows produced after deploy carry a non-null `canonicalDecision` payload inside every creative row.
+- Confirm fallback/re-run badge rate is `<=10%` against post-deploy snapshots.
+
+Example verification query; adapt timestamp and JSON path to the exact deploy completion time:
+
+```sql
+WITH post_deploy_snapshots AS (
+  SELECT id, generated_at, payload
+  FROM creative_decision_os_snapshots
+  WHERE generated_at >= '<deploy_completed_at>'::timestamptz
+    AND status = 'ready'
+),
+creative_rows AS (
+  SELECT id, generated_at, jsonb_array_elements(COALESCE(payload->'creatives', '[]'::jsonb)) AS creative
+  FROM post_deploy_snapshots
+)
+SELECT
+  (SELECT COUNT(*) FROM post_deploy_snapshots) AS total_post_deploy_snapshots,
+  COUNT(*) AS total_post_deploy_creatives,
+  COUNT(*) FILTER (WHERE creative ? 'canonicalDecision') AS with_canonical,
+  COUNT(*) FILTER (WHERE NOT (creative ? 'canonicalDecision')) AS missing_canonical
+FROM creative_rows;
+```
+
+Go/no-go:
+
+- Go only if every post-deploy snapshot creative has `canonicalDecision` and fallback/re-run badge rate is `<=10%`.
+- No-go if canonical computation errors, any post-deploy snapshot lacks `canonicalDecision`, fallback rate exceeds `10%`, or snapshot schema issues appear.
+
+Approvers:
+
+- Engineering owner.
 
 ## Step 5: Direct 100% Activation
 
@@ -181,7 +212,7 @@ Actions:
 
 Go/no-go:
 
-- Go only if Step 4 deploy is verified with web image, worker image, and build-info all on the chosen SHA, and Step 3 kill-switch dry-run passed.
+- Go only if Step 3 deploy is verified with web image, worker image, and build-info all on the chosen SHA, Step 2 kill-switch dry-run passed, and Step 4 snapshot confirmation passed.
 - No-go if kill-switch dry-run failed, deploy gate failed, release gate failed, or migrations did not apply cleanly.
 
 Approvers:
