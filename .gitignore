@@ -48,3 +48,4 @@ certificates
 
 # Happy Harbor audit private reveal files
 docs/team-comms/happy-harbor/audit-A/*.private.json
+docs/team-comms/happy-harbor/audit-F-iwastore-theswaf/*.private.json
