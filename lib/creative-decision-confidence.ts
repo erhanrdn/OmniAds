@@ -30,7 +30,8 @@ function round(value: number, precision = 2) {
   return Math.round(value * factor) / factor;
 }
 
-function confidenceLabel(value: number): CreativeDecisionConfidenceLabel {
+function confidenceLabel(value: number, feedbackCount: number): CreativeDecisionConfidenceLabel {
+  if (feedbackCount < 20 && value >= 0.72) return "medium";
   if (value >= 0.72) return "high";
   if (value >= 0.52) return "medium";
   return "low";
@@ -112,6 +113,6 @@ export function calculateBayesianCreativeDecisionConfidence(
     evidence: round(evidence),
     signalConsistency: round(signalConsistency),
     calibrationFreshness: round(calibrationFreshness),
-    label: confidenceLabel(value),
+    label: confidenceLabel(value, feedbackCount),
   };
 }

@@ -35,6 +35,7 @@ export interface CreativeDecisionOverrideEventInput {
   metricsHash?: string | null;
   spend?: number | null;
   purchases?: number | null;
+  minSpendForDecision?: number | null;
   calibrationVersionId?: string | null;
   createdBy?: string | null;
 }
@@ -133,13 +134,22 @@ export function shouldQueueRealtimeOverride(input: {
   confidence: number;
   spend?: number | null;
   purchases?: number | null;
+  minSpendForDecision?: number | null;
   userStrength?: CreativeDecisionOverrideStrength | null;
 }) {
+  const minSpendForDecision =
+    typeof input.minSpendForDecision === "number" && Number.isFinite(input.minSpendForDecision)
+      ? input.minSpendForDecision
+      : DEFAULT_CREATIVE_CANONICAL_THRESHOLDS.minSpendForDecision;
+  const businessRelativeSpendFloor = Math.max(
+    1000,
+    5 * minSpendForDecision,
+  );
   return (
     input.severity === "critical" &&
     (
       input.confidence >= 0.72 ||
-      Number(input.spend ?? 0) >= 1000 ||
+      Number(input.spend ?? 0) >= businessRelativeSpendFloor ||
       input.userStrength === "strong"
     )
   );
@@ -269,6 +279,7 @@ export async function recordCreativeDecisionOverrideEvent(
     confidence: input.modelDecision.confidence.value,
     spend: input.spend,
     purchases: input.purchases,
+    minSpendForDecision: input.minSpendForDecision,
     userStrength: input.userStrength,
   }) ? new Date().toISOString() : null;
 

@@ -182,6 +182,25 @@ Acceptance:
 - Activation is blocked if severe-error count increases, diagnose distribution collapses, or scale/cut contradiction count increases.
 - Threshold delta is clamped and low-N movement is heavily shrunk.
 
+Calibration activation approval:
+
+- Activation is manual, not automatic. The 50-row el-rate batch produces bounded threshold suggestions only.
+- Required approvers:
+  - Engineering owner: validates code, tests, fixture integrity, calibration report integrity, and deploy safety.
+  - Product/media-buyer owner: validates action distribution, severe-error cases, and whether the changed decisions match the intended buyer posture.
+- Optional first-business approver:
+  - Customer/account owner: validates that recommendations match buyer intuition for the specific brand before the first calibrated business is activated.
+- Required artifacts before approval:
+  - Calibration report with threshold deltas and before/after action distributions.
+  - Holdout confusion matrix (`action x action`).
+  - Severe override count diff from baseline to proposed thresholds.
+  - Diagnose distribution diff.
+  - Scale-to-cut and cut-to-scale contradiction count diff.
+  - Top 10 changed-decision row review, with rationale for why each changed decision is correct.
+- Approval record:
+  - Store in `docs/team-comms/happy-harbor/calibration-approvals/`.
+  - File format: `YYYY-MM-DD-business-id-calibration-vN.md`.
+
 Gap coverage: F, G, H, K.
 
 Risk mitigation:
@@ -197,6 +216,32 @@ Tasks:
 2. Use server-side sticky cohort assignment plus URL engineer preview.
 3. Add admin allowlist, blocklist, and kill switch.
 4. Track override rate, tiered severe override rates, action drift, overdiagnose override rate, diagnose rate, complaints, and time-to-decision.
+
+Metric formulas and windows:
+
+This subsection is a pre-production-cohort prerequisite. These definitions must exist in the rollout dashboard/log query before any 25% cohort starts.
+
+- `critical_high_conf_override_rate = count(overrides where severity=critical AND modelConfidence >= 0.72) / count(reviewed canonical decisions)`.
+  Window: per business, per rollout cohort, rolling 7 days.
+  Hard-stop threshold: `>1.0%`.
+- `high_plus_critical_override_rate = count(overrides where severity in {critical, high}) / count(reviewed canonical decisions)`.
+  Window: per business, per rollout cohort, rolling 7 days.
+  Warning threshold: `>3.0%`.
+- `all_severe_override_rate = count(overrides where severity in {critical, high, medium-high}) / count(reviewed canonical decisions)`.
+  Window: per business, per rollout cohort, rolling 7 days.
+  Internal early-warning threshold: `>5.0%`.
+- `overdiagnose_override_rate = count(user overrides FROM diagnose TO non-diagnose) / count(model decisions where action=diagnose)`.
+  Window: per business, per rollout cohort, rolling 7 days.
+  Hard-stop threshold: `>25.0%`.
+  Rationale: blanket diagnose was the historical Happy Harbor regression mode; sustained overdiagnose override means the resolver is over-routing to diagnose.
+- `confidence_histogram_per_business = bucket counts by value bands [0-0.5, 0.5-0.65, 0.65-0.8, 0.8-0.95]`.
+  Window: per business, rolling 24 hours.
+- `canonical_vs_legacy_action_delta = count(rows where canonical.action !== legacy.action) / count(rows decided in window)`.
+  Window: per business, per rollout cohort.
+  Surface: dashboard chart.
+- `fallback_rerun_badge_rate = count(snapshots rendered with re-run badge - missing canonical payload) / count(snapshots rendered)`.
+  Window: 24 hours.
+  Alarm: `>10%` sustained.
 
 Deliverables:
 

@@ -61,4 +61,34 @@ describe("creative calibration override severity", () => {
 
     expect(result).toBe(true);
   });
+
+  it("scales severe-queue spend floor with calibrated minSpendForDecision", () => {
+    const severity = creativeDecisionOverrideSeverity({
+      modelAction: "scale",
+      modelReadiness: "ready",
+      userAction: "cut",
+    });
+
+    expect(
+      shouldQueueRealtimeOverride({
+        severity,
+        confidence: 0.5,
+        spend: 1500,
+        purchases: 6,
+        userStrength: "minor",
+        minSpendForDecision: 500,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldQueueRealtimeOverride({
+        severity,
+        confidence: 0.5,
+        spend: 2600,
+        purchases: 6,
+        userStrength: "minor",
+        minSpendForDecision: 500,
+      }),
+    ).toBe(true);
+  });
 });

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import rawMetrics from "@/docs/team-comms/happy-harbor/audit-F-iwastore-theswaf/raw-metrics.json";
 import {
@@ -6,6 +7,7 @@ import {
   applyCreativeCanonicalReasonEnrichment,
   resolveCreativeCanonicalDecision,
   resolveCreativeCanonicalDecisionForAuditRow,
+  type CreativeCanonicalDecision,
 } from "@/lib/creative-canonical-decision";
 import {
   creativeCalibrationPersonalWeight,
@@ -82,6 +84,21 @@ describe("creative canonical decision resolver", () => {
     expect(second).toEqual(first);
   });
 
+  it("keeps action/readiness/confidence stable across repeated 75-row fixture resolution", () => {
+    const fixturePath = "docs/team-comms/happy-harbor/audit-F-iwastore-theswaf/raw-metrics.json";
+    const fixtureRows = JSON.parse(fs.readFileSync(fixturePath, "utf8")).rows as Array<Record<string, unknown>>;
+    const first = fixtureRows.map((row) => resolveCreativeCanonicalDecisionForAuditRow(row));
+    const second = fixtureRows.map((row) => resolveCreativeCanonicalDecisionForAuditRow(row));
+    const project = (decision: CreativeCanonicalDecision) => ({
+      action: decision.action,
+      readiness: decision.actionReadiness,
+      confidence: decision.confidence.value,
+      label: decision.confidence.label,
+    });
+
+    expect(second.map(project)).toEqual(first.map(project));
+  });
+
   it("keeps missing commercial truth as review posture instead of a hard blocker", () => {
     const wallArt = resolveCreativeCanonicalDecisionForAuditRow(byName("WallArtCatalog"));
 
@@ -149,6 +166,81 @@ describe("creative canonical decision resolver", () => {
 
     expect(decision.action).not.toBe("test_more");
     expect(decision.action).toBe("cut");
+  });
+
+  it("does not cut zero-purchase rows below the spend floor", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-below-floor",
+      creativeName: "Zero purchase below floor",
+      spend: 179,
+      purchases: 0,
+      impressions: 12000,
+      linkClicks: 200,
+      purchaseValue: 0,
+      roas: 0,
+      activeDelivery: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.action).not.toBe("cut");
+  });
+
+  it("does not cut tiny-spend zero-purchase rows just because impressions are high", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-tiny-spend",
+      creativeName: "Zero purchase tiny spend",
+      spend: 40,
+      purchases: 0,
+      impressions: 50000,
+      linkClicks: 400,
+      purchaseValue: 0,
+      roas: 0,
+      activeDelivery: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(["test_more", "diagnose"]).toContain(decision.action);
+    expect(decision.action).not.toBe("cut");
+  });
+
+  it("does not apply the active-leak cut path to paused mature zero-purchase rows", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-paused-mature",
+      creativeName: "Zero purchase paused mature",
+      spend: 800,
+      purchases: 0,
+      impressions: 12000,
+      linkClicks: 320,
+      purchaseValue: 0,
+      roas: 0,
+      activeDelivery: false,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.action).not.toBe("cut");
+  });
+
+  it("cuts degraded commercial truth mature active zero-purchase leakage without blocked diagnose", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-degraded-truth",
+      creativeName: "Zero purchase degraded truth",
+      spend: 800,
+      purchases: 0,
+      impressions: 12000,
+      linkClicks: 320,
+      purchaseValue: 0,
+      roas: 0,
+      activeDelivery: true,
+      trustState: "degraded_missing_truth",
+      commercialTruthConfigured: false,
+    });
+
+    expect(decision.action).toBe("cut");
+    expect(decision.actionReadiness).toBe("needs_review");
+    expect(`${decision.action}:${decision.actionReadiness}`).not.toBe("diagnose:blocked");
   });
 
   it("does not collapse uncalibrated clear-winner confidence to 0.20", () => {
