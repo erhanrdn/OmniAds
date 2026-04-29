@@ -60,7 +60,7 @@ jobs:
         run: |
           npm run test
 
-      - name: Creative v2 safety gate
+      - name: Creative Decision OS v2 safety (PR-blocking)
         run: |
           npm run creative:v2:safety
 

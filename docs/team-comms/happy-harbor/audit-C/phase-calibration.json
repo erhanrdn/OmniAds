@@ -1,0 +1,3840 @@
+{
+  "version": "happy-harbor.faz-c.phase-calibration.v1",
+  "generatedAt": "2026-04-28T22:02:05.015Z",
+  "resolver": "lib/creative-verdict.ts:resolveCreativeVerdict",
+  "target": {
+    "phaseAgreement": 0.92
+  },
+  "result": {
+    "matches": 200,
+    "total": 200,
+    "agreement": 1,
+    "passed": true
+  },
+  "distribution": {
+    "claudePhase": {
+      "post-scale": 36,
+      "test": 135,
+      "scale": 29
+    },
+    "resolverPhase": {
+      "post-scale": 36,
+      "test": 135,
+      "scale": 29
+    },
+    "phaseSource": {
+      "fatigue_override_in_scale": 36,
+      "default_test": 135,
+      "spend_threshold": 29
+    }
+  },
+  "signalCoverage": {
+    "namingConventionRows": 0,
+    "metaFamilyRows": 0,
+    "laneRows": 0,
+    "legacyCampaignIsTestLikeRows": 117
+  },
+  "disagreements": [],
+  "rows": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 859.38,
+        "purchases30d": 20,
+        "spendToMedian": 5.365,
+        "recent7ToLong90Roas": 0.181
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-19",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 3.12,
+        "purchases30d": 0,
+        "spendToMedian": 0.012,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-03",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 467.88,
+        "purchases30d": 8,
+        "spendToMedian": 2.921,
+        "recent7ToLong90Roas": 0.702
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-20",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 2.35,
+        "purchases30d": 0,
+        "spendToMedian": 0.009,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-04",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 421.41,
+        "purchases30d": 13,
+        "spendToMedian": 2.631,
+        "recent7ToLong90Roas": 1.292
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-05",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 398.89,
+        "purchases30d": 18,
+        "spendToMedian": 2.49,
+        "recent7ToLong90Roas": 0.843
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 160.19,
+        "purchases30d": 2,
+        "spendToMedian": 0.458,
+        "recent7ToLong90Roas": 7.831
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-10",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 133.75,
+        "purchases30d": 3,
+        "spendToMedian": 0.382,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-06",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 279.7,
+        "purchases30d": 0,
+        "spendToMedian": 1.097,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 202.55,
+        "purchases30d": 0,
+        "spendToMedian": 0.794,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-25",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2349.1,
+        "purchases30d": 47,
+        "spendToMedian": 14.664,
+        "recent7ToLong90Roas": 0.65
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-26",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1274.93,
+        "purchases30d": 27,
+        "spendToMedian": 7.959,
+        "recent7ToLong90Roas": 0.782
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 905.09,
+        "purchases30d": 31,
+        "spendToMedian": 5.65,
+        "recent7ToLong90Roas": 0.787
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-28",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 354.69,
+        "purchases30d": 8,
+        "spendToMedian": 2.214,
+        "recent7ToLong90Roas": 0.635
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-29",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 349.88,
+        "purchases30d": 7,
+        "spendToMedian": 2.184,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-30",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 78.35,
+        "purchases30d": 1,
+        "spendToMedian": 0.224,
+        "recent7ToLong90Roas": 5.535
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-31",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 57.14,
+        "purchases30d": 1,
+        "spendToMedian": 0.163,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-32",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 38.15,
+        "purchases30d": 3,
+        "spendToMedian": 0.109,
+        "recent7ToLong90Roas": 0.867
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-33",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 26.93,
+        "purchases30d": 0,
+        "spendToMedian": 0.106,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-34",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 24.75,
+        "purchases30d": 0,
+        "spendToMedian": 0.097,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-35",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 20.58,
+        "purchases30d": 0,
+        "spendToMedian": 0.081,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 3922.85,
+        "purchases30d": 34,
+        "spendToMedian": 6.098,
+        "recent7ToLong90Roas": 1.073
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 2020.14,
+        "purchases30d": 19,
+        "spendToMedian": 3.14,
+        "recent7ToLong90Roas": 1.03
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-03",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 740.3,
+        "purchases30d": 12,
+        "spendToMedian": 1.151,
+        "recent7ToLong90Roas": 0.666
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 302.1,
+        "purchases30d": 0,
+        "spendToMedian": 0.437,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 285.88,
+        "purchases30d": 12,
+        "spendToMedian": 0.386,
+        "recent7ToLong90Roas": 0.507
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-04",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 643.33,
+        "purchases30d": 8,
+        "spendToMedian": 0.869,
+        "recent7ToLong90Roas": 0.977
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 77.88,
+        "purchases30d": 1,
+        "spendToMedian": 0.105,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 49.43,
+        "purchases30d": 0,
+        "spendToMedian": 0.071,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 673.21,
+        "purchases30d": 3,
+        "spendToMedian": 8.717,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 507.9,
+        "purchases30d": 19,
+        "spendToMedian": 6.576,
+        "recent7ToLong90Roas": 1.042
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 225.8,
+        "purchases30d": 10,
+        "spendToMedian": 2.924,
+        "recent7ToLong90Roas": 1.314
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 155.99,
+        "purchases30d": 7,
+        "spendToMedian": 2.02,
+        "recent7ToLong90Roas": 1.767
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 136.81,
+        "purchases30d": 1,
+        "spendToMedian": 1.771,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 111.02,
+        "purchases30d": 4,
+        "spendToMedian": 1.438,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 82.58,
+        "purchases30d": 3,
+        "spendToMedian": 0.903,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 71.89,
+        "purchases30d": 4,
+        "spendToMedian": 0.743,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-09",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 45.12,
+        "purchases30d": 0,
+        "spendToMedian": 0.546,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-16",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 2.4,
+        "purchases30d": 0,
+        "spendToMedian": 0.029,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 208.2,
+        "purchases30d": 3,
+        "spendToMedian": 1.537,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 199.78,
+        "purchases30d": 2,
+        "spendToMedian": 1.474,
+        "recent7ToLong90Roas": 1.246
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-06",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 26.01,
+        "purchases30d": 0,
+        "spendToMedian": 0.179,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 12.65,
+        "purchases30d": 0,
+        "spendToMedian": 0.087,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 170.8,
+        "purchases30d": 6,
+        "spendToMedian": 1.261,
+        "recent7ToLong90Roas": 0.366
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-02|company-04-creative-05",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 27.18,
+        "purchases30d": 0,
+        "spendToMedian": 0.187,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 12.8,
+        "purchases30d": 0,
+        "spendToMedian": 0.088,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1279.41,
+        "purchases30d": 23,
+        "spendToMedian": 9.442,
+        "recent7ToLong90Roas": 0.937
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 345.07,
+        "purchases30d": 0,
+        "spendToMedian": 2.379,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-19",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 145.02,
+        "purchases30d": 1,
+        "spendToMedian": 0.977,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-25",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 77.2,
+        "purchases30d": 1,
+        "spendToMedian": 0.489,
+        "recent7ToLong90Roas": 26.267
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-26",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 74.41,
+        "purchases30d": 1,
+        "spendToMedian": 0.471,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-30",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 34.93,
+        "purchases30d": 0,
+        "spendToMedian": 0.241,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-31",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 31.51,
+        "purchases30d": 0,
+        "spendToMedian": 0.217,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-39",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1.35,
+        "purchases30d": 0,
+        "spendToMedian": 0.009,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-41",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 0.68,
+        "purchases30d": 0,
+        "spendToMedian": 0.005,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-43",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 0.08,
+        "purchases30d": 0,
+        "spendToMedian": 0.001,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 324.94,
+        "purchases30d": 0,
+        "spendToMedian": 2.241,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-42",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 0.09,
+        "purchases30d": 0,
+        "spendToMedian": 0.001,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 283.24,
+        "purchases30d": 3,
+        "spendToMedian": 2.09,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-20",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 125.97,
+        "purchases30d": 1,
+        "spendToMedian": 0.798,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-21",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 101.17,
+        "purchases30d": 0,
+        "spendToMedian": 0.698,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-36",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 9.1,
+        "purchases30d": 0,
+        "spendToMedian": 0.063,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-18",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 199.54,
+        "purchases30d": 4,
+        "spendToMedian": 1.473,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-22",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 98.44,
+        "purchases30d": 0,
+        "spendToMedian": 0.679,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-24",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 89.94,
+        "purchases30d": 0,
+        "spendToMedian": 0.62,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-28",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 51.32,
+        "purchases30d": 0,
+        "spendToMedian": 0.354,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-32",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 21.15,
+        "purchases30d": 0,
+        "spendToMedian": 0.146,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-35",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 13.79,
+        "purchases30d": 0,
+        "spendToMedian": 0.095,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-23",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 91.21,
+        "purchases30d": 0,
+        "spendToMedian": 0.629,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-33",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 18.52,
+        "purchases30d": 0,
+        "spendToMedian": 0.128,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-34",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 14.8,
+        "purchases30d": 0,
+        "spendToMedian": 0.102,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-37",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1.66,
+        "purchases30d": 0,
+        "spendToMedian": 0.011,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-38",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1.39,
+        "purchases30d": 0,
+        "spendToMedian": 0.01,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-40",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 0.93,
+        "purchases30d": 0,
+        "spendToMedian": 0.006,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-11|company-04-adset-02|company-04-creative-27",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 53.1,
+        "purchases30d": 0,
+        "spendToMedian": 0.366,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-12|company-04-adset-05|company-04-creative-29",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 42.16,
+        "purchases30d": 2,
+        "spendToMedian": 0.267,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 17888.06,
+        "purchases30d": 4,
+        "spendToMedian": 1.854,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-16",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 3484.37,
+        "purchases30d": 1,
+        "spendToMedian": 0.305,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-17",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 3471.43,
+        "purchases30d": 1,
+        "spendToMedian": 0.304,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-18",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 3390.24,
+        "purchases30d": 2,
+        "spendToMedian": 0.296,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-34",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 472.49,
+        "purchases30d": 0,
+        "spendToMedian": 0.047,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-02",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 13374.51,
+        "purchases30d": 3,
+        "spendToMedian": 1.386,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-21",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1823.81,
+        "purchases30d": 0,
+        "spendToMedian": 0.182,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-03",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 10024.57,
+        "purchases30d": 1,
+        "spendToMedian": 0.906,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-05",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 8850.82,
+        "purchases30d": 6,
+        "spendToMedian": 0.774,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-19",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 2400.62,
+        "purchases30d": 0,
+        "spendToMedian": 0.239,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-22",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1505.13,
+        "purchases30d": 0,
+        "spendToMedian": 0.15,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-24",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1191.56,
+        "purchases30d": 0,
+        "spendToMedian": 0.119,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-26",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 776.63,
+        "purchases30d": 0,
+        "spendToMedian": 0.077,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-27",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 744.06,
+        "purchases30d": 0,
+        "spendToMedian": 0.074,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-28",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 735.41,
+        "purchases30d": 0,
+        "spendToMedian": 0.073,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-29",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 698.39,
+        "purchases30d": 0,
+        "spendToMedian": 0.07,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-31",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 611.7,
+        "purchases30d": 0,
+        "spendToMedian": 0.061,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-33",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 491.12,
+        "purchases30d": 0,
+        "spendToMedian": 0.049,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-35",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 412.85,
+        "purchases30d": 0,
+        "spendToMedian": 0.041,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-36",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 326,
+        "purchases30d": 0,
+        "spendToMedian": 0.033,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-37",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 266.97,
+        "purchases30d": 0,
+        "spendToMedian": 0.027,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-43",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 34.85,
+        "purchases30d": 0,
+        "spendToMedian": 0.003,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-44",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 9.26,
+        "purchases30d": 0,
+        "spendToMedian": 0.001,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-45",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1.49,
+        "purchases30d": 0,
+        "spendToMedian": 0,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-04",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 9272.39,
+        "purchases30d": 10,
+        "spendToMedian": 0.811,
+        "recent7ToLong90Roas": 1.58
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-08",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 5375.69,
+        "purchases30d": 5,
+        "spendToMedian": 0.47,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-09",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 4698.72,
+        "purchases30d": 1,
+        "spendToMedian": 0.411,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-10",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 4594.64,
+        "purchases30d": 1,
+        "spendToMedian": 0.402,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-12",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 4037.8,
+        "purchases30d": 1,
+        "spendToMedian": 0.353,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-13",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 4025.69,
+        "purchases30d": 4,
+        "spendToMedian": 0.352,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-15",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 3497.4,
+        "purchases30d": 1,
+        "spendToMedian": 0.306,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-20",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1937.41,
+        "purchases30d": 1,
+        "spendToMedian": 0.169,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-25",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 853.16,
+        "purchases30d": 0,
+        "spendToMedian": 0.085,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-30",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 641.14,
+        "purchases30d": 1,
+        "spendToMedian": 0.056,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-32",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 504.74,
+        "purchases30d": 0,
+        "spendToMedian": 0.05,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-06",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 6780.68,
+        "purchases30d": 0,
+        "spendToMedian": 0.676,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-11",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 4179.33,
+        "purchases30d": 0,
+        "spendToMedian": 0.417,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 3636.43,
+        "purchases30d": 0,
+        "spendToMedian": 0.363,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-46",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 116470.74,
+        "purchases30d": 39,
+        "spendToMedian": 12.071,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-49",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 30877.39,
+        "purchases30d": 10,
+        "spendToMedian": 3.2,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-51",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 23664.32,
+        "purchases30d": 8,
+        "spendToMedian": 2.453,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-52",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 23419.13,
+        "purchases30d": 11,
+        "spendToMedian": 2.427,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-53",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 22917.96,
+        "purchases30d": 14,
+        "spendToMedian": 2.375,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-54",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 21747.06,
+        "purchases30d": 4,
+        "spendToMedian": 2.254,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-56",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 12846.5,
+        "purchases30d": 4,
+        "spendToMedian": 1.331,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-47",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 56759.17,
+        "purchases30d": 22,
+        "spendToMedian": 5.883,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-50",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 30859.02,
+        "purchases30d": 11,
+        "spendToMedian": 3.198,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-55",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 21000.48,
+        "purchases30d": 8,
+        "spendToMedian": 2.177,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-48",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 50383.66,
+        "purchases30d": 11,
+        "spendToMedian": 5.222,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-57",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 8707.07,
+        "purchases30d": 0,
+        "spendToMedian": 0.869,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-58",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2846.22,
+        "purchases30d": 0,
+        "spendToMedian": 0.284,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-59",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1967.74,
+        "purchases30d": 0,
+        "spendToMedian": 0.196,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 6735.49,
+        "purchases30d": null,
+        "spendToMedian": 0.672,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-23",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1337.76,
+        "purchases30d": null,
+        "spendToMedian": 0.133,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1630.43,
+        "purchases30d": 121,
+        "spendToMedian": 61.042,
+        "recent7ToLong90Roas": 1.027
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 120.84,
+        "purchases30d": 9,
+        "spendToMedian": 4.524,
+        "recent7ToLong90Roas": 0.225
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 113.76,
+        "purchases30d": 6,
+        "spendToMedian": 4.259,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-06",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 62.27,
+        "purchases30d": 5,
+        "spendToMedian": 2.331,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-25",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2.48,
+        "purchases30d": 0,
+        "spendToMedian": 0.084,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-27",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2.4,
+        "purchases30d": 0,
+        "spendToMedian": 0.082,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-29",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2.11,
+        "purchases30d": 0,
+        "spendToMedian": 0.072,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-38",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1.1,
+        "purchases30d": 0,
+        "spendToMedian": 0.037,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-46",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.36,
+        "purchases30d": 0,
+        "spendToMedian": 0.012,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-48",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.34,
+        "purchases30d": 0,
+        "spendToMedian": 0.012,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-57",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.14,
+        "purchases30d": 0,
+        "spendToMedian": 0.005,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-59",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.12,
+        "purchases30d": 0,
+        "spendToMedian": 0.004,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-63",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.04,
+        "purchases30d": 0,
+        "spendToMedian": 0.001,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-64",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.02,
+        "purchases30d": 0,
+        "spendToMedian": 0.001,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-65",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.01,
+        "purchases30d": 0,
+        "spendToMedian": 0,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-02",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 166.03,
+        "purchases30d": 11,
+        "spendToMedian": 6.216,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 62.79,
+        "purchases30d": 3,
+        "spendToMedian": 2.351,
+        "recent7ToLong90Roas": 0.472
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-21",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 3.09,
+        "purchases30d": 0,
+        "spendToMedian": 0.105,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-40",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 1.02,
+        "purchases30d": 0,
+        "spendToMedian": 0.035,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-44",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.56,
+        "purchases30d": 0,
+        "spendToMedian": 0.019,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-49",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.34,
+        "purchases30d": 0,
+        "spendToMedian": 0.012,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-54",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.2,
+        "purchases30d": 0,
+        "spendToMedian": 0.007,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-55",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.17,
+        "purchases30d": 0,
+        "spendToMedian": 0.006,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-58",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.12,
+        "purchases30d": 0,
+        "spendToMedian": 0.004,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-66",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.01,
+        "purchases30d": 0,
+        "spendToMedian": 0,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 2044.09,
+        "purchases30d": 8,
+        "spendToMedian": 12.275,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1067.82,
+        "purchases30d": 13,
+        "spendToMedian": 6.413,
+        "recent7ToLong90Roas": 1.17
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 669.16,
+        "purchases30d": 5,
+        "spendToMedian": 4.018,
+        "recent7ToLong90Roas": 1.064
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 433,
+        "purchases30d": 5,
+        "spendToMedian": 2.6,
+        "recent7ToLong90Roas": 0.011
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 428.68,
+        "purchases30d": 2,
+        "spendToMedian": 2.574,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 363.59,
+        "purchases30d": 3,
+        "spendToMedian": 2.183,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 257.66,
+        "purchases30d": 3,
+        "spendToMedian": 1.547,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 243.84,
+        "purchases30d": 0,
+        "spendToMedian": 1.362,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 201.29,
+        "purchases30d": 3,
+        "spendToMedian": 1.209,
+        "recent7ToLong90Roas": 1.01
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 191.54,
+        "purchases30d": 4,
+        "spendToMedian": 1.15,
+        "recent7ToLong90Roas": 1.256
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 166.52,
+        "purchases30d": 1,
+        "spendToMedian": 0.869,
+        "recent7ToLong90Roas": 1
+      }
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 144.27,
+        "purchases30d": 2,
+        "spendToMedian": 0.753,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 9655.02,
+        "purchases30d": 68,
+        "spendToMedian": 26.344,
+        "recent7ToLong90Roas": 1.053
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-12",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 355.14,
+        "purchases30d": 2,
+        "spendToMedian": 0.85,
+        "recent7ToLong90Roas": 1.355
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2899.08,
+        "purchases30d": 32,
+        "spendToMedian": 7.91,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-39",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.04,
+        "purchases30d": 0,
+        "spendToMedian": 0,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-40",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 0.03,
+        "purchases30d": 0,
+        "spendToMedian": 0,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-34",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 906.7,
+        "purchases30d": 6,
+        "spendToMedian": 2.474,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 304.78,
+        "purchases30d": 1,
+        "spendToMedian": 0.729,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 167.7,
+        "purchases30d": 2,
+        "spendToMedian": 0.401,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-37",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 102.11,
+        "purchases30d": 0,
+        "spendToMedian": 0.27,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-38",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 64.68,
+        "purchases30d": 1,
+        "spendToMedian": 0.155,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 5396.83,
+        "purchases30d": 44,
+        "spendToMedian": 14.725,
+        "recent7ToLong90Roas": 1.014
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-03",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1569.97,
+        "purchases30d": 7,
+        "spendToMedian": 4.284,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-17",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 226.26,
+        "purchases30d": 0,
+        "spendToMedian": 0.599,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-28",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 30.19,
+        "purchases30d": 0,
+        "spendToMedian": 0.08,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-30",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 11.24,
+        "purchases30d": 0,
+        "spendToMedian": 0.03,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-04",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 1142.17,
+        "purchases30d": 12,
+        "spendToMedian": 3.116,
+        "recent7ToLong90Roas": 0.883
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 519.92,
+        "purchases30d": 8,
+        "spendToMedian": 1.419,
+        "recent7ToLong90Roas": 0.44
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 110.75,
+        "purchases30d": 2,
+        "spendToMedian": 0.265,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-29",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 29.41,
+        "purchases30d": 0,
+        "spendToMedian": 0.078,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-05",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 969.35,
+        "purchases30d": 9,
+        "spendToMedian": 2.645,
+        "recent7ToLong90Roas": 0.517
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 457.89,
+        "purchases30d": 6,
+        "spendToMedian": 1.249,
+        "recent7ToLong90Roas": 2.83
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-18",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 186.57,
+        "purchases30d": 0,
+        "spendToMedian": 0.494,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-19",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 154.4,
+        "purchases30d": 1,
+        "spendToMedian": 0.369,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-06",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 812.62,
+        "purchases30d": 6,
+        "spendToMedian": 2.217,
+        "recent7ToLong90Roas": 0.964
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-11",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 377.85,
+        "purchases30d": 2,
+        "spendToMedian": 0.929,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-13",
+      "claudePhase": "post-scale",
+      "resolverPhase": "post-scale",
+      "phaseSource": "fatigue_override_in_scale",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 340.74,
+        "purchases30d": 2,
+        "spendToMedian": 0.815,
+        "recent7ToLong90Roas": 0
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-15",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 322.93,
+        "purchases30d": 2,
+        "spendToMedian": 0.773,
+        "recent7ToLong90Roas": 1.876
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-31",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 10.07,
+        "purchases30d": 0,
+        "spendToMedian": 0.027,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 638.83,
+        "purchases30d": 4,
+        "spendToMedian": 1.743,
+        "recent7ToLong90Roas": 0.944
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-08",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 587.18,
+        "purchases30d": 2,
+        "spendToMedian": 1.602,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-14",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 324.83,
+        "purchases30d": 1,
+        "spendToMedian": 0.777,
+        "recent7ToLong90Roas": null
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-16",
+      "claudePhase": "test",
+      "resolverPhase": "test",
+      "phaseSource": "default_test",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": true
+      },
+      "metrics": {
+        "spend30d": 261.64,
+        "purchases30d": 2,
+        "spendToMedian": 0.626,
+        "recent7ToLong90Roas": 1.057
+      }
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
+      "claudePhase": "scale",
+      "resolverPhase": "scale",
+      "phaseSource": "spend_threshold",
+      "matched": true,
+      "campaignSignal": {
+        "namingConventionAvailable": false,
+        "metaFamilyAvailable": false,
+        "laneAvailable": false,
+        "legacyCampaignIsTestLike": false
+      },
+      "metrics": {
+        "spend30d": 2344.08,
+        "purchases30d": 22,
+        "spendToMedian": 6.396,
+        "recent7ToLong90Roas": null
+      }
+    }
+  ]
+}

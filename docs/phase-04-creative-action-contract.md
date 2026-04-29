@@ -1,129 +1,142 @@
-# Phase 04 - Creative Action Contract
+# Phase 04 - Creative Action Contract v2
 
-## Routes
+This is the canonical creative action contract after Happy Harbor Faz B-E.
 
-- `GET /api/creatives/decision-os?businessId&startDate&endDate`
-- `POST /api/ai/creatives/decisions`
+Archived v1 references live under `docs/operator-policy/creative-segmentation-recovery/archive/`.
 
-## Read-only Decision OS response
+## Canonical Contract
 
-```ts
-interface CreativeDecisionOsV1Response {
-  contractVersion: "creative-decision-os.v1";
-  generatedAt: string;
-  businessId: string;
-  startDate: string;
-  endDate: string;
-  summary: CreativeDecisionOsSummary;
-  creatives: CreativeDecisionOsCreative[];
-  families: CreativeDecisionOsFamily[];
-  patterns: CreativeDecisionOsPattern[];
-  protectedWinners: CreativeDecisionProtectedWinner[];
-  supplyPlan: CreativeDecisionSupplyPlanItem[];
-  lifecycleBoard: CreativeDecisionLifecycleBucket[];
-  operatorQueues: CreativeDecisionOperatorQueue[];
-  commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
-}
-```
-
-## Creative decision object
+Every buyer-facing creative decision must resolve to one `CreativeVerdict`.
 
 ```ts
-interface CreativeDecisionOsCreative {
-  creativeId: string;
-  familyId: string;
-  familyLabel: string;
-  familySource: "story_identity" | "asset_identity" | "copy_signature" | "singleton";
-  name: string;
-  creativeFormat: "image" | "video" | "catalog";
-  lifecycleState:
-    | "incubating"
-    | "validating"
-    | "scale_ready"
-    | "stable_winner"
-    | "fatigued_winner"
-    | "blocked"
-    | "retired"
-    | "comeback_candidate";
-  primaryAction:
-    | "promote_to_scaling"
-    | "keep_in_test"
-    | "hold_no_touch"
-    | "refresh_replace"
-    | "block_deploy"
-    | "retest_comeback";
-  legacyAction: "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
+type CreativePhase = "test" | "scale" | "post-scale";
+
+type CreativeVerdictHeadline =
+  | "Test Winner"
+  | "Test Loser"
+  | "Test Inconclusive"
+  | "Scale Performer"
+  | "Scale Underperformer"
+  | "Scale Fatiguing"
+  | "Needs Diagnosis";
+
+type CreativeAction =
+  | "scale"
+  | "keep_testing"
+  | "protect"
+  | "refresh"
+  | "cut"
+  | "diagnose";
+
+type CreativeActionReadiness = "ready" | "needs_review" | "blocked";
+
+interface CreativeVerdict {
+  contractVersion: "creative-verdict.v1";
+  phase: CreativePhase | null;
+  phaseSource?: CreativePhaseSource | null;
+  headline: CreativeVerdictHeadline;
+  action: CreativeAction;
+  actionReadiness: CreativeActionReadiness;
   confidence: number;
-  benchmark: CreativeDecisionBenchmark;
-  fatigue: CreativeDecisionFatigue;
-  economics: CreativeDecisionEconomics;
-  familyProvenance: CreativeDecisionFamilyProvenance;
-  deployment: CreativeDecisionDeploymentRecommendation;
-  report: CreativeRuleReportPayload;
+  evidence: CreativeReason[];
+  blockers: CreativeBlockerReason[];
+  derivedAt: string;
 }
 ```
 
-Additive V2-05 fields do not change `contractVersion`; they extend the existing read-only contract.
+Source of truth:
 
-## Family and pattern objects
+- Resolver: `lib/creative-verdict.ts:resolveCreativeVerdict`
+- Phase resolver: `lib/creative-phase.ts:deriveCreativePhaseResolution`
+- Buyer UI band: `components/creatives/VerdictBand.tsx`
+- Drift audit: `npm run creative:agreement-audit`
+- Safety gate: `npm run creative:v2:safety`
 
-- `CreativeDecisionOsFamily`
-  - family-level rollup for spend, purchase value, purchases, member ids, top lifecycle, primary action, and family provenance
-- `CreativeDecisionOsPattern`
-  - hook / angle / format rollup with counts, spend, purchase value, and primary outcome mix
-- `CreativeDecisionOperatorQueue`
-  - operator queue object for `promotion`, `keep_testing`, `fatigued_blocked`, and `comeback`
-- `CreativeDecisionProtectedWinner`
-  - stable winners that stay protected and out of the promotion queue
-- `CreativeDecisionSupplyPlanItem`
-  - deterministic creative backlog for `new_test_concepts`, `refresh_existing_winner`, `expand_angle_family`, and `revive_comeback`
+## Action Semantics
 
-## Compatibility contract
+| Action | Buyer label | Meaning |
+| --- | --- | --- |
+| `scale` | Promote to Scale | Move a validated test winner into a scale lane. |
+| `keep_testing` | Continue Testing | Keep evidence collection running; no scale/cut decision yet. |
+| `protect` | Keep Active | Preserve a stable scale performer without unnecessary edits. |
+| `refresh` | Refresh Creative | Replace or refresh angle/format while preserving proven learning. |
+| `cut` | Cut Now | Pause, retire, or materially reduce spend. |
+| `diagnose` | Investigate | Fix missing truth, validation, or deployment context before performance action. |
 
-`POST /api/ai/creatives/decisions` stays operator-visible and backward compatible.
+Readiness modifies the action:
 
-Mapping is fixed:
+- `ready`: buyer can proceed under normal account governance.
+- `needs_review`: buyer must check blockers, commercial truth, or account context first.
+- `blocked`: no platform move; diagnose the blocker.
 
-- `promote_to_scaling` -> `scale_hard` or `scale`
-- `hold_no_touch` -> `scale` or `watch`
-- `keep_in_test` -> `test_more`
-- `refresh_replace` -> `pause`
-- `block_deploy` -> `kill` or `pause`
-- `retest_comeback` -> `test_more`
+## Phase Semantics
 
-The legacy route is a compatibility surface only. The Decision OS engine is the source of truth.
+| Phase | Meaning | Primary signals |
+| --- | --- | --- |
+| `test` | Creative is still gathering validation evidence. | Low spend/maturity, test campaign family, test naming convention. |
+| `scale` | Creative has production-level maturity or scale campaign context. | Scale campaign family, scale naming convention, high spend relative to median, purchase maturity. |
+| `post-scale` | Creative has scale memory plus fatigue/decay or post-scale review context. | Recent-vs-long-window ROAS collapse, fatigue override, scale-like delivery with decay. |
+| `null` | Legacy snapshot needs analysis. | Old snapshot without phase field. |
 
-## Deterministic versus AI provenance
+## Policy Rules
 
-- `Recommendations`
-  - page-level operator framing; may contain deterministic Decision OS sections
-- `Decision Signals`
-  - deterministic row-level compatibility surface backed by the Decision OS engine
-- `AI Commentary`
-  - bounded commentary only; never the source of lifecycle state, benchmark choice, fatigue status, or deployment target
+### Commercial Truth
 
-The UI must never relabel deterministic outputs as AI, and must never present AI commentary as a decision object.
+- If a target pack is configured, use target ROAS as break-even.
+- If no target pack exists, use selected 30-day median ROAS as a median proxy and emit `break_even_proxy_used`.
+- If neither target pack nor median proxy exists, fall back to a default floor and emit blocker evidence.
+- Missing commercial truth does not hide the decision; it downgrades readiness unless paired with hard trust blockers.
 
-## UI test-id contract
+### Business Validation
 
-- `creative-decision-os-drawer`
-- `creative-decision-os-overview`
-- `creative-lifecycle-board`
-- `creative-operator-queues`
-- `creative-family-board`
-- `creative-pattern-board`
-- `creative-protected-winners`
-- `creative-supply-plan`
-- `creative-detail-deterministic-decision`
-- `creative-detail-commercial-context`
-- `creative-detail-ai-commentary`
-- `creative-detail-deployment-matrix`
-- `creative-detail-benchmark-evidence`
-- `creative-detail-fatigue-evidence`
+- `favorable`: action can remain ready if no other blockers exist.
+- `missing`: action usually becomes `needs_review`.
+- `unfavorable`: scale-phase underperformance can cut; otherwise readiness is review-biased.
 
-## Non-goals
+### Hard Truth Blocker
 
-- No write-back
-- No action queue persistence
-- No AI-authored decision objects
-- No creative generation workflow
+When source trust is `degraded_missing_truth` and business validation is missing:
+
+- headline: `Needs Diagnosis`
+- action: `diagnose`
+- readiness: `blocked`
+
+This rule wins over apparent ROAS strength.
+
+### Test Policy
+
+- Strong break-even outperformance with enough spend and purchases: `Test Winner` + `scale`.
+- Clear break-even miss with mature spend: `Test Loser` + `cut`.
+- Low evidence or mixed signal: `Test Inconclusive` + `keep_testing`.
+
+### Scale Policy
+
+- Stable above/near break-even performance: `Scale Performer` + `protect`.
+- Clear underperformance: `Scale Underperformer` + `cut` or `refresh`, depending on severity.
+- Recent-vs-long-window fatigue: `Scale Fatiguing` + `refresh`.
+
+### Deployment Compatibility
+
+Limited or blocked deployment compatibility downgrades readiness to `needs_review` or `blocked`.
+
+## UI Requirements
+
+All buyer-facing surfaces must render the same verdict for the same creative ID:
+
+- Detail drawer full `VerdictBand`
+- Creatives table compact `VerdictBand`
+- Public share compact `VerdictBand`
+- Decision OS canonical surface compact `VerdictBand`
+
+Legacy lifecycle/action labels must not be reintroduced as competing buyer guidance.
+
+## Verification
+
+Required before merge:
+
+- `npm test`
+- `npx tsc --noEmit`
+- `npm run creative:v2:safety`
+- `npm run creative:agreement-audit`
+
+`creative:v2:safety` is wired into `.github/workflows/ci.yml` for pull requests. Repository branch protection must mark the `test` job as required in GitHub settings.

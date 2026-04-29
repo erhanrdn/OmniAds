@@ -371,6 +371,138 @@ describe("CreativeDetailExperience", () => {
     expect(html).not.toContain("Generate AI interpretation");
   });
 
+  it("does not surface Happy Harbor break-even proxy badges in the canonical refactor branch", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const decisionOsRow = buildDecisionOsRow(row.id, {
+      verdict: {
+        contractVersion: "creative-verdict.v1",
+        phase: "test",
+        headline: "Test Winner",
+        action: "scale",
+        actionReadiness: "needs_review",
+        confidence: 0.7,
+        evidence: [{ tag: "break_even_proxy_used", weight: "primary" }],
+        blockers: [],
+        derivedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{ creatives: [decisionOsRow] } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("Break-even: median proxy");
+    expect(html).not.toContain("/commercial-truth");
+  });
+
+  it("keeps legacy null-phase verdict snapshot badges out of the canonical detail surface", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const decisionOsRow = buildDecisionOsRow(row.id, {
+      verdict: {
+        contractVersion: "creative-verdict.v1",
+        phase: null,
+        headline: "Needs Diagnosis",
+        action: "diagnose",
+        actionReadiness: "blocked",
+        confidence: 0.6,
+        evidence: [],
+        blockers: [],
+        derivedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{ creatives: [decisionOsRow] } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("NEEDS ANALYSIS");
+    expect(html).not.toContain("Action is blocked.");
+  });
+
+  it("does not expose the Happy Harbor Promote to Scale CTA from legacy verdict payloads", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const decisionOsRow = buildDecisionOsRow(row.id, {
+      verdict: {
+        contractVersion: "creative-verdict.v1",
+        phase: "test",
+        phaseSource: "default_test",
+        headline: "Test Winner",
+        action: "scale",
+        actionReadiness: "ready",
+        confidence: 0.86,
+        evidence: [{ tag: "above_break_even", weight: "primary" }],
+        blockers: [],
+        derivedAt: "2026-04-29T00:00:00.000Z",
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{ creatives: [decisionOsRow] } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("Promote to Scale");
+  });
+
   it("keeps AI interpretation support-only when preview truth is ready", () => {
     const row = mapApiRowToUiRow(
       buildApiRow({

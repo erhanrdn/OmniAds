@@ -1,0 +1,137 @@
+{
+  "version": "happy-harbor.auditA.businesses.v1",
+  "generatedAt": "2026-04-28T17:54:18.213Z",
+  "source": {
+    "sourceArtifact": "/tmp/adsecute-creative-live-firm-audit-local.json",
+    "sourceGeneratedAt": "2026-04-28T17:38:31.951Z",
+    "auditWindow": {
+      "todayReference": "2026-04-28",
+      "startDate": "2026-03-29",
+      "endDate": "2026-04-27",
+      "days": 30,
+      "excludesToday": true
+    },
+    "sourceRows": 304,
+    "selectedRows": 200,
+    "excludedRows": [
+      "company-01|company-01-account-01|company-01-campaign-01|company-01-adset-01|company-01-creative-01"
+    ],
+    "freshRerunAttempt": {
+      "attemptedAt": "2026-04-28",
+      "command": "CREATIVE_LIVE_ENV_DIR=/Users/harmelek/Adsecute CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 DB_QUERY_TIMEOUT_MS=60000 DB_CONNECTION_TIMEOUT_MS=30000 CREATIVE_LIVE_FIRM_AUDIT_SCREEN_TIMEOUT_MS=120000 node --import tsx scripts/creative-live-firm-audit.ts",
+      "result": "complete",
+      "blocker": null
+    }
+  },
+  "cohort": {
+    "historicalSnapshotCandidates": 9,
+    "eligibleCandidates": 9,
+    "runtimeEligibleBusinesses": 8,
+    "runtimeSkippedCandidates": 1,
+    "runtimeSkippedCandidatesByReason": {
+      "no_current_meta_connection": 0,
+      "meta_connection_not_connected": 0,
+      "no_access_token": 0,
+      "no_accounts_assigned": 0,
+      "meta_token_checkpointed": 1,
+      "provider_read_failure": 0,
+      "no_current_creative_activity": 0
+    },
+    "runtimeTokenReadabilityStatus": "readable"
+  },
+  "businesses": [
+    {
+      "companyAlias": "company-01",
+      "spendTier": "large",
+      "spend30d": 10837.79,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 35,
+      "activeCreatives": 24,
+      "sourceCurrentDecisionOsRows": 35,
+      "sourceScreeningLiveRows": 35,
+      "includedInSample": 21
+    },
+    {
+      "companyAlias": "company-02",
+      "spendTier": "medium",
+      "spend30d": 8041.91,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 8,
+      "activeCreatives": 6,
+      "sourceCurrentDecisionOsRows": 8,
+      "sourceScreeningLiveRows": 8,
+      "includedInSample": 8
+    },
+    {
+      "companyAlias": "company-03",
+      "spendTier": "medium",
+      "spend30d": 2109.25,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 16,
+      "activeCreatives": 16,
+      "sourceCurrentDecisionOsRows": 16,
+      "sourceScreeningLiveRows": 16,
+      "includedInSample": 10
+    },
+    {
+      "companyAlias": "company-04",
+      "spendTier": "medium",
+      "spend30d": 4247.51,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 47,
+      "activeCreatives": 13,
+      "sourceCurrentDecisionOsRows": 47,
+      "sourceScreeningLiveRows": 47,
+      "includedInSample": 37
+    },
+    {
+      "companyAlias": "company-05",
+      "spendTier": "large",
+      "spend30d": 560031.09,
+      "activeMetaAdAccountCount": 2,
+      "creativeRowsWithDelivery": 59,
+      "activeCreatives": 45,
+      "sourceCurrentDecisionOsRows": 59,
+      "sourceScreeningLiveRows": 59,
+      "includedInSample": 54
+    },
+    {
+      "companyAlias": "company-06",
+      "spendTier": "medium",
+      "spend30d": 2408.86,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 66,
+      "activeCreatives": 66,
+      "sourceCurrentDecisionOsRows": 66,
+      "sourceScreeningLiveRows": 66,
+      "includedInSample": 25
+    },
+    {
+      "companyAlias": "company-07",
+      "spendTier": "medium",
+      "spend30d": 7095.37,
+      "activeMetaAdAccountCount": 1,
+      "creativeRowsWithDelivery": 33,
+      "activeCreatives": 33,
+      "sourceCurrentDecisionOsRows": 33,
+      "sourceScreeningLiveRows": 33,
+      "includedInSample": 12
+    },
+    {
+      "companyAlias": "company-08",
+      "spendTier": "large",
+      "spend30d": 31740.69,
+      "activeMetaAdAccountCount": 2,
+      "creativeRowsWithDelivery": 40,
+      "activeCreatives": 31,
+      "sourceCurrentDecisionOsRows": 40,
+      "sourceScreeningLiveRows": 40,
+      "includedInSample": 33
+    }
+  ],
+  "notes": [
+    "Business aliases are stable sanitized aliases; raw IDs and names are excluded.",
+    "Spend tier is based on summed delivered creative spend in the source 30-day audit window: small < 1000, medium 1000-10000, large > 10000.",
+    "No small-tier business was present in the runtime-readable live cohort."
+  ]
+}

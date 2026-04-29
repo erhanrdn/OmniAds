@@ -1,0 +1,2882 @@
+{
+  "version": "happy-harbor.auditE.codexRatingV2.v1",
+  "generatedAt": "2026-04-28T23:06:31.710Z",
+  "sourceSample": {
+    "path": "docs/team-comms/happy-harbor/audit-A/sample-200.json",
+    "version": "happy-harbor.auditA.sample200.v1",
+    "rowCount": 200
+  },
+  "rater": {
+    "team": "Codex",
+    "stance": "canonical resolver rerate after Faz B/C policy normalization",
+    "policy": "lib/creative-verdict.ts:resolveCreativeVerdict",
+    "note": "This is intentionally distinct from audit-A/codex-rating.json, which remains the frozen Faz A independent rating."
+  },
+  "distribution": {
+    "phase": {
+      "post-scale": 36,
+      "test": 135,
+      "scale": 29
+    },
+    "headline": {
+      "Needs Diagnosis": 94,
+      "Test Inconclusive": 62,
+      "Scale Performer": 8,
+      "Test Winner": 6,
+      "Scale Fatiguing": 17,
+      "Scale Underperformer": 11,
+      "Test Loser": 2
+    },
+    "action": {
+      "diagnose": 94,
+      "keep_testing": 62,
+      "protect": 8,
+      "scale": 6,
+      "refresh": 18,
+      "cut": 12
+    },
+    "actionReadiness": {
+      "blocked": 94,
+      "needs_review": 101,
+      "ready": 5
+    }
+  },
+  "rows": [
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-02",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-02|company-01-creative-19",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-03",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,scale_maturity",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-03|company-01-creative-20",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-04|company-01-creative-04",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,scale_maturity",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-05",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,above_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-02|company-01-adset-05|company-01-creative-10",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.65,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-06",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-03|company-01-adset-06|company-01-creative-07",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-25",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-26",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,near_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-27",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,above_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-28",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,near_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,scale_maturity",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-29",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.65,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-30",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,inactive_pending_winner; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-31",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-32",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,inactive_pending_winner; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-33",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-34",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-01|company-01-account-01|company-01-campaign-04|company-01-adset-07|company-01-creative-35",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-01",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-02",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "ready",
+      "confidence": 0.95,
+      "primaryReason": "primary=near_break_even; supporting=trust_live_confident,target_pack_configured,scale_maturity,baseline_medium",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-03",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "ready",
+      "confidence": 0.95,
+      "primaryReason": "primary=above_break_even; supporting=trust_live_confident,target_pack_configured,test_phase,baseline_medium",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-05",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-01|company-02-adset-01|company-02-creative-06",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,deployment_limited",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-02|company-02-adset-02|company-02-creative-04",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "ready",
+      "confidence": 0.95,
+      "primaryReason": "primary=near_break_even; supporting=trust_live_confident,target_pack_configured,test_phase,baseline_medium",
+      "blockers": []
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-07",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.55,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_medium",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-02|company-02-account-01|company-02-campaign-03|company-02-adset-03|company-02-creative-08",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-01",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-02",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,above_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-03",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,below_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-04",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.85,
+      "primaryReason": "primary=break_even_proxy_used,near_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-05",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-06",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-07",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-08",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-09",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-03|company-03-account-01|company-03-campaign-01|company-03-adset-01|company-03-creative-16",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-01",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.65,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-02",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-06",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-01|company-04-adset-01|company-04-creative-08",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-02|company-04-adset-02|company-04-creative-03",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-03|company-04-adset-02|company-04-creative-05",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-04|company-04-adset-03|company-04-creative-07",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-14",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-15",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-19",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-25",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-26",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-30",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-31",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-39",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-41",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-06|company-04-adset-05|company-04-creative-43",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-16",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-07|company-04-adset-05|company-04-creative-42",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-17",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-20",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-21",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-08|company-04-adset-05|company-04-creative-36",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-18",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-22",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-24",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-28",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-32",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-09|company-04-adset-05|company-04-creative-35",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-23",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-33",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-34",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-37",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-38",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-10|company-04-adset-02|company-04-creative-40",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-11|company-04-adset-02|company-04-creative-27",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-04|company-04-account-01|company-04-campaign-12|company-04-adset-05|company-04-creative-29",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-01",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.65,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-16",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=low_evidence; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-17",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-18",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-01|company-05-adset-01|company-05-creative-34",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-02",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.85,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-02|company-05-adset-02|company-05-creative-21",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-03",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-05",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-19",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-22",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-24",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-26",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-27",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-28",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-29",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-31",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-33",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-35",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-36",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-37",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-43",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-44",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-03|company-05-adset-03|company-05-creative-45",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-04",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=above_break_even; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-08",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-09",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.7,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-10",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-12",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.5,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-13",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "ready",
+      "confidence": 0.95,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,target_pack_configured,baseline_strong",
+      "blockers": []
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-15",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-20",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-25",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-30",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-04|company-05-adset-02|company-05-creative-32",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-06",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-11",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-05|company-05-adset-04|company-05-creative-14",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-46",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,large_spend_scale_phase,scale_maturity",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-49",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,scale_maturity,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-51",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,scale_maturity",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-52",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,scale_maturity,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-53",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=above_break_even; supporting=trust_live_confident,target_pack_configured,scale_maturity,baseline_strong",
+      "blockers": [
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-54",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "ready",
+      "confidence": 0.95,
+      "primaryReason": "primary=below_break_even; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-06|company-05-creative-56",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.85,
+      "primaryReason": "primary=near_break_even; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-47",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,large_spend_scale_phase,scale_maturity",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-50",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,scale_maturity,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-07|company-05-creative-55",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,scale_maturity",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-48",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,large_spend_scale_phase,scale_maturity",
+      "blockers": [
+        "business_validation_unfavorable",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-57",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-58",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-01|company-05-campaign-07|company-05-adset-08|company-05-creative-59",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-07",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.5,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-05|company-05-account-02|company-05-campaign-06|company-05-adset-05|company-05-creative-23",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.5,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-01",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,near_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-03",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-04",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-06",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-25",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-27",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-29",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-38",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-46",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-48",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-57",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-59",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-63",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-64",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-01|company-06-creative-65",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-02",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,below_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-05",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-21",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=business_validation_missing,target_pack_missing,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-40",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-44",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-49",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-54",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-55",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-58",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-06|company-06-account-01|company-06-campaign-01|company-06-adset-02|company-06-creative-66",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-01",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-02",
+      "phase": "scale",
+      "headline": "Scale Performer",
+      "action": "protect",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,above_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-03",
+      "phase": "test",
+      "headline": "Test Loser",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,below_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-04",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,deployment_limited",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-05",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-06",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-07",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-08",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth,break_even_proxy_used; supporting=business_validation_missing,target_pack_missing,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-09",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,near_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-10",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=break_even_proxy_used,above_break_even; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-11",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,low_evidence; supporting=trust_live_confident,business_validation_missing,target_pack_missing,test_phase",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-07|company-07-account-01|company-07-campaign-01|company-07-adset-01|company-07-creative-13",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=break_even_proxy_used,fatigue_recent_collapse; supporting=trust_live_confident,business_validation_missing,target_pack_missing,baseline_strong",
+      "blockers": [
+        "business_validation_missing",
+        "commercial_truth_target_pack_missing"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-01",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-01|company-08-adset-01|company-08-creative-12",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-32",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited",
+        "inactive_scale_delivery"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-39",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-04|company-08-adset-08|company-08-creative-40",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,test_phase,baseline_strong",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-34",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-35",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=low_evidence; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-36",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-37",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-01|company-08-campaign-06|company-08-adset-10|company-08-creative-38",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-02|company-08-adset-02|company-08-creative-02",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-03",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-17",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-28",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-03|company-08-creative-30",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-04",
+      "phase": "scale",
+      "headline": "Scale Underperformer",
+      "action": "cut",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=business_validation_unfavorable; supporting=trust_live_confident,target_pack_configured,deployment_limited,scale_maturity",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-09",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,deployment_limited",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-20",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-04|company-08-creative-29",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-05",
+      "phase": "post-scale",
+      "headline": "Scale Fatiguing",
+      "action": "refresh",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=fatigue_recent_collapse; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,deployment_limited",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-10",
+      "phase": "test",
+      "headline": "Test Winner",
+      "action": "scale",
+      "actionReadiness": "needs_review",
+      "confidence": 0.95,
+      "primaryReason": "primary=above_break_even; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,deployment_limited",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-18",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-05|company-08-creative-19",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "primary=low_evidence; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-06",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-11",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-13",
+      "phase": "post-scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-15",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.8,
+      "primaryReason": "primary=low_evidence; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-06|company-08-creative-31",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.6,
+      "primaryReason": "primary=low_evidence; supporting=business_validation_unfavorable,target_pack_configured,deployment_limited,test_phase",
+      "blockers": [
+        "business_validation_unfavorable",
+        "deployment_lane_limited"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-07",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.65,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-08",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-14",
+      "phase": "test",
+      "headline": "Test Inconclusive",
+      "action": "keep_testing",
+      "actionReadiness": "needs_review",
+      "confidence": 0.9,
+      "primaryReason": "primary=low_evidence; supporting=trust_live_confident,business_validation_unfavorable,target_pack_configured,test_phase",
+      "blockers": [
+        "business_validation_unfavorable"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-03|company-08-adset-07|company-08-creative-16",
+      "phase": "test",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.6,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,baseline_strong",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    },
+    {
+      "rowId": "company-08|company-08-account-02|company-08-campaign-05|company-08-adset-09|company-08-creative-33",
+      "phase": "scale",
+      "headline": "Needs Diagnosis",
+      "action": "diagnose",
+      "actionReadiness": "blocked",
+      "confidence": 0.7,
+      "primaryReason": "primary=trust_degraded_missing_truth; supporting=business_validation_missing,target_pack_configured,deployment_limited,large_spend_scale_phase",
+      "blockers": [
+        "trust_degraded_missing_truth",
+        "business_validation_missing",
+        "deployment_lane_limited",
+        "hard_truth_blocker"
+      ]
+    }
+  ]
+}

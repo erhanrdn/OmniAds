@@ -2,12 +2,12 @@ import React from "react";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
+import { CreativeDecisionOsSurface } from "@/components/creatives/CreativeDecisionOsSurface";
 import {
   CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
   CREATIVE_DECISION_OS_V2_PREVIEW_FORBIDDEN_BUTTON_TEXT,
   CREATIVE_DECISION_OS_V2_PREVIEW_FORBIDDEN_INTERNAL_TEXT,
-  buildCreativeDecisionOsV2PreviewSurfaceModel,
+  buildCreativeDecisionOsSurfaceModel,
   type CreativeDecisionOsV2PreviewPayload,
   type CreativeDecisionOsV2PreviewRow,
   type CreativeDecisionOsV2PreviewSourceRow,
@@ -15,7 +15,7 @@ import {
 import liveAudit from "@/docs/operator-policy/creative-segmentation-recovery/reports/v2-live-audit-2026-04-26/live-audit-sanitized.json";
 
 const sourceRows = liveAudit.rows as CreativeDecisionOsV2PreviewSourceRow[];
-const surface = buildCreativeDecisionOsV2PreviewSurfaceModel(sourceRows);
+const surface = buildCreativeDecisionOsSurfaceModel(sourceRows);
 const preview: CreativeDecisionOsV2PreviewPayload = {
   contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
   generatedAt: "2026-04-26T12:00:00.000Z",
@@ -59,7 +59,7 @@ const readablePreviewFiles = [
   "app/(dashboard)/creatives/page.test.tsx",
   "app/api/creatives/decision-os-v2/preview/route.ts",
   "app/api/creatives/decision-os-v2/preview/route.test.ts",
-  "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx",
+  "components/creatives/CreativeDecisionOsSurface.tsx",
   "docs/operator-policy/creative-segmentation-recovery/reports/v2-readonly-ui-preview-2026-04-26/FOR_CHATGPT_REVIEW.md",
   "lib/creative-decision-os-v2-preview.ts",
   "lib/creative-decision-os-v2-preview.test.tsx",
@@ -117,7 +117,7 @@ function sourceRow(
 function previewFromRows(
   rows: CreativeDecisionOsV2PreviewSourceRow[],
 ): CreativeDecisionOsV2PreviewPayload {
-  const customSurface = buildCreativeDecisionOsV2PreviewSurfaceModel(rows);
+  const customSurface = buildCreativeDecisionOsSurfaceModel(rows);
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
     generatedAt: "2026-04-27T12:00:00.000Z",
@@ -172,7 +172,7 @@ describe("Creative Decision OS v2 preview surface model", () => {
   });
 
   it("keeps review-only Scale and high-spend Cut above direct confirmation rows", () => {
-    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+    const deterministicSurface = buildCreativeDecisionOsSurfaceModel([
       sourceRow({
         rowId: "review-scale",
         v2PrimaryDecision: "Scale",
@@ -220,7 +220,7 @@ describe("Creative Decision OS v2 preview surface model", () => {
   });
 
   it("keeps direct rows in confirmation unless they separately qualify for urgency", () => {
-    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+    const deterministicSurface = buildCreativeDecisionOsSurfaceModel([
       sourceRow({
         rowId: "direct-protect-default",
         v2PrimaryDecision: "Protect",
@@ -265,7 +265,7 @@ describe("Creative Decision OS v2 preview surface model", () => {
   });
 
   it("keeps Diagnose rows out of buyer confirmation and action-looking lanes", () => {
-    const deterministicSurface = buildCreativeDecisionOsV2PreviewSurfaceModel([
+    const deterministicSurface = buildCreativeDecisionOsSurfaceModel([
       sourceRow({
         rowId: "diagnose-data-quality",
         v2PrimaryDecision: "Diagnose",
@@ -309,7 +309,7 @@ describe("Creative Decision OS v2 preview surface model", () => {
   });
 });
 
-describe("CreativeDecisionOsV2PreviewSurface", () => {
+describe("CreativeDecisionOsSurface", () => {
   it("keeps required contract-forbidden terms in the rendered-output scan", () => {
     const missingTerms = requiredForbiddenButtonTerms.filter(
       (term) =>
@@ -347,11 +347,11 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
 
   it("renders safe read-only text without forbidden button or internal artifact terms", () => {
     const html = renderToStaticMarkup(
-      <CreativeDecisionOsV2PreviewSurface preview={preview} onOpenRow={() => undefined} />,
+      <CreativeDecisionOsSurface payload={preview} onOpenRow={() => undefined} />,
     );
 
-    expect(html).toContain("Diagnostic Priority");
-    expect(html).toContain("Diagnostic-only preview");
+    expect(html).toContain("Today Priority / Buyer Command Strip");
+    expect(html).toContain("Canonical buyer surface");
     expect(html).toContain("Ready for Buyer Confirmation");
     expect(html).toContain("Diagnose First");
     expect(html).not.toContain("Watch");
@@ -381,7 +381,7 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
       }),
     ]);
     const html = renderToStaticMarkup(
-      <CreativeDecisionOsV2PreviewSurface preview={noScalePreview} />,
+      <CreativeDecisionOsSurface payload={noScalePreview} />,
     );
 
     expect(html).toContain("Scale-ready");
@@ -403,7 +403,7 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
       }),
     ]);
     const html = renderToStaticMarkup(
-      <CreativeDecisionOsV2PreviewSurface preview={diagnosePreview} />,
+      <CreativeDecisionOsSurface payload={diagnosePreview} />,
     );
 
     expect(html).toContain("Ready for Buyer Confirmation");
@@ -451,7 +451,7 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
         campaignStatus: "PAUSED",
       }),
     ]);
-    const html = renderToStaticMarkup(<CreativeDecisionOsV2PreviewSurface preview={lanePreview} />);
+    const html = renderToStaticMarkup(<CreativeDecisionOsSurface payload={lanePreview} />);
 
     expect(html).toContain("Highest urgency");
     expect(html).toContain("Review lanes");
@@ -466,7 +466,7 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
 
   it("keeps the preview component read-only without DB, Meta, or Command Center wiring", () => {
     const source = readFileSync(
-      "components/creatives/CreativeDecisionOsV2PreviewSurface.tsx",
+      "components/creatives/CreativeDecisionOsSurface.tsx",
       "utf8",
     );
 

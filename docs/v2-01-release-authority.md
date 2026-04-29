@@ -56,7 +56,7 @@ These V2-06, V2-07, and V2-08 docs define the current additive workflow, executi
 
 - `docs/phase-02-operating-modes.md`
 - `docs/phase-03-meta-decision-os.md`
-- `docs/phase-04-creative-decision-os.md`
+- `docs/operator-policy/creative-segmentation-recovery/archive/phase-04-creative-decision-os.md`
 - `docs/phase-05-command-center.md`
 - `docs/phase-06-safe-execution-layer.md`
 

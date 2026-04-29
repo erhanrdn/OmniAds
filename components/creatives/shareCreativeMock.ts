@@ -53,6 +53,18 @@ export const MOCK_SHARE_PAYLOAD: SharePayload = {
       purchases: 74,
       analysis: {
         creativeId: "m-1",
+        verdict: {
+          contractVersion: "creative-verdict.v1",
+          phase: "test",
+          phaseSource: "default_test",
+          headline: "Test Winner",
+          action: "scale",
+          actionReadiness: "needs_review",
+          confidence: 0.91,
+          evidence: [{ tag: "above_break_even", weight: "primary" }],
+          blockers: [],
+          derivedAt: "2026-03-05T10:00:00.000Z",
+        },
         actionLabel: "Scale",
         authorityLabel: "Review only",
         confidenceLabel: "High",

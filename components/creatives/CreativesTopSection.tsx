@@ -390,6 +390,23 @@ function performanceFilterToneClasses(filter: CreativeQuickFilter, active: boole
       };
 }
 
+function creativeQuickFilterTooltip(key: CreativeQuickFilterKey) {
+  switch (key) {
+    case "scale":
+      return "Creatives ready to scale: Test Winner with confident validation, or Scale Performer in stable production.";
+    case "test_more":
+      return "Creatives still in test phase needing more evidence: spend < $50 or purchases < 3, or mixed signal.";
+    case "protect":
+      return "Stable Scale Performers — keep active without changes. Most reliable revenue contributors.";
+    case "refresh":
+      return "Creative fatigue detected (recent vs. long-term ROAS dropping ≥ 40%). Refresh angle/format.";
+    case "cut":
+      return "Test Losers or Scale Underperformers — bleeding capital relative to break-even. Pause.";
+    case "diagnose":
+      return "Hard blockers (missing commercial truth + business validation). Manual triage required.";
+  }
+}
+
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
   { id: "roas", label: "ROAS", direction: "high", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
@@ -632,6 +649,7 @@ export function CreativesTopSection({
                         ? `, ${scaleReviewRequired.toLocaleString()} require review before scale action`
                         : ""
                     }`}
+                    title={creativeQuickFilterTooltip(filter.key)}
                     data-count={filter.count}
                     data-testid={`creative-performance-filter-${filter.key}`}
                     className={cn(

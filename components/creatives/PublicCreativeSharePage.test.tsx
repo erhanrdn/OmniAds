@@ -16,6 +16,7 @@ describe("PublicCreativeSharePage", () => {
     );
 
     expect(html).toContain("Creative action plan");
+    expect(html).toContain("Test Winner");
     expect(html).toContain("Scale review: UGC Reel - Morning routine hook");
     expect(html).toContain("Amount: No safe amount calculated");
     expect(html).toContain("Send this to the media buyer for a controlled scale review.");

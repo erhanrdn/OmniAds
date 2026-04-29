@@ -22,7 +22,7 @@ import {
 } from "@/components/creatives/metricConfig";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import { CreativeBenchmarkScopeControl } from "@/components/creatives/CreativeBenchmarkScopeControl";
-import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
+import { CreativeDecisionOsSurface } from "@/components/creatives/CreativeDecisionOsSurface";
 import {
   applyCreativeFilters,
   formatCreativeDateLabel,
@@ -462,27 +462,20 @@ export default function CreativesPage() {
         benchmarkScope: activeBenchmarkScope,
       }),
   });
-  const creativeDecisionOsV2PreviewDisabled =
-    searchParams.get("creativeDecisionOsV2Preview") === "0" ||
-    searchParams.get("creativeDecisionOsV2Preview")?.toLowerCase() === "false" ||
-    searchParams.get("v2Preview") === "0" ||
-    searchParams.get("v2Preview")?.toLowerCase() === "false";
-  const creativeDecisionOsV2PreviewEnabled = !creativeDecisionOsV2PreviewDisabled;
-  const creativeDecisionOsV2PreviewQuery = useQuery({
+  const creativeDecisionOsSurfaceQuery = useQuery({
     queryKey: [
-      "creative-decision-os-v2-preview",
+      "creative-decision-os-surface",
       businessId,
       activeBenchmarkScope.scope,
       activeBenchmarkScope.scopeId ?? null,
-      creativeDecisionOsV2PreviewEnabled,
     ],
-    enabled: canLoadCreatives && creativeDecisionOsV2PreviewEnabled,
+    enabled: canLoadCreatives,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: () =>
       getCreativeDecisionOsV2Preview(businessId, {
         benchmarkScope: activeBenchmarkScope,
-        enabled: creativeDecisionOsV2PreviewEnabled,
+        enabled: true,
       }),
   });
   const creativeDecisionOsRunMutation = useMutation({
@@ -497,8 +490,8 @@ export default function CreativesPage() {
   const creativeDecisionSnapshotResponse = creativeDecisionOsSnapshotQuery.data ?? null;
   const creativeDecisionSnapshot = creativeDecisionSnapshotResponse?.snapshot ?? null;
   const creativeDecisionOs = creativeDecisionSnapshotResponse?.decisionOs ?? null;
-  const creativeDecisionOsV2Preview =
-    creativeDecisionOsV2PreviewQuery.data?.decisionOsV2Preview ?? null;
+  const creativeDecisionOsSurface =
+    creativeDecisionOsSurfaceQuery.data?.decisionOsV2Preview ?? null;
   const decisionSnapshotGeneratedAt = formatSnapshotTimestamp(
     creativeDecisionSnapshot?.generatedAt,
   );
@@ -1182,18 +1175,16 @@ export default function CreativesPage() {
               }
             />
 
-            {creativeDecisionOsV2PreviewEnabled ? (
-              <CreativeDecisionOsV2PreviewSurface
-                preview={creativeDecisionOsV2Preview}
-                isLoading={creativeDecisionOsV2PreviewQuery.isLoading}
-                error={
-                  creativeDecisionOsV2PreviewQuery.error instanceof Error
-                    ? creativeDecisionOsV2PreviewQuery.error.message
-                    : creativeDecisionOsV2PreviewQuery.data?.error?.message ?? null
-                }
-                onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
-              />
-            ) : null}
+            <CreativeDecisionOsSurface
+              payload={creativeDecisionOsSurface}
+              isLoading={creativeDecisionOsSurfaceQuery.isLoading}
+              error={
+                creativeDecisionOsSurfaceQuery.error instanceof Error
+                  ? creativeDecisionOsSurfaceQuery.error.message
+                  : creativeDecisionOsSurfaceQuery.data?.error?.message ?? null
+              }
+              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
+            />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 

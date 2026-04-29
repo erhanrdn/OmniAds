@@ -1,3 +1,12 @@
+import {
+  CREATIVE_VERDICT_VERSION,
+  type CreativeAction,
+  type CreativeActionReadiness,
+  type CreativePhase,
+  type CreativeVerdict,
+  type CreativeVerdictHeadline,
+} from "@/lib/creative-verdict";
+
 export const CREATIVE_DECISION_OS_V2_CONTRACT_VERSION = "creative-decision-os.v2";
 export const CREATIVE_DECISION_OS_V2_ENGINE_VERSION = "2026-04-26-baseline-first";
 
@@ -55,6 +64,7 @@ export interface CreativeDecisionOsV2Input {
 export interface CreativeDecisionOsV2Output {
   contractVersion: typeof CREATIVE_DECISION_OS_V2_CONTRACT_VERSION;
   engineVersion: typeof CREATIVE_DECISION_OS_V2_ENGINE_VERSION;
+  verdict: CreativeVerdict;
   primaryDecision: CreativeDecisionOsV2PrimaryDecision;
   actionability: CreativeDecisionOsV2Actionability;
   confidence: number;
@@ -129,6 +139,54 @@ function confidence(base: number, input: CreativeDecisionOsV2Input, adjustment =
   return Math.max(45, Math.min(94, Math.round(base + benchmarkAdjustment + trustAdjustment + adjustment)));
 }
 
+function actionFromV2Decision(primaryDecision: CreativeDecisionOsV2PrimaryDecision): CreativeAction {
+  switch (primaryDecision) {
+    case "Scale":
+      return "scale";
+    case "Test More":
+      return "keep_testing";
+    case "Protect":
+      return "protect";
+    case "Refresh":
+      return "refresh";
+    case "Cut":
+      return "cut";
+    case "Diagnose":
+      return "diagnose";
+  }
+}
+
+function headlineFromV2Decision(primaryDecision: CreativeDecisionOsV2PrimaryDecision): CreativeVerdictHeadline {
+  switch (primaryDecision) {
+    case "Scale":
+      return "Test Winner";
+    case "Test More":
+      return "Test Inconclusive";
+    case "Protect":
+      return "Scale Performer";
+    case "Refresh":
+      return "Scale Fatiguing";
+    case "Cut":
+      return "Scale Underperformer";
+    case "Diagnose":
+      return "Needs Diagnosis";
+  }
+}
+
+function phaseFromV2Decision(primaryDecision: CreativeDecisionOsV2PrimaryDecision): CreativePhase {
+  if (primaryDecision === "Scale" || primaryDecision === "Test More") return "test";
+  if (primaryDecision === "Refresh" || primaryDecision === "Diagnose") return "post-scale";
+  return "scale";
+}
+
+function readinessFromV2Actionability(
+  actionability: CreativeDecisionOsV2Actionability,
+): CreativeActionReadiness {
+  if (actionability === "direct") return "ready";
+  if (actionability === "diagnose" || actionability === "blocked") return "blocked";
+  return "needs_review";
+}
+
 function output(
   input: CreativeDecisionOsV2Input,
   primaryDecision: CreativeDecisionOsV2PrimaryDecision,
@@ -189,9 +247,26 @@ function output(
     resolvedActionability = "review_only";
   }
 
+  const uniqueBlockerReasons = Array.from(new Set(blockerReasons));
+  const verdict: CreativeVerdict = {
+    contractVersion: CREATIVE_VERDICT_VERSION,
+    phase: phaseFromV2Decision(primaryDecision),
+    headline: headlineFromV2Decision(primaryDecision),
+    action: actionFromV2Decision(primaryDecision),
+    actionReadiness: readinessFromV2Actionability(resolvedActionability),
+    confidence: Math.max(0.3, Math.min(0.95, confidenceValue / 100)),
+    evidence: Array.from(new Set(reasonTags)).slice(0, 4).map((tag, index) => ({
+      tag: tag as CreativeVerdict["evidence"][number]["tag"],
+      weight: index === 0 ? "primary" : "supporting",
+    })),
+    blockers: uniqueBlockerReasons.map((reason) => reason as CreativeVerdict["blockers"][number]),
+    derivedAt: new Date().toISOString(),
+  };
+
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_CONTRACT_VERSION,
     engineVersion: CREATIVE_DECISION_OS_V2_ENGINE_VERSION,
+    verdict,
     primaryDecision,
     actionability: resolvedActionability,
     confidence: confidenceValue,
@@ -200,7 +275,7 @@ function output(
     riskLevel,
     queueEligible: false,
     applyEligible: false,
-    blockerReasons,
+    blockerReasons: uniqueBlockerReasons,
     secondarySuggestion,
     problemClass,
   };

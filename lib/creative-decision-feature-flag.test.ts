@@ -40,6 +40,58 @@ describe("creative canonical resolver feature flag", () => {
     expect(record.businessId).toBe("biz_sticky");
   });
 
+  it("lets admin allowlist override an existing sticky legacy cohort assignment", () => {
+    const businessId = "biz_allowlisted_legacy";
+    const cohort = resolveCanonicalCohortAssignment({
+      businessId,
+      existingAssignment: "legacy",
+      adminAllowlist: [businessId],
+    });
+
+    expect(cohort.cohort).toBe("canonical-v1");
+    expect(cohort.source).toBe("allowlist");
+
+    const stickyFlag = assignStickyCreativeCanonicalResolverFlag({
+      businessId,
+      existingAssignment: "legacy",
+      adminAllowlist: [businessId],
+      rolloutPercent: 0,
+    });
+
+    expect(stickyFlag.assignment).toBe("v1");
+    expect(stickyFlag.source).toBe("admin_allowlist");
+  });
+
+  it("assigns direct-cutover rollout cohorts and preserves sticky metadata afterward", () => {
+    const businessId = "biz_direct_cutover";
+
+    const allowlisted = resolveCanonicalCohortAssignment({
+      businessId,
+      existingAssignment: "legacy",
+      adminAllowlist: [businessId],
+    });
+    expect(allowlisted.cohort).toBe("canonical-v1");
+    expect(allowlisted.source).toBe("allowlist");
+
+    const firstRolloutAssignment = resolveCanonicalCohortAssignment({
+      businessId,
+      rolloutPercent: 100,
+      existingAssignment: null,
+    });
+    expect(firstRolloutAssignment.cohort).toBe("canonical-v1");
+    expect(firstRolloutAssignment.source).toBe("rollout_percent_assigned");
+
+    const stickyAfterRollout = resolveCanonicalCohortAssignment({
+      businessId,
+      rolloutPercent: 100,
+      existingAssignment: "canonical-v1",
+      existingAssignedAt: "2026-04-29T00:00:00.000Z",
+    });
+    expect(stickyAfterRollout.cohort).toBe("canonical-v1");
+    expect(stickyAfterRollout.source).toBe("sticky_assigned");
+    expect(stickyAfterRollout.assignedAt).toBe("2026-04-29T00:00:00.000Z");
+  });
+
   it("routes next cohort assignment to legacy immediately when kill switch flips", () => {
     const sticky = resolveCanonicalCohortAssignment({
       businessId: "biz_sticky",

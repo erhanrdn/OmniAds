@@ -17,9 +17,10 @@ import type {
   CreativeDecisionOsV2PreviewRow,
 } from "@/lib/creative-decision-os-v2-preview";
 import { cn } from "@/lib/utils";
+import { VerdictBand } from "@/components/creatives/VerdictBand";
 
-type CreativeDecisionOsV2PreviewSurfaceProps = {
-  preview: CreativeDecisionOsV2PreviewPayload | null | undefined;
+type CreativeDecisionOsSurfaceProps = {
+  payload: CreativeDecisionOsV2PreviewPayload | null | undefined;
   isLoading?: boolean;
   error?: string | null;
   onOpenRow?: (rowId: string) => void;
@@ -103,15 +104,6 @@ function riskClasses(riskLevel: CreativeDecisionOsV2PreviewRow["riskLevel"]) {
   return "border-emerald-200 bg-emerald-50 text-emerald-800";
 }
 
-function decisionClasses(decision: CreativeDecisionOsV2PreviewRow["primaryDecision"]) {
-  if (decision === "Scale") return "border-emerald-200 bg-emerald-50 text-emerald-900";
-  if (decision === "Cut") return "border-rose-200 bg-rose-50 text-rose-900";
-  if (decision === "Refresh") return "border-cyan-200 bg-cyan-50 text-cyan-900";
-  if (decision === "Protect") return "border-slate-200 bg-slate-50 text-slate-900";
-  if (decision === "Test More") return "border-violet-200 bg-violet-50 text-violet-900";
-  return "border-amber-200 bg-amber-50 text-amber-900";
-}
-
 function actionButtonLabel(row: CreativeDecisionOsV2PreviewRow) {
   if (row.primaryDecision === "Diagnose") return "View diagnosis";
   if (row.blockerReasons.length > 0 || row.campaignContextFlags.length > 0) return "See blocker";
@@ -193,16 +185,16 @@ function RowCard({
         "rounded-lg border border-slate-200 bg-white p-3 shadow-sm",
         row.activeStatus === false && "bg-slate-50 opacity-80",
       )}
-      data-testid="creative-v2-preview-row"
+      data-testid="creative-decision-os-surface-row"
       data-row-id={row.rowId}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cn(compactPillClasses, decisionClasses(row.primaryDecision))}>
-              {row.primaryDecision}
+            <VerdictBand verdict={row.verdict} size="compact" />
+            <span className={mutedTinyPillClasses}>
+              {row.verdict.action} / {row.verdict.actionReadiness.replaceAll("_", " ")}
             </span>
-            <span className={mutedTinyPillClasses}>{row.actionabilityLabel}</span>
             <span className={cn(compactPillClasses, riskClasses(row.riskLevel))}>
               {humanizeTag(row.riskLevel)} risk
             </span>
@@ -309,25 +301,25 @@ function BucketSection({
   );
 }
 
-export function CreativeDecisionOsV2PreviewSurface({
-  preview,
+export function CreativeDecisionOsSurface({
+  payload,
   isLoading = false,
   error = null,
   onOpenRow,
   className,
-}: CreativeDecisionOsV2PreviewSurfaceProps) {
+}: CreativeDecisionOsSurfaceProps) {
   const rowsById = useMemo(() => {
     const map = new Map<string, CreativeDecisionOsV2PreviewRow>();
-    for (const row of preview?.surface.rows ?? []) map.set(row.rowId, row);
+    for (const row of payload?.surface.rows ?? []) map.set(row.rowId, row);
     return map;
-  }, [preview?.surface.rows]);
+  }, [payload?.surface.rows]);
 
   if (isLoading) {
     return (
       <section className={cn("rounded-lg border border-slate-200 bg-white p-4", className)}>
-        <p className="text-sm font-semibold text-slate-900">Decision OS v2 diagnostics loading</p>
+        <p className="text-sm font-semibold text-slate-900">Decision OS surface loading</p>
         <p className="mt-1 text-sm text-slate-600">
-          Preparing diagnostic lanes for this scope. These lanes do not set the primary action.
+          Preparing read-only buyer lanes for this scope.
         </p>
       </section>
     );
@@ -336,13 +328,13 @@ export function CreativeDecisionOsV2PreviewSurface({
   if (error) {
     return (
       <section className={cn("rounded-lg border border-rose-200 bg-rose-50 p-4", className)}>
-        <p className="text-sm font-semibold text-rose-900">Decision OS v2 diagnostics unavailable</p>
+        <p className="text-sm font-semibold text-rose-900">Decision OS surface unavailable</p>
         <p className="mt-1 text-sm text-rose-700">{error}</p>
       </section>
     );
   }
 
-  if (!preview) {
+  if (!payload) {
     return (
       <section
         className={cn(
@@ -350,15 +342,15 @@ export function CreativeDecisionOsV2PreviewSurface({
           className,
         )}
       >
-        <p className="text-sm font-semibold text-slate-900">Decision OS v2 diagnostics are enabled</p>
+        <p className="text-sm font-semibold text-slate-900">Decision OS surface is ready</p>
         <p className="mt-1 text-sm text-slate-600">
-          Run the current Decision OS analysis first to prepare read-only diagnostic lanes.
+          Run the current Decision OS analysis first to prepare read-only buyer lanes.
         </p>
       </section>
     );
   }
 
-  const surface = preview.surface;
+  const surface = payload.surface;
   const todayPriority = surface.buckets.find((bucket) => bucket.id === "today_priority");
   const readyForConfirmation = surface.buckets.find(
     (bucket) => bucket.id === "ready_for_buyer_confirmation",
@@ -378,19 +370,19 @@ export function CreativeDecisionOsV2PreviewSurface({
         "space-y-5 rounded-lg border border-slate-200 bg-slate-50/70 p-4 shadow-sm",
         className,
       )}
-      data-testid="creative-v2-preview-surface"
+      data-testid="creative-decision-os-surface"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Diagnostic-only preview
+            Canonical buyer surface
           </p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">
-            Decision OS v2 diagnostic surface
+            Decision OS operator surface
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-700">
-            This panel shows data-quality, delivery-context, and risk diagnostics. It does not
-            provide the production primary action.
+            Buyer urgency is separated from confidence. This panel helps review the highest spend
+            and highest risk decisions without changing platform state.
           </p>
         </div>
         <span
@@ -400,7 +392,7 @@ export function CreativeDecisionOsV2PreviewSurface({
           )}
         >
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-          Diagnostic only
+          Read-only
         </span>
       </div>
 
@@ -440,11 +432,11 @@ export function CreativeDecisionOsV2PreviewSurface({
               <LaneBadge tone="priority">Highest urgency</LaneBadge>
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                 <AlertTriangle className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                Diagnostic Priority
+                Today Priority / Buyer Command Strip
               </h3>
               <p className="mt-1 text-xs text-slate-600">
-                Highest-risk rows appear here for review. The canonical resolver owns the primary
-                buyer action.
+                Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes
+                appear here first.
               </p>
             </div>
             <span className={countBadgeClasses}>{todayPriority.rowIds.length}</span>

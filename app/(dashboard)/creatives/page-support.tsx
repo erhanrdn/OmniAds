@@ -256,6 +256,7 @@ export function buildSharedCreativeAnalysis(
 
   return {
     creativeId: creative.creativeId,
+    verdict: null,
     actionLabel,
     authorityLabel: operatorItem?.authorityLabel ?? actionLabel,
     confidenceLabel: canonical
@@ -323,6 +324,7 @@ export function buildSharedCreativeMetricFallbackAnalysis(
 
   return {
     creativeId: row.id,
+    verdict: null,
     actionLabel: "Review",
     authorityLabel: "Metrics only",
     confidenceLabel: "Limited",

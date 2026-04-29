@@ -1,3 +1,5 @@
+import type { CreativeVerdict } from "@/lib/creative-verdict";
+
 /**
  * Metric keys supported in shared creative reports
  */
@@ -33,6 +35,7 @@ export interface SharedCreativeAnalysisFactor {
 
 export interface SharedCreativeAnalysis {
   creativeId: string;
+  verdict?: CreativeVerdict | null;
   actionLabel: string;
   authorityLabel: string | null;
   confidenceLabel: "High" | "Medium" | "Limited";

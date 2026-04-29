@@ -9,6 +9,7 @@ import type {
   CreativeDecisionBenchmarkScopeInput,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import type { CreativeVerdict } from "@/lib/creative-verdict";
 
 export const CREATIVE_DECISION_OS_SNAPSHOT_CONTRACT_VERSION =
   "creative-decision-os-snapshot.v1";
@@ -70,6 +71,7 @@ export interface CreativeDecisionOsSnapshot {
   status: Exclude<CreativeDecisionOsSnapshotStatus, "not_run" | "running" | "stale_scope">;
   error: CreativeDecisionOsSnapshotError | null;
   payload: CreativeDecisionOsV1Response | null;
+  creativeVerdicts?: CreativeVerdict[] | null;
 }
 
 export interface CreativeDecisionOsSnapshotApiResponse {
@@ -78,6 +80,7 @@ export interface CreativeDecisionOsSnapshotApiResponse {
   scope: CreativeDecisionOsSnapshotScope;
   snapshot: CreativeDecisionOsSnapshot | null;
   decisionOs: CreativeDecisionOsV1Response | null;
+  creativeVerdicts?: CreativeVerdict[] | null;
   error: CreativeDecisionOsSnapshotError | null;
 }
 
@@ -257,6 +260,7 @@ function hydrateSnapshot(row: SnapshotDbRow): CreativeDecisionOsSnapshot | null 
     status: row.status === "error" ? "error" : "ready",
     error: parseJsonValue<CreativeDecisionOsSnapshotError | null>(row.error_json, null),
     payload,
+    creativeVerdicts: null,
   };
 }
 
@@ -422,6 +426,7 @@ export async function saveCreativeDecisionOsSnapshot(input: {
     status: "ready",
     error: null,
     payload: input.payload,
+    creativeVerdicts: null,
   };
 }
 
@@ -439,6 +444,7 @@ export function buildCreativeDecisionOsSnapshotResponse(input: {
     scope: snapshot?.scope ?? input.scope,
     snapshot,
     decisionOs: snapshot?.status === "ready" ? snapshot.payload : null,
+    creativeVerdicts: snapshot?.status === "ready" ? snapshot.creativeVerdicts : null,
     error: input.error ?? snapshot?.error ?? null,
   };
 }

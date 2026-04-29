@@ -15,6 +15,13 @@ import type {
   CreativeDecisionOsSnapshotScope,
   CreativeDecisionOsSnapshotStatus,
 } from "@/lib/creative-decision-os-snapshots";
+import {
+  CREATIVE_VERDICT_VERSION,
+  type CreativeAction,
+  type CreativePhase,
+  type CreativeVerdict,
+  type CreativeVerdictHeadline,
+} from "@/lib/creative-verdict";
 
 export const CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION =
   "creative-decision-os-v2-preview.v0.1.1";
@@ -87,6 +94,7 @@ export interface CreativeDecisionOsV2PreviewRow {
   currentDecision: string | null;
   primaryDecision: CreativeDecisionOsV2PrimaryDecision;
   actionability: CreativeDecisionOsV2Actionability;
+  verdict: CreativeVerdict;
   confidence: number;
   reasonTags: string[];
   evidenceSummary: string;
@@ -129,7 +137,7 @@ export interface CreativeDecisionOsV2PreviewDiagnoseGroup {
   rowIds: string[];
 }
 
-export interface CreativeDecisionOsV2PreviewSurfaceModel {
+export interface CreativeDecisionOsSurfaceModel {
   rows: CreativeDecisionOsV2PreviewRow[];
   buckets: CreativeDecisionOsV2PreviewBucket[];
   reviewGroups: CreativeDecisionOsV2PreviewReviewGroup[];
@@ -145,13 +153,15 @@ export interface CreativeDecisionOsV2PreviewSurfaceModel {
   };
 }
 
+export type CreativeDecisionOsV2PreviewSurfaceModel = CreativeDecisionOsSurfaceModel;
+
 export interface CreativeDecisionOsV2PreviewPayload {
   contractVersion: typeof CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION;
   generatedAt: string;
   sourceDecisionOsGeneratedAt: string | null;
   businessId: string;
   rowCount: number;
-  surface: CreativeDecisionOsV2PreviewSurfaceModel;
+  surface: CreativeDecisionOsSurfaceModel;
 }
 
 export interface CreativeDecisionOsV2PreviewApiResponse {
@@ -337,6 +347,53 @@ function actionabilityLabel(actionability: CreativeDecisionOsV2Actionability) {
   return "Diagnose first";
 }
 
+function fallbackVerdictFromV2(
+  primaryDecision: CreativeDecisionOsV2PrimaryDecision,
+  actionability: CreativeDecisionOsV2Actionability,
+  confidence: number,
+): CreativeVerdict {
+  const actionByDecision: Record<CreativeDecisionOsV2PrimaryDecision, CreativeAction> = {
+    Scale: "scale",
+    "Test More": "keep_testing",
+    Protect: "protect",
+    Refresh: "refresh",
+    Cut: "cut",
+    Diagnose: "diagnose",
+  };
+  const headlineByDecision: Record<CreativeDecisionOsV2PrimaryDecision, CreativeVerdictHeadline> = {
+    Scale: "Test Winner",
+    "Test More": "Test Inconclusive",
+    Protect: "Scale Performer",
+    Refresh: "Scale Fatiguing",
+    Cut: "Scale Underperformer",
+    Diagnose: "Needs Diagnosis",
+  };
+  const phaseByDecision: Record<CreativeDecisionOsV2PrimaryDecision, CreativePhase> = {
+    Scale: "test",
+    "Test More": "test",
+    Protect: "scale",
+    Refresh: "post-scale",
+    Cut: "scale",
+    Diagnose: "post-scale",
+  };
+  return {
+    contractVersion: CREATIVE_VERDICT_VERSION,
+    phase: phaseByDecision[primaryDecision],
+    headline: headlineByDecision[primaryDecision],
+    action: actionByDecision[primaryDecision],
+    actionReadiness:
+      actionability === "direct"
+        ? "ready"
+        : actionability === "review_only"
+          ? "needs_review"
+          : "blocked",
+    confidence: Math.max(0.3, Math.min(0.95, confidence / 100)),
+    evidence: [],
+    blockers: [],
+    derivedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeSourceRow(
   row: CreativeDecisionOsV2PreviewSourceRow,
 ): CreativeDecisionOsV2PreviewRow | null {
@@ -370,6 +427,11 @@ function normalizeSourceRow(
     currentDecision,
     primaryDecision,
     actionability,
+    verdict: output?.verdict ?? fallbackVerdictFromV2(
+      primaryDecision,
+      actionability,
+      output?.confidence ?? Math.round(row.v2Confidence ?? 0),
+    ),
     confidence: output?.confidence ?? Math.round(row.v2Confidence ?? 0),
     reasonTags: safeArray(output?.reasonTags ?? row.v2ReasonTags),
     evidenceSummary: output?.evidenceSummary ?? row.v2EvidenceSummary ?? "",
@@ -491,9 +553,9 @@ function humanizeKey(value: string) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-export function buildCreativeDecisionOsV2PreviewSurfaceModel(
+export function buildCreativeDecisionOsSurfaceModel(
   rows: CreativeDecisionOsV2PreviewSourceRow[],
-): CreativeDecisionOsV2PreviewSurfaceModel {
+): CreativeDecisionOsSurfaceModel {
   const normalizedRows = sortRows(
     rows
       .map(normalizeSourceRow)
@@ -642,7 +704,7 @@ export function buildCreativeDecisionOsV2PreviewPayloadFromDecisionOs(
     };
   });
 
-  const surface = buildCreativeDecisionOsV2PreviewSurfaceModel(rows);
+  const surface = buildCreativeDecisionOsSurfaceModel(rows);
   return {
     contractVersion: CREATIVE_DECISION_OS_V2_PREVIEW_CONTRACT_VERSION,
     generatedAt,
@@ -652,6 +714,9 @@ export function buildCreativeDecisionOsV2PreviewPayloadFromDecisionOs(
     surface,
   };
 }
+
+export const buildCreativeDecisionOsV2PreviewSurfaceModel =
+  buildCreativeDecisionOsSurfaceModel;
 
 export function isCreativeDecisionOsV2PreviewEnabledForSearchParams(searchParams: URLSearchParams) {
   const value =
