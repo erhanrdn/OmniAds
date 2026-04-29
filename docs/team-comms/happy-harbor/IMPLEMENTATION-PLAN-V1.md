@@ -188,7 +188,7 @@ Calibration activation approval:
 - Required approvers:
   - Engineering owner: validates code, tests, fixture integrity, calibration report integrity, and deploy safety.
   - Product/media-buyer owner: validates action distribution, severe-error cases, and whether the changed decisions match the intended buyer posture.
-- Optional first-business approver:
+- Required first-business approver:
   - Customer/account owner: validates that recommendations match buyer intuition for the specific brand before the first calibrated business is activated.
 - Required artifacts before approval:
   - Calibration report with threshold deltas and before/after action distributions.
@@ -200,6 +200,7 @@ Calibration activation approval:
 - Approval record:
   - Store in `docs/team-comms/happy-harbor/calibration-approvals/`.
   - File format: `YYYY-MM-DD-business-id-calibration-vN.md`.
+  - Use `docs/team-comms/happy-harbor/calibration-approvals/_TEMPLATE.md`.
 
 Gap coverage: F, G, H, K.
 
@@ -221,17 +222,20 @@ Metric formulas and windows:
 
 This subsection is a pre-production-cohort prerequisite. These definitions must exist in the rollout dashboard/log query before any 25% cohort starts.
 
+Percentage metrics require denominator `>=30` reviewed canonical decisions before status can become `warning` or `hard_stop`; otherwise status is `insufficient_data`.
+
 - `critical_high_conf_override_rate = count(overrides where severity=critical AND modelConfidence >= 0.72) / count(reviewed canonical decisions)`.
   Window: per business, per rollout cohort, rolling 7 days.
   Hard-stop threshold: `>1.0%`.
 - `high_plus_critical_override_rate = count(overrides where severity in {critical, high}) / count(reviewed canonical decisions)`.
   Window: per business, per rollout cohort, rolling 7 days.
   Warning threshold: `>3.0%`.
-- `all_severe_override_rate = count(overrides where severity in {critical, high, medium-high}) / count(reviewed canonical decisions)`.
+- `all_severe_override_rate = count(overrides where severity in {critical, high, medium}) / count(reviewed canonical decisions)`.
   Window: per business, per rollout cohort, rolling 7 days.
   Internal early-warning threshold: `>5.0%`.
 - `overdiagnose_override_rate = count(user overrides FROM diagnose TO non-diagnose) / count(model decisions where action=diagnose)`.
   Window: per business, per rollout cohort, rolling 7 days.
+  Warning threshold: `>10.0%`.
   Hard-stop threshold: `>25.0%`.
   Rationale: blanket diagnose was the historical Happy Harbor regression mode; sustained overdiagnose override means the resolver is over-routing to diagnose.
 - `confidence_histogram_per_business = bucket counts by value bands [0-0.5, 0.5-0.65, 0.65-0.8, 0.8-0.95]`.
@@ -246,8 +250,16 @@ This subsection is a pre-production-cohort prerequisite. These definitions must 
 Deliverables:
 
 - Feature flag store.
-- Rollout runbook.
-- Dashboard/log queries.
+- Rollout runbook: `docs/team-comms/happy-harbor/30-canonical-promotion-runbook.md`.
+- Live dashboard/log queries: `lib/creative-canonical-observability.ts`.
+- Reviewed-decision event writer: `recordCreativeCanonicalDecisionEvent(...)` in `lib/creative-canonical-observability.ts`.
+- Admin metric endpoint: `GET /api/admin/canonical-observability/:businessId`.
+
+Operational prerequisites:
+
+- H4 metrics must be live, not only specified.
+- Percentage-based stop conditions require denominator `>=30` reviewed canonical decisions before firing; otherwise status is `insufficient_data`.
+- The 25% cohort cannot start until every required metric function returns `{ value, denominator, threshold, status }`.
 
 Acceptance:
 
@@ -255,6 +267,7 @@ Acceptance:
 - Critical high-confidence override rate `<=1%`; this is a hard stop.
 - High plus critical override rate `<=3%`; crossing this triggers warning and investigation.
 - All severe override rate `<=5%`; this is an internal early-warning metric, not the only rollout gate.
+- Overdiagnose override rate warning threshold `<=10%`; hard stop `<=25%`.
 - Action distribution drift `<=20pp` unless explicitly approved.
 - Kill switch returns everyone to legacy in under 60 seconds.
 
@@ -273,7 +286,10 @@ Additive schema:
 - `calibration_thresholds_by_business`: active threshold set keyed by business/account/objective/format.
 - `decision_override_events`: immutable override trail and critical queue metadata.
 - `creative_canonical_resolver_flags`: sticky per-business assignment.
+- `creative_canonical_cohort_assignments`: production sticky cohort assignment and kill-switch trace.
 - `creative_canonical_resolver_admin_controls`: kill switch, allowlist, blocklist controls.
+- `admin_feature_flag_kill_switches`: shared admin kill-switch state; key `canonical-resolver-v1`.
+- `creative_canonical_decision_events`: H4 reviewed-decision telemetry for live stop-condition metrics.
 
 Migration order:
 
@@ -281,7 +297,8 @@ Migration order:
 2. Active thresholds.
 3. Override events.
 4. Feature flag assignment/admin controls.
-5. No backfill.
+5. Canonical observability decision events.
+6. No backfill.
 
 Backwards compatibility:
 
@@ -351,6 +368,11 @@ Rollback:
 3. Confirm detail/table/top filters/overview return to legacy action path.
 4. If needed, deploy previous known-good SHA through existing production workflow.
 
+Manual promotion:
+
+- Production promotion must follow `docs/team-comms/happy-harbor/30-canonical-promotion-runbook.md`.
+- Do not rely on auto-deploy-on-merge for canonical resolver production exposure.
+
 Observability:
 
 - Action distribution drift.
@@ -377,6 +399,7 @@ Stop conditions:
 - Critical high-confidence override rate `>1%`.
 - High plus critical override rate `>3%`.
 - All severe override rate `>5%`.
+- Overdiagnose override rate `>10%` is warning; `>25%` is hard stop.
 - Action distribution shift `>20pp`.
 - Complaint volume doubles.
 - Blanket diagnose returns.

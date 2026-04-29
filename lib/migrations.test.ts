@@ -92,6 +92,9 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS calibration_thresholds_by_business");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS decision_override_events");
     expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS creative_canonical_resolver_flags");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS creative_canonical_cohort_assignments");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS admin_feature_flag_kill_switches");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS creative_canonical_decision_events");
     expect(queries.join("\n")).toContain("objective_family");
     expect(queries.join("\n")).toContain("format_family");
     expect(queries.join("\n")).toContain("idx_decision_override_events_severity_queue");

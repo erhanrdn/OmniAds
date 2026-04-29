@@ -243,6 +243,47 @@ describe("creative canonical decision resolver", () => {
     expect(`${decision.action}:${decision.actionReadiness}`).not.toBe("diagnose:blocked");
   });
 
+  it("does not cut zero-purchase creatives with strong upstream signal", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-strong-upstream",
+      creativeName: "Zero purchase strong upstream",
+      spend: 220,
+      purchases: 0,
+      impressions: 9000,
+      linkClicks: 540,
+      purchaseValue: 0,
+      roas: 0,
+      ctr: 6,
+      clickToPurchaseRate: 3.2,
+      benchmarkClickToPurchase: 1.2,
+      benchmarkCtr: 2.5,
+      activeDelivery: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(["test_more", "diagnose"]).toContain(decision.action);
+    expect(decision.action).not.toBe("cut");
+  });
+
+  it("does not cut just below the zero-purchase impression floor", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-below-impression-floor",
+      creativeName: "Zero purchase below impression floor",
+      spend: 800,
+      purchases: 0,
+      impressions: 2999,
+      linkClicks: 90,
+      purchaseValue: 0,
+      roas: 0,
+      activeDelivery: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.action).not.toBe("cut");
+  });
+
   it("does not collapse uncalibrated clear-winner confidence to 0.20", () => {
     const decision = resolveCreativeCanonicalDecision({
       creativeId: "clear-winner",

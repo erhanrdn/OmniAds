@@ -6310,6 +6310,20 @@ export async function runMigrations(options?: {
           assigned_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS creative_canonical_cohort_assignments (
+          business_id             TEXT PRIMARY KEY,
+          cohort                  TEXT NOT NULL DEFAULT 'legacy',
+          source                  TEXT NOT NULL DEFAULT 'default_legacy',
+          assigned_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          kill_switch_active_at   TIMESTAMPTZ,
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS admin_feature_flag_kill_switches (
+          key             TEXT PRIMARY KEY,
+          active          BOOLEAN NOT NULL DEFAULT false,
+          activated_at    TIMESTAMPTZ,
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS creative_canonical_resolver_admin_controls (
           id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           control_type      TEXT NOT NULL,
@@ -6321,6 +6335,25 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_canonical_resolver_admin_controls_type
           ON creative_canonical_resolver_admin_controls (control_type, business_id, enabled)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS creative_canonical_decision_events (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id           TEXT NOT NULL,
+          creative_id           TEXT,
+          snapshot_id           TEXT,
+          cohort                TEXT NOT NULL DEFAULT 'legacy',
+          canonical_action      TEXT,
+          legacy_action         TEXT,
+          action_readiness      TEXT,
+          confidence_value      DOUBLE PRECISION,
+          reviewed              BOOLEAN NOT NULL DEFAULT true,
+          fallback_rerun_badge  BOOLEAN NOT NULL DEFAULT false,
+          llm_call_count        INTEGER NOT NULL DEFAULT 0,
+          llm_cost_usd          DOUBLE PRECISION NOT NULL DEFAULT 0,
+          llm_error_count       INTEGER NOT NULL DEFAULT 0,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_canonical_decision_events_business_created
+          ON creative_canonical_decision_events (business_id, cohort, created_at DESC)`.catch(() => {}),
       ]);
 
       if (legacyCoreDropEnabled) {

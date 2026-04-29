@@ -1,4 +1,12 @@
 export type CreativeCanonicalResolverFlag = "legacy" | "v1";
+export type CreativeCanonicalCohort = "legacy" | "canonical-v1";
+export type CreativeCanonicalCohortAssignmentSource =
+  | "kill_switch"
+  | "blocklist"
+  | "allowlist"
+  | "sticky_assigned"
+  | "rollout_percent_assigned"
+  | "default_legacy";
 
 export interface CreativeDecisionFeatureFlagInput {
   searchParams?: URLSearchParams | ReadonlyURLSearchParamsLike | null;
@@ -16,6 +24,27 @@ export interface CreativeCanonicalResolverServerFlagRecord {
   assignment: CreativeCanonicalResolverFlag;
   assignedAt: string;
   source: "sticky_cohort" | "admin_allowlist" | "admin_blocklist" | "kill_switch";
+}
+
+export interface CreativeCanonicalCohortAssignment {
+  businessId: string;
+  cohort: CreativeCanonicalCohort;
+  source: CreativeCanonicalCohortAssignmentSource;
+  assignedAt?: string;
+  killSwitchActiveAt?: string | null;
+}
+
+export interface CreativeCanonicalCohortAssignmentInput {
+  businessId: string;
+  rolloutPercent?: number | null;
+  existingAssignment?: CreativeCanonicalCohort | null;
+  existingAssignedAt?: string | null;
+  killSwitch?: boolean | null;
+  killSwitchActiveAt?: string | null;
+  env?: NodeJS.ProcessEnv;
+  adminAllowlist?: Iterable<string> | null;
+  adminBlocklist?: Iterable<string> | null;
+  now?: Date;
 }
 
 interface ReadonlyURLSearchParamsLike {
@@ -56,10 +85,23 @@ function hashToBucket(value: string) {
   return Math.abs(hash >>> 0) % 100;
 }
 
+function envKillSwitch(env: NodeJS.ProcessEnv = process.env) {
+  const value = env.CANONICAL_RESOLVER_KILL_SWITCH?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "on";
+}
+
+function flagToCohort(flag: CreativeCanonicalResolverFlag): CreativeCanonicalCohort {
+  return flag === "v1" ? "canonical-v1" : "legacy";
+}
+
+function cohortToFlag(cohort: CreativeCanonicalCohort): CreativeCanonicalResolverFlag {
+  return cohort === "canonical-v1" ? "v1" : "legacy";
+}
+
 export function resolveCreativeCanonicalResolverFlag(
   input: CreativeDecisionFeatureFlagInput = {},
 ): CreativeCanonicalResolverFlag {
-  if (input.killSwitch) return "legacy";
+  if (input.killSwitch || envKillSwitch()) return "legacy";
 
   const businessId = input.businessId ?? null;
   const blocklist = new Set(input.adminBlocklist ?? []);
@@ -84,6 +126,48 @@ export function resolveCreativeCanonicalResolverFlag(
   }
 
   return "legacy";
+}
+
+export function resolveCanonicalCohortAssignment(
+  input: CreativeCanonicalCohortAssignmentInput,
+): CreativeCanonicalCohortAssignment {
+  const businessId = input.businessId;
+  const now = (input.now ?? new Date()).toISOString();
+  if (input.killSwitch || envKillSwitch(input.env)) {
+    return {
+      businessId,
+      cohort: "legacy",
+      source: "kill_switch",
+      assignedAt: input.existingAssignedAt ?? now,
+      killSwitchActiveAt: input.killSwitchActiveAt ?? now,
+    };
+  }
+
+  const blocklist = new Set(input.adminBlocklist ?? []);
+  if (blocklist.has(businessId)) {
+    return { businessId, cohort: "legacy", source: "blocklist", assignedAt: input.existingAssignedAt ?? now };
+  }
+
+  const allowlist = new Set(input.adminAllowlist ?? []);
+  if (allowlist.has(businessId)) {
+    return { businessId, cohort: "canonical-v1", source: "allowlist", assignedAt: input.existingAssignedAt ?? now };
+  }
+
+  if (input.existingAssignment) {
+    return {
+      businessId,
+      cohort: input.existingAssignment,
+      source: "sticky_assigned",
+      assignedAt: input.existingAssignedAt ?? now,
+    };
+  }
+
+  const rolloutPercent = Math.min(100, Math.max(0, input.rolloutPercent ?? 0));
+  if (rolloutPercent > 0 && hashToBucket(businessId) < rolloutPercent) {
+    return { businessId, cohort: "canonical-v1", source: "rollout_percent_assigned", assignedAt: now };
+  }
+
+  return { businessId, cohort: "legacy", source: "default_legacy", assignedAt: now };
 }
 
 export function isCreativeCanonicalResolverEnabled(
@@ -117,26 +201,27 @@ export function assignStickyCreativeCanonicalResolverFlag(input: {
   adminAllowlist?: Iterable<string> | null;
   adminBlocklist?: Iterable<string> | null;
 }): CreativeCanonicalResolverServerFlagRecord {
-  const assignment = resolveCreativeCanonicalResolverFlag({
+  const cohortAssignment = resolveCanonicalCohortAssignment({
     businessId: input.businessId,
-    serverRolloutPercent: input.rolloutPercent,
-    stickyAssignment: input.existingAssignment ?? null,
+    rolloutPercent: input.rolloutPercent,
+    existingAssignment: input.existingAssignment ? flagToCohort(input.existingAssignment) : null,
     killSwitch: input.killSwitch,
     adminAllowlist: input.adminAllowlist,
     adminBlocklist: input.adminBlocklist,
   });
+  const assignment = cohortToFlag(cohortAssignment.cohort);
   const source: CreativeCanonicalResolverServerFlagRecord["source"] =
-    input.killSwitch
+    cohortAssignment.source === "kill_switch"
       ? "kill_switch"
-      : new Set(input.adminBlocklist ?? []).has(input.businessId)
+      : cohortAssignment.source === "blocklist"
         ? "admin_blocklist"
-        : new Set(input.adminAllowlist ?? []).has(input.businessId)
+        : cohortAssignment.source === "allowlist"
           ? "admin_allowlist"
           : "sticky_cohort";
   return {
     businessId: input.businessId,
     assignment,
-    assignedAt: new Date().toISOString(),
+    assignedAt: cohortAssignment.assignedAt ?? new Date().toISOString(),
     source,
   };
 }

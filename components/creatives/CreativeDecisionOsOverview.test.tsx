@@ -509,6 +509,7 @@ describe("CreativeDecisionOsOverview", () => {
         value: 0.7,
         deterministic: 0.7,
         calibrationCap: 0.72,
+        calibrationStatus: "uncalibrated",
         evidence: 0.8,
         signalConsistency: 0.7,
         calibrationFreshness: 0.9,

@@ -65,6 +65,9 @@ Limits:
 
 - The guard does not suppress deploys for code, package, script, or mixed docs+runtime commits.
 - Workflow-only commits are suppressed, but mixed workflow+runtime commits still deploy if any non-ignored runtime path changes.
+- Docs outside `docs/team-comms/**` can still trigger CI.
+- Mixed docs+runtime commits can still trigger auto-deploy.
+- Production promotion for canonical resolver therefore uses explicit SHA/tag manual deploy per `docs/team-comms/happy-harbor/30-canonical-promotion-runbook.md`, not auto-deploy-on-merge.
 - This guard becomes production-active only after the workflow change exists on the branch receiving the `main` push. Until then, current `main` still has the old auto-deploy behavior.
 
 ## 4. Rollback Target

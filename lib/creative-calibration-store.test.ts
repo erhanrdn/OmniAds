@@ -91,4 +91,42 @@ describe("creative calibration override severity", () => {
       }),
     ).toBe(true);
   });
+
+  it("does not queue low-AOV severe override below business-relative floor", () => {
+    const severity = creativeDecisionOverrideSeverity({
+      modelAction: "scale",
+      modelReadiness: "ready",
+      userAction: "cut",
+    });
+
+    expect(
+      shouldQueueRealtimeOverride({
+        severity,
+        confidence: 0.52,
+        spend: 900,
+        purchases: 6,
+        userStrength: "minor",
+        minSpendForDecision: 180,
+      }),
+    ).toBe(false);
+  });
+
+  it("queues low-AOV severe override at business-relative floor", () => {
+    const severity = creativeDecisionOverrideSeverity({
+      modelAction: "scale",
+      modelReadiness: "ready",
+      userAction: "cut",
+    });
+
+    expect(
+      shouldQueueRealtimeOverride({
+        severity,
+        confidence: 0.52,
+        spend: 1000,
+        purchases: 6,
+        userStrength: "minor",
+        minSpendForDecision: 180,
+      }),
+    ).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 export type CreativeDecisionConfidenceLabel = "low" | "medium" | "high";
+export type CreativeDecisionCalibrationStatus = "uncalibrated" | "thin_calibration" | "calibrated";
 
 export interface CreativeDecisionConfidenceInput {
   evidenceMaturity: number;
@@ -14,6 +15,7 @@ export interface CreativeDecisionConfidence {
   value: number;
   deterministic: number;
   calibrationCap: number;
+  calibrationStatus: CreativeDecisionCalibrationStatus;
   evidence: number;
   signalConsistency: number;
   calibrationFreshness: number;
@@ -35,6 +37,13 @@ function confidenceLabel(value: number, feedbackCount: number): CreativeDecision
   if (value >= 0.72) return "high";
   if (value >= 0.52) return "medium";
   return "low";
+}
+
+export function calibrationStatusForFeedbackCount(feedbackCount: number): CreativeDecisionCalibrationStatus {
+  const n = Math.max(0, Math.round(Number.isFinite(feedbackCount) ? feedbackCount : 0));
+  if (n < 20) return "uncalibrated";
+  if (n < 50) return "thin_calibration";
+  return "calibrated";
 }
 
 export function creativeCalibrationPersonalWeight(sampleSize: number, k: 50 | 75 = 50) {
@@ -105,11 +114,13 @@ export function calculateBayesianCreativeDecisionConfidence(
   );
   const calibrationCap = calibrationCapForFeedbackCount(feedbackCount);
   const value = Math.min(deterministic, calibrationCap);
+  const calibrationStatus = calibrationStatusForFeedbackCount(feedbackCount);
 
   return {
     value: round(value),
     deterministic: round(deterministic),
     calibrationCap: round(calibrationCap),
+    calibrationStatus,
     evidence: round(evidence),
     signalConsistency: round(signalConsistency),
     calibrationFreshness: round(calibrationFreshness),
