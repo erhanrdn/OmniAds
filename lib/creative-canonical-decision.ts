@@ -111,6 +111,7 @@ export interface CreativeCanonicalDecisionInput {
   targetCpa?: number | null;
   breakEvenCpa?: number | null;
   trustState?: string | null;
+  activeStatus?: boolean | null;
   activeDelivery?: boolean | null;
   pausedDelivery?: boolean | null;
   campaignStatus?: string | null;
@@ -398,7 +399,8 @@ function normalizeCanonicalSignals(
   }
   if (trustState === "degraded_missing_truth") diagnosticFlags.push("degraded_missing_truth");
   if (trustState === "measurement_suspect") diagnosticFlags.push("measurement_suspect");
-  if (input.activeDelivery === false || input.pausedDelivery === true) {
+  const activeDelivery = input.activeDelivery ?? input.activeStatus ?? null;
+  if (activeDelivery === false || input.pausedDelivery === true) {
     readinessReasons.push("delivery_inactive_or_paused");
     diagnosticFlags.push("delivery_inactive_or_paused");
   }
@@ -453,7 +455,7 @@ function normalizeCanonicalSignals(
     isHistoricalWinner,
     trustState,
     lifecycle: input.lifecycle ?? null,
-    activeDelivery: input.activeDelivery ?? null,
+    activeDelivery,
     pausedDelivery: input.pausedDelivery ?? null,
     readinessReasons: Array.from(new Set(readinessReasons)),
     diagnosticFlags: Array.from(new Set(diagnosticFlags)),
@@ -569,17 +571,24 @@ export function resolveCreativeCanonicalDecision(
     );
   }
 
+  if (
+    signal.zeroPurchaseLeak &&
+    signal.spend >= thresholds.minSpendForDecision &&
+    signal.impressions >= 3000 &&
+    signal.funnelHealth < 0.55 &&
+    signal.activeDelivery !== false
+  ) {
+    return buildDecision(
+      input,
+      thresholds,
+      signal,
+      "cut",
+      `Spend is already mature (${evidenceText}), but the creative has no purchases and weak funnel signals. Stop leakage unless attribution lag explains it.`,
+      ["zero_purchase_leak", "mature_spend_no_conversion", "weak_funnel"],
+    );
+  }
+
   if (signal.evidenceMaturity < 0.25) {
-    if (signal.zeroPurchaseLeak && signal.funnelHealth < 0.45) {
-      return buildDecision(
-        input,
-        thresholds,
-        signal,
-        "cut",
-        `Spend is already material for this account, but the creative has no purchases and weak funnel signals. Stop leakage unless attribution lag explains it.`,
-        ["zero_purchase_leak", "weak_funnel", "low_confidence_cut"],
-      );
-    }
     return buildDecision(
       input,
       thresholds,
@@ -686,7 +695,11 @@ export function resolveCreativeCanonicalDecision(
 
   if (
     signal.evidenceMaturity >= 0.55 &&
-    signal.purchases >= thresholds.minPurchasesForCut &&
+    (signal.purchases >= thresholds.minPurchasesForCut ||
+      (signal.purchases === 0 &&
+        signal.spend >= thresholds.minSpendForDecision * 2 &&
+        signal.funnelHealth < 0.55 &&
+        signal.activeDelivery !== false)) &&
     ((signal.economicsRatio ?? 1) <= thresholds.hardCutEconomicsRatio ||
       (signal.peerRatio !== null && signal.peerRatio <= thresholds.weakPeerRatio) ||
       signal.score <= 48) &&

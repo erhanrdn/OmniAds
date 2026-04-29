@@ -128,17 +128,20 @@ export function creativeDecisionOverrideSeverity(input: {
   return input.modelAction === input.userAction ? "low" : "medium";
 }
 
-function shouldQueueRealtimeOverride(input: {
+export function shouldQueueRealtimeOverride(input: {
   severity: CreativeDecisionOverrideSeverity;
   confidence: number;
   spend?: number | null;
   purchases?: number | null;
+  userStrength?: CreativeDecisionOverrideStrength | null;
 }) {
   return (
     input.severity === "critical" &&
-    input.confidence >= 0.72 &&
-    Number(input.spend ?? 0) > 200 &&
-    Number(input.purchases ?? 0) > 4
+    (
+      input.confidence >= 0.72 ||
+      Number(input.spend ?? 0) >= 1000 ||
+      input.userStrength === "strong"
+    )
   );
 }
 
@@ -266,6 +269,7 @@ export async function recordCreativeDecisionOverrideEvent(
     confidence: input.modelDecision.confidence.value,
     spend: input.spend,
     purchases: input.purchases,
+    userStrength: input.userStrength,
   }) ? new Date().toISOString() : null;
 
   const rows = await db(client).query<{ id: string }>(

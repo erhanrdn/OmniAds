@@ -177,8 +177,9 @@ Deliverables:
 
 Acceptance:
 
-- 50 user labels produce v1 threshold deltas.
-- Severe-error count decreases against uncalibrated resolver.
+- 50 user labels produce bounded v1 threshold suggestions, not automatic activation.
+- Calibration activation requires manual go/no-go approval after holdout validation passes.
+- Activation is blocked if severe-error count increases, diagnose distribution collapses, or scale/cut contradiction count increases.
 - Threshold delta is clamped and low-N movement is heavily shrunk.
 
 Gap coverage: F, G, H, K.
@@ -195,7 +196,7 @@ Tasks:
 1. Rollout `0% -> 25% -> 50% -> 100%`.
 2. Use server-side sticky cohort assignment plus URL engineer preview.
 3. Add admin allowlist, blocklist, and kill switch.
-4. Track override rate, severe override rate, action drift, diagnose rate, complaints, and time-to-decision.
+4. Track override rate, tiered severe override rates, action drift, overdiagnose override rate, diagnose rate, complaints, and time-to-decision.
 
 Deliverables:
 
@@ -206,7 +207,9 @@ Deliverables:
 Acceptance:
 
 - 25% cohort runs 7 days without severe regression.
-- Severe override rate `<=5%`.
+- Critical high-confidence override rate `<=1%`; this is a hard stop.
+- High plus critical override rate `<=3%`; crossing this triggers warning and investigation.
+- All severe override rate `<=5%`; this is an internal early-warning metric, not the only rollout gate.
 - Action distribution drift `<=20pp` unless explicitly approved.
 - Kill switch returns everyone to legacy in under 60 seconds.
 
@@ -306,16 +309,29 @@ Rollback:
 Observability:
 
 - Action distribution drift.
-- Severe override rate.
+- Critical high-confidence override rate.
+- High plus critical override rate.
+- All severe override rate.
+- Overdiagnose override rate.
 - Override volume.
 - Complaint volume.
 - Diagnose/scale/cut rates.
+- Canonical-vs-legacy action delta per business.
+- Readiness distribution per business.
+- Confidence histogram per business.
+- Reason chip distribution.
+- Fallback / re-run badge rate for old snapshots without canonical payload.
+- Per-business diagnose rate.
+- Critical realtime queue volume.
+- LLM enrichment call volume, cost, and error rate if enabled.
 - Low-confidence share.
 - Stale calibration count.
 
 Stop conditions:
 
-- Severe override rate `>5%`.
+- Critical high-confidence override rate `>1%`.
+- High plus critical override rate `>3%`.
+- All severe override rate `>5%`.
 - Action distribution shift `>20pp`.
 - Complaint volume doubles.
 - Blanket diagnose returns.

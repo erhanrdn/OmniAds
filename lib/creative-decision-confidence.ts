@@ -12,6 +12,8 @@ export interface CreativeDecisionConfidenceInput {
 
 export interface CreativeDecisionConfidence {
   value: number;
+  deterministic: number;
+  calibrationCap: number;
   evidence: number;
   signalConsistency: number;
   calibrationFreshness: number;
@@ -54,6 +56,28 @@ export function capLowNPersonalizedConfidence(value: number, feedbackCount: numb
   return value;
 }
 
+export function calibrationCapForFeedbackCount(feedbackCount: number) {
+  const n = Math.max(0, Math.round(Number.isFinite(feedbackCount) ? feedbackCount : 0));
+  if (n < 20) return 0.72;
+  if (n < 50) return 0.82;
+  if (n < 100) return 0.9;
+  return 0.95;
+}
+
+function weightedMean(
+  entries: Array<[number | null | undefined, number]>,
+  fallback: number,
+) {
+  let total = 0;
+  let weight = 0;
+  for (const [value, entryWeight] of entries) {
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    total += value * entryWeight;
+    weight += entryWeight;
+  }
+  return weight > 0 ? total / weight : fallback;
+}
+
 export function calculateBayesianCreativeDecisionConfidence(
   input: CreativeDecisionConfidenceInput,
 ): CreativeDecisionConfidence {
@@ -63,23 +87,30 @@ export function calculateBayesianCreativeDecisionConfidence(
   const signalConsistency = clamp01(input.signalConsistency);
   const calibrationFreshness = clamp01(input.calibrationFreshness);
   const feedbackCount = Math.max(0, Math.round(input.feedbackCount ?? 0));
-  const actionClassFeedbackCount = Math.max(0, Math.round(input.actionClassFeedbackCount ?? feedbackCount));
 
   const virtualObservationWeight = 10;
   const alpha = priorAlpha + evidenceMaturity * virtualObservationWeight;
   const beta = priorBeta + (1 - evidenceMaturity) * virtualObservationWeight;
-  const posteriorEvidence = alpha / (alpha + beta);
-  const evidence = shrinkCreativeCalibrationValue(posteriorEvidence, 0.5, feedbackCount, 50);
-  const consistency = shrinkCreativeCalibrationValue(signalConsistency, 0.5, actionClassFeedbackCount, 75);
-  const value = capLowNPersonalizedConfidence(
-    clamp01(evidence * consistency * calibrationFreshness),
-    feedbackCount,
+  const evidence = alpha / (alpha + beta);
+  const deterministic = clamp01(
+    weightedMean(
+      [
+        [evidenceMaturity, 0.45],
+        [signalConsistency, 0.45],
+        [calibrationFreshness, 0.1],
+      ],
+      0.5,
+    ),
   );
+  const calibrationCap = calibrationCapForFeedbackCount(feedbackCount);
+  const value = Math.min(deterministic, calibrationCap);
 
   return {
     value: round(value),
+    deterministic: round(deterministic),
+    calibrationCap: round(calibrationCap),
     evidence: round(evidence),
-    signalConsistency: round(consistency),
+    signalConsistency: round(signalConsistency),
     calibrationFreshness: round(calibrationFreshness),
     label: confidenceLabel(value),
   };

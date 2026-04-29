@@ -110,7 +110,67 @@ describe("creative canonical decision resolver", () => {
     expect(`${decision.action}:${decision.actionReadiness}`).not.toBe("diagnose:blocked");
   });
 
-  it("shrinks low-n calibration movement and caps low-n confidence", () => {
+  it("cuts mature zero-purchase spend leakage above the low-evidence gate", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-leak-mature",
+      creativeName: "Zero purchase leak",
+      spend: 420,
+      purchases: 0,
+      impressions: 9000,
+      linkClicks: 250,
+      purchaseValue: 0,
+      roas: 0,
+      ctr: 2.7,
+      activeStatus: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.action).toBe("cut");
+    expect(decision.actionReadiness).not.toBe("blocked");
+    expect(decision.reasonChips).toContain("zero_purchase_leak");
+  });
+
+  it("does not silently fall back to test_more for mature zero-purchase leakage", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "zero-purchase-leak-high-spend",
+      creativeName: "High spend zero purchase leak",
+      spend: 800,
+      purchases: 0,
+      impressions: 12000,
+      linkClicks: 320,
+      purchaseValue: 0,
+      roas: 0,
+      ctr: 2.4,
+      activeDelivery: true,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.action).not.toBe("test_more");
+    expect(decision.action).toBe("cut");
+  });
+
+  it("does not collapse uncalibrated clear-winner confidence to 0.20", () => {
+    const decision = resolveCreativeCanonicalDecision({
+      creativeId: "clear-winner",
+      creativeName: "Clear winner",
+      spend: 1200,
+      purchases: 20,
+      purchaseValue: 7200,
+      impressions: 40000,
+      linkClicks: 1800,
+      roas: 6,
+      baselineMedianRoas: 3,
+      trustState: "live_confident",
+      commercialTruthConfigured: true,
+    });
+
+    expect(decision.confidence.value).toBeGreaterThanOrEqual(0.55);
+    expect(decision.confidence.deterministic).toBeGreaterThanOrEqual(0.65);
+  });
+
+  it("shrinks low-n calibration threshold movement", () => {
     expect(creativeCalibrationPersonalWeight(10, 50)).toBeCloseTo(0.167, 3);
     expect(creativeCalibrationPersonalWeight(20, 50)).toBeCloseTo(0.286, 3);
     expect(creativeCalibrationPersonalWeight(50, 50)).toBeCloseTo(0.5, 3);

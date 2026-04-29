@@ -507,6 +507,8 @@ describe("CreativeDecisionOsOverview", () => {
       actionReadiness: "needs_review",
       confidence: {
         value: 0.7,
+        deterministic: 0.7,
+        calibrationCap: 0.72,
         evidence: 0.8,
         signalConsistency: 0.7,
         calibrationFreshness: 0.9,
