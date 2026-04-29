@@ -33,6 +33,7 @@ import {
   creativeBenchmarkReliabilityLabel,
   creativeBusinessValidationNote,
 } from "@/lib/creative-operator-surface";
+import { resolveCreativeCanonicalDecision } from "@/lib/creative-canonical-decision";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -40,6 +41,7 @@ interface CreativeDetailExperienceProps {
   allRows: MetaCreativeRow[];
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   decisionOs?: CreativeDecisionOs | null;
+  canonicalResolverEnabled?: boolean;
   open: boolean;
   notes: string;
   dateRange: CreativeDateRangeValue;
@@ -213,6 +215,7 @@ export function CreativeDetailExperience({
   allRows,
   creativeHistoryById,
   decisionOs,
+  canonicalResolverEnabled = false,
   open,
   notes,
   dateRange,
@@ -302,9 +305,37 @@ export function CreativeDetailExperience({
     () => (row ? decisionOs?.creatives.find((creative) => creative.creativeId === row.id) ?? null : null),
     [decisionOs, row]
   );
+  const fallbackCanonicalDecision = useMemo(() => {
+    if (!canonicalResolverEnabled || !row || decisionOsCreative?.canonicalDecision) return null;
+    return resolveCreativeCanonicalDecision({
+      creativeId: row.id,
+      creativeName: row.name,
+      creativeFormat: row.format,
+      spend: row.spend,
+      purchases: row.purchases,
+      purchaseValue: row.purchaseValue,
+      impressions: row.impressions,
+      linkClicks: row.linkClicks,
+      roas: row.roas,
+      cpa: row.cpa,
+      ctr: row.ctrAll,
+      aiTags: row.aiTags,
+      commercialTruthConfigured: false,
+    });
+  }, [canonicalResolverEnabled, decisionOsCreative?.canonicalDecision, row]);
+  const canonicalDecision = decisionOsCreative?.canonicalDecision ?? fallbackCanonicalDecision;
+  const canonicalFallbackBadge =
+    canonicalResolverEnabled && decisionOsCreative && !decisionOsCreative.canonicalDecision
+      ? "Legacy snapshot — canonical decision computed from row metrics. Re-run analysis to persist it."
+      : null;
   const operatorItem = useMemo(
-    () => (decisionOsCreative ? buildCreativeOperatorItem(decisionOsCreative) : null),
-    [decisionOsCreative],
+    () =>
+      decisionOsCreative
+        ? buildCreativeOperatorItem(decisionOsCreative, {
+            useCanonical: canonicalResolverEnabled && Boolean(decisionOsCreative.canonicalDecision),
+          })
+        : null,
+    [canonicalResolverEnabled, decisionOsCreative],
   );
   const businessValidationNote = useMemo(
     () => (decisionOsCreative ? creativeBusinessValidationNote(decisionOsCreative) : null),
@@ -721,7 +752,33 @@ export function CreativeDetailExperience({
                         {vt.label}
                       </div>
                     </div>
-                    <p className="px-1 text-[13px] leading-relaxed text-slate-600">{decisionOsCreative.summary}</p>
+                    <p className="px-1 text-[13px] leading-relaxed text-slate-600">
+                      {canonicalResolverEnabled && canonicalDecision
+                        ? canonicalDecision.primaryReason
+                        : decisionOsCreative?.summary ?? "Legacy snapshot — re-run analysis to refresh the decision payload."}
+                    </p>
+                    {canonicalFallbackBadge ? (
+                      <p className="px-1 text-[11px] font-semibold text-amber-700">
+                        {canonicalFallbackBadge}
+                      </p>
+                    ) : null}
+                    {canonicalResolverEnabled && canonicalDecision ? (
+                      <div className="flex flex-wrap gap-1 px-1">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          Confidence {canonicalDecision.confidence.label}
+                        </span>
+                        {canonicalDecision.actionReadiness !== "ready" ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {canonicalDecision.actionReadiness.replaceAll("_", " ")}
+                          </span>
+                        ) : null}
+                        {canonicalDecision.reasonChips.slice(0, 3).map((chip) => (
+                          <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                            {chip.replaceAll("_", " ")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     {previewTruth?.liveDecisionWindow !== "ready" ? (
                       <p className="px-1 text-[11px] text-amber-700">
                         Preview {(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")} — analysis is metrics-only.

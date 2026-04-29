@@ -88,6 +88,13 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS calibration_versions");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS calibration_thresholds_by_business");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS decision_override_events");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS creative_canonical_resolver_flags");
+    expect(queries.join("\n")).toContain("objective_family");
+    expect(queries.join("\n")).toContain("format_family");
+    expect(queries.join("\n")).toContain("idx_decision_override_events_severity_queue");
   });
 
   it("drops only retired legacy core tables when the cleanup switch is enabled", async () => {

@@ -350,7 +350,8 @@ describe("CreativeDecisionOsV2PreviewSurface", () => {
       <CreativeDecisionOsV2PreviewSurface preview={preview} onOpenRow={() => undefined} />,
     );
 
-    expect(html).toContain("Today Priority / Buyer Command Strip");
+    expect(html).toContain("Diagnostic Priority");
+    expect(html).toContain("Diagnostic-only preview");
     expect(html).toContain("Ready for Buyer Confirmation");
     expect(html).toContain("Diagnose First");
     expect(html).not.toContain("Watch");

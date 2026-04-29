@@ -2,6 +2,11 @@ import type {
   CreativeDecisionOsCreative,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import {
+  creativeCanonicalActionLabel,
+  type CreativeCanonicalAction,
+  type CreativeCanonicalActionReadiness,
+} from "@/lib/creative-canonical-decision";
 import { buildOperatorInstruction } from "@/lib/operator-prescription";
 import {
   buildOperatorBuckets,
@@ -83,6 +88,10 @@ export interface CreativeScaleActionabilityCounts {
   actionable: number;
   reviewOnly: number;
   muted: number;
+}
+
+export interface CreativeOperatorDecisionOptions {
+  useCanonical?: boolean;
 }
 
 const CREATIVE_QUICK_FILTER_DEFS: Record<
@@ -652,9 +661,65 @@ function finalizeCreativeOperatorDecision(
   };
 }
 
+function canonicalReasonToOperatorReason(reason: string): CreativeOperatorReasonTag | null {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes("commercial") || normalized.includes("truth")) return "commercial_truth_missing";
+  if (normalized.includes("business")) return "business_validation_missing";
+  if (normalized.includes("fatigue")) return "fatigue_pressure";
+  if (normalized.includes("benchmark") || normalized.includes("peer")) return "weak_benchmark";
+  if (normalized.includes("zero_purchase")) return "mature_zero_purchase";
+  if (normalized.includes("winner")) return "strong_relative_winner";
+  if (normalized.includes("funnel")) return "trend_collapse";
+  if (normalized.includes("low_evidence") || normalized.includes("mixed")) return "low_evidence";
+  if (normalized.includes("delivery") || normalized.includes("campaign")) return "campaign_context_blocker";
+  return null;
+}
+
+function canonicalSubTone(
+  action: CreativeCanonicalAction,
+  readiness: CreativeCanonicalActionReadiness,
+): CreativeOperatorSubTone {
+  if (readiness === "blocked") return "manual_review";
+  if (readiness === "needs_review") {
+    if (action === "scale") return "review_only";
+    if (action === "refresh") return "manual_review";
+    if (action === "cut" || action === "diagnose") return "manual_review";
+    return "review_only";
+  }
+  if (action === "scale") return "queue_ready";
+  return "default";
+}
+
+function resolveCanonicalCreativeOperatorDecision(
+  creative: CreativeDecisionOsCreative,
+): CreativeOperatorDecisionResolution | null {
+  const canonical = creative.canonicalDecision;
+  if (!canonical) return null;
+  const mappedReasons = canonical.reasonChips
+    .map(canonicalReasonToOperatorReason)
+    .filter((reason): reason is CreativeOperatorReasonTag => Boolean(reason));
+  const readinessReasons = canonical.debug.readinessReasons
+    .map(canonicalReasonToOperatorReason)
+    .filter((reason): reason is CreativeOperatorReasonTag => Boolean(reason));
+  const reasons = Array.from(new Set([...mappedReasons, ...readinessReasons]));
+  appendDecisionReasonSignals(creative, reasons, { includeStrength: true });
+  return finalizeCreativeOperatorDecision(
+    creative,
+    canonical.action,
+    canonicalSubTone(canonical.action, canonical.actionReadiness),
+    reasons,
+  );
+}
+
 export function resolveCreativeOperatorDecision(
   creative: CreativeDecisionOsCreative,
+  options?: CreativeOperatorDecisionOptions,
 ): CreativeOperatorDecisionResolution {
+  if (options?.useCanonical) {
+    const canonicalDecision = resolveCanonicalCreativeOperatorDecision(creative);
+    if (canonicalDecision) return canonicalDecision;
+  }
+
   const segment = creative.operatorPolicy?.segment ?? null;
   const reasons: CreativeOperatorReasonTag[] = [];
   appendDecisionReasonSignals(creative, reasons, { includeStrength: true });
@@ -870,10 +935,11 @@ function scaleActionabilityBucket(
 
 export function buildCreativeScaleActionabilityCounts(
   creatives: CreativeDecisionOsCreative[],
+  options?: CreativeOperatorDecisionOptions,
 ): CreativeScaleActionabilityCounts {
   return creatives.reduce(
     (acc, creative) => {
-      const decision = resolveCreativeOperatorDecision(creative);
+      const decision = resolveCreativeOperatorDecision(creative, options);
       const bucket = scaleActionabilityBucket(creative, decision);
       if (!bucket) return acc;
       acc.total += 1;
@@ -966,8 +1032,14 @@ function creativeBlocker(creative: CreativeDecisionOsCreative, state: OperatorAu
   );
 }
 
-function creativeActionLabel(creative: CreativeDecisionOsCreative) {
-  return creativeOperatorPrimaryDecisionLabel(resolveCreativeOperatorDecision(creative).primary);
+function creativeActionLabel(
+  creative: CreativeDecisionOsCreative,
+  options?: CreativeOperatorDecisionOptions,
+) {
+  if (options?.useCanonical && creative.canonicalDecision) {
+    return creativeCanonicalActionLabel(creative.canonicalDecision.action);
+  }
+  return creativeOperatorPrimaryDecisionLabel(resolveCreativeOperatorDecision(creative, options).primary);
 }
 
 function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState, muted: boolean, blocker: string | null) {
@@ -1137,6 +1209,14 @@ function compactMetrics(metrics: OperatorSurfaceMetric[]) {
   return metrics.filter((metric) => Boolean(metric.value) && metric.value !== "n/a").slice(0, 5);
 }
 
+function canonicalConfidenceToOperatorBand(
+  label: "low" | "medium" | "high",
+): ReturnType<typeof operatorConfidenceBand> {
+  if (label === "high") return "High";
+  if (label === "medium") return "Medium";
+  return "Limited";
+}
+
 function resolveCreativePrimaryAuthorityState(
   creative: CreativeDecisionOsCreative,
   decision: CreativeOperatorDecisionResolution,
@@ -1157,19 +1237,23 @@ function resolveCreativePrimaryAuthorityState(
   }
 }
 
-export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative): OperatorSurfaceItem {
-  const decision = resolveCreativeOperatorDecision(creative);
+export function buildCreativeOperatorItem(
+  creative: CreativeDecisionOsCreative,
+  options?: CreativeOperatorDecisionOptions,
+): OperatorSurfaceItem {
+  const decision = resolveCreativeOperatorDecision(creative, options);
   const authorityState = resolveCreativePrimaryAuthorityState(creative, decision);
   const muted = isCreativeMuted(creative);
   const blocker = creativeBlocker(creative, authorityState);
-  const primaryAction = creativeActionLabel(creative);
+  const primaryAction = creativeActionLabel(creative, options);
   const subToneLabel = creativeOperatorSubToneLabel(decision.subTone);
   const reasonLabels = decision.reasons.map(creativeOperatorReasonTagLabel);
+  const canonical = options?.useCanonical ? creative.canonicalDecision ?? null : null;
   const instructionActionLabel =
     decision.primary === "scale" && decision.subTone === "review_only"
       ? "Scale Review"
       : primaryAction;
-  const reason = creativeReason(creative, authorityState, muted, blocker);
+  const reason = canonical?.primaryReason ?? creativeReason(creative, authorityState, muted, blocker);
   const campaignContextLimited =
     creative.deployment.compatibility.status === "limited" ||
     creative.deployment.compatibility.status === "blocked";
@@ -1209,10 +1293,13 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     authorityLabel: subToneLabel ?? primaryAction,
     reason,
     blocker,
-    confidence: operatorConfidenceBand(creative.confidence),
+    confidence: canonical
+      ? canonicalConfidenceToOperatorBand(canonical.confidence.label)
+      : operatorConfidenceBand(creative.confidence),
     secondaryLabels: [
       subToneLabel,
       ...reasonLabels,
+      ...(canonical?.reasonChips ?? []).slice(0, 3),
       `Benchmark: ${resolvedCreativeBenchmarkScopeLabel(creative)}`,
       creative.operatorPolicy?.pushReadiness.replaceAll("_", " ") ?? null,
       previewLabel(creative),
@@ -1236,7 +1323,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
       actionLabel: instructionActionLabel,
       reason,
       blocker,
-      confidenceScore: creative.confidence,
+      confidenceScore: canonical?.confidence.value ?? creative.confidence,
       evidenceSource: creative.evidenceSource,
       trustState: creative.trust.truthState,
       operatorDisposition: creative.trust.operatorDisposition,
@@ -1274,8 +1361,9 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
 
 export function resolveCreativeQuickFilterKey(
   creative: CreativeDecisionOsCreative,
+  options?: CreativeOperatorDecisionOptions,
 ): CreativeQuickFilterKey | null {
-  return resolveCreativeOperatorDecision(creative).primary;
+  return resolveCreativeOperatorDecision(creative, options).primary;
 }
 
 export function buildCreativeQuickFilters(
@@ -1283,12 +1371,14 @@ export function buildCreativeQuickFilters(
   options?: {
     visibleIds?: Set<string> | null;
     includeZeroCounts?: boolean;
+    useCanonical?: boolean;
   },
 ): CreativeQuickFilter[] {
   if (!decisionOs) return [];
 
   const visibleIds = options?.visibleIds ?? null;
   const includeZeroCounts = options?.includeZeroCounts ?? false;
+  const decisionOptions = { useCanonical: options?.useCanonical ?? false };
   const creativeIdsByFilter = new Map<CreativeQuickFilterKey, string[]>();
   for (const key of CREATIVE_QUICK_FILTER_ORDER) {
     creativeIdsByFilter.set(key, []);
@@ -1297,7 +1387,7 @@ export function buildCreativeQuickFilters(
 
   for (const creative of decisionOs.creatives) {
     if (visibleIds && !visibleIds.has(creative.creativeId)) continue;
-    const decision = resolveCreativeOperatorDecision(creative);
+    const decision = resolveCreativeOperatorDecision(creative, decisionOptions);
     const filterKey = decision.primary;
     if (filterKey) {
       creativeIdsByFilter.get(filterKey)?.push(creative.creativeId);
@@ -1305,7 +1395,7 @@ export function buildCreativeQuickFilters(
     }
   }
 
-  const scaleActionability = buildCreativeScaleActionabilityCounts(scaleCreatives);
+  const scaleActionability = buildCreativeScaleActionabilityCounts(scaleCreatives, decisionOptions);
 
   return CREATIVE_QUICK_FILTER_ORDER
     .map((key) => {
@@ -1349,11 +1439,13 @@ export function buildCreativeTaxonomyCounts(
   options?: {
     visibleIds?: Set<string> | null;
     quickFilters?: CreativeQuickFilter[] | null;
+    useCanonical?: boolean;
   },
 ): CreativeQuickFilter[] {
   const baseFilters = buildCreativeQuickFilters(decisionOs, {
     visibleIds: options?.visibleIds,
     includeZeroCounts: true,
+    useCanonical: options?.useCanonical,
   });
   const overrideCountsByKey = new Map(
     (options?.quickFilters ?? []).map((filter) => [
@@ -1392,6 +1484,7 @@ export function buildCreativeOperatorSurfaceModel(
   decisionOs: CreativeDecisionOsV1Response | null | undefined,
   options?: {
     visibleIds?: Set<string> | null;
+    useCanonical?: boolean;
   },
 ): OperatorSurfaceModel | null {
   if (!decisionOs) return null;
@@ -1402,7 +1495,8 @@ export function buildCreativeOperatorSurfaceModel(
     : decisionOs.creatives;
   if (creatives.length === 0) return null;
 
-  const items = creatives.map(buildCreativeOperatorItem);
+  const decisionOptions = { useCanonical: options?.useCanonical ?? false };
+  const items = creatives.map((creative) => buildCreativeOperatorItem(creative, decisionOptions));
   const previewTruth = buildCreativePreviewTruthSummary({ creatives });
   const primaryCounts = CREATIVE_QUICK_FILTER_ORDER.reduce(
     (acc, key) => {
@@ -1412,7 +1506,7 @@ export function buildCreativeOperatorSurfaceModel(
     {} as Record<CreativeQuickFilterKey, number>,
   );
   for (const creative of creatives) {
-    primaryCounts[resolveCreativeOperatorDecision(creative).primary] += 1;
+    primaryCounts[resolveCreativeOperatorDecision(creative, decisionOptions).primary] += 1;
   }
   const buckets = buildOperatorBuckets(items, {
     labels: {

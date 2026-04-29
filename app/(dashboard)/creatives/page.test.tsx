@@ -259,7 +259,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
     expect(firstSnapshotKey).toEqual(["creative-decision-os-snapshot", "biz", "account", null]);
     expect(observedQueryKeys["creative-decision-os"]).toBeUndefined();
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
     expect(html).toContain("Run Creative Analysis");
     expect(html).toContain("Decision OS");
     expect(mutateRunAnalysis).not.toHaveBeenCalled();
@@ -283,7 +283,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
     let html = renderToStaticMarkup(React.createElement(CreativesPage));
 
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
 
     mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=0");
     observedQueryOptions = {};
@@ -319,7 +319,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
     html = renderToStaticMarkup(React.createElement(CreativesPage));
 
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
     expect(html).toContain("Decision OS");
 
     mockSearchParams = new URLSearchParams("creativeDecisionOsV2Preview=true");
@@ -327,20 +327,20 @@ describe("Creatives page Decision OS snapshot contract", () => {
     html = renderToStaticMarkup(React.createElement(CreativesPage));
 
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
 
     mockSearchParams = new URLSearchParams("v2Preview=1");
     observedQueryOptions = {};
     html = renderToStaticMarkup(React.createElement(CreativesPage));
 
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
 
     mockSearchParams = new URLSearchParams("v2Preview=true");
     observedQueryOptions = {};
     html = renderToStaticMarkup(React.createElement(CreativesPage));
 
     expect(observedQueryOptions["creative-decision-os-v2-preview"]?.enabled).toBe(true);
-    expect(html).toContain("Decision OS v2 preview is enabled");
+    expect(html).toContain("Decision OS v2 diagnostics are enabled");
   });
 });

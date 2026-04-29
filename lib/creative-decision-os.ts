@@ -28,6 +28,10 @@ import {
   type CreativeOperatorRelativeBaseline,
   type CreativeRelativeBaselineReliability,
 } from "@/lib/creative-operator-policy";
+import {
+  resolveCreativeCanonicalDecisionForCreative,
+  type CreativeCanonicalDecision,
+} from "@/lib/creative-canonical-decision";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
@@ -466,6 +470,7 @@ export interface CreativeDecisionOsCreative {
   pattern: CreativeDecisionPatternReference;
   report: CreativeRuleReportPayload;
   trust: DecisionTrustMetadata;
+  canonicalDecision?: CreativeCanonicalDecision;
 }
 
 export interface CreativeDecisionOsFamily {
@@ -2104,7 +2109,7 @@ function buildPreviewStatus(row: CreativeDecisionOsInputRow): CreativeDecisionPr
   };
 }
 
-function buildScore(
+export function buildScore(
   row: CreativeDecisionOsInputRow,
   benchmark: CreativeDecisionBenchmark,
   fatigue: CreativeDecisionFatigue,
@@ -3420,7 +3425,7 @@ export function buildCreativeDecisionOs(
       pattern,
     };
 
-    return {
+    const creativePayload = {
       creativeId: row.creativeId,
       provenance,
       evidenceHash: provenance.evidenceHash,
@@ -3472,6 +3477,11 @@ export function buildCreativeDecisionOs(
       pattern,
       report,
       trust,
+    } satisfies CreativeDecisionOsCreative;
+
+    return {
+      ...creativePayload,
+      canonicalDecision: resolveCreativeCanonicalDecisionForCreative(creativePayload),
     };
   });
   const resolvedBenchmarkScopeMetadata: CreativeDecisionBenchmarkScopeMetadata = {

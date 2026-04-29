@@ -263,6 +263,7 @@ export function applyCreativeFilters(
   rows: MetaCreativeRow[],
   rules: CreativeFilterRule[],
   decisionOs?: CreativeDecisionOsV1Response | null,
+  options?: { useCanonical?: boolean },
 ): MetaCreativeRow[] {
   if (rules.length === 0) return rows;
 
@@ -311,6 +312,10 @@ export function applyCreativeFilters(
       };
 
       const decision = decisionById.get(row.id) ?? null;
+      const canonicalAction = options?.useCanonical ? decision?.canonicalDecision?.action ?? null : null;
+      const canonicalReadiness = options?.useCanonical
+        ? decision?.canonicalDecision?.actionReadiness ?? null
+        : null;
       const aiTagCandidates = (tagKey: keyof MetaCreativeRow["aiTags"]) => row.aiTags?.[tagKey] ?? [];
 
       if (rule.field === "campaignName") {
@@ -349,19 +354,19 @@ export function applyCreativeFilters(
         return evaluate([String(row.isCatalog), row.isCatalog ? "yes" : "no"]);
       }
       if (rule.field === "lifecycleState") {
-        return evaluate([decision?.lifecycleState ?? null]);
+        return evaluate([canonicalAction ?? decision?.lifecycleState ?? null]);
       }
       if (rule.field === "primaryAction") {
-        return evaluate([decision?.primaryAction ?? null]);
+        return evaluate([canonicalAction ?? decision?.primaryAction ?? null]);
       }
       if (rule.field === "operatorSegment") {
-        return evaluate([decision?.operatorPolicy?.segment ?? null]);
+        return evaluate([canonicalAction ?? decision?.operatorPolicy?.segment ?? null]);
       }
       if (rule.field === "operatorState") {
-        return evaluate([decision?.operatorPolicy?.state ?? null]);
+        return evaluate([canonicalReadiness ?? decision?.operatorPolicy?.state ?? null]);
       }
       if (rule.field === "pushReadiness") {
-        return evaluate([decision?.operatorPolicy?.pushReadiness ?? null]);
+        return evaluate([canonicalReadiness ?? decision?.operatorPolicy?.pushReadiness ?? null]);
       }
       if (rule.field === "surfaceLane") {
         return evaluate([decision?.trust.surfaceLane ?? null]);

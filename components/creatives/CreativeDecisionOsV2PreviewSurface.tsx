@@ -325,9 +325,9 @@ export function CreativeDecisionOsV2PreviewSurface({
   if (isLoading) {
     return (
       <section className={cn("rounded-lg border border-slate-200 bg-white p-4", className)}>
-        <p className="text-sm font-semibold text-slate-900">Decision OS v2 preview loading</p>
+        <p className="text-sm font-semibold text-slate-900">Decision OS v2 diagnostics loading</p>
         <p className="mt-1 text-sm text-slate-600">
-          Preparing read-only buyer lanes for this scope.
+          Preparing diagnostic lanes for this scope. These lanes do not set the primary action.
         </p>
       </section>
     );
@@ -336,7 +336,7 @@ export function CreativeDecisionOsV2PreviewSurface({
   if (error) {
     return (
       <section className={cn("rounded-lg border border-rose-200 bg-rose-50 p-4", className)}>
-        <p className="text-sm font-semibold text-rose-900">Decision OS v2 preview unavailable</p>
+        <p className="text-sm font-semibold text-rose-900">Decision OS v2 diagnostics unavailable</p>
         <p className="mt-1 text-sm text-rose-700">{error}</p>
       </section>
     );
@@ -350,9 +350,9 @@ export function CreativeDecisionOsV2PreviewSurface({
           className,
         )}
       >
-        <p className="text-sm font-semibold text-slate-900">Decision OS v2 preview is enabled</p>
+        <p className="text-sm font-semibold text-slate-900">Decision OS v2 diagnostics are enabled</p>
         <p className="mt-1 text-sm text-slate-600">
-          Run the current Decision OS analysis first to prepare read-only buyer lanes.
+          Run the current Decision OS analysis first to prepare read-only diagnostic lanes.
         </p>
       </section>
     );
@@ -383,14 +383,14 @@ export function CreativeDecisionOsV2PreviewSurface({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Read-only buyer preview
+            Diagnostic-only preview
           </p>
           <h2 className="mt-1 text-lg font-semibold text-slate-950">
-            Decision OS v2 operator surface
+            Decision OS v2 diagnostic surface
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-700">
-            Buyer urgency is separated from confidence. This panel helps review the highest spend
-            and highest risk decisions without changing platform state.
+            This panel shows data-quality, delivery-context, and risk diagnostics. It does not
+            provide the production primary action.
           </p>
         </div>
         <span
@@ -400,7 +400,7 @@ export function CreativeDecisionOsV2PreviewSurface({
           )}
         >
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-          Read-only
+          Diagnostic only
         </span>
       </div>
 
@@ -440,11 +440,11 @@ export function CreativeDecisionOsV2PreviewSurface({
               <LaneBadge tone="priority">Highest urgency</LaneBadge>
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                 <AlertTriangle className="h-4 w-4 text-rose-600" aria-hidden="true" />
-                Today Priority / Buyer Command Strip
+                Diagnostic Priority
               </h3>
               <p className="mt-1 text-xs text-slate-600">
-                Scale cases, high-spend cuts, active refresh candidates, and highest-risk changes
-                appear here first.
+                Highest-risk rows appear here for review. The canonical resolver owns the primary
+                buyer action.
               </p>
             </div>
             <span className={countBadgeClasses}>{todayPriority.rowIds.length}</span>

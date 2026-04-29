@@ -54,7 +54,16 @@ function pushReadinessLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function familyTone(family: CreativeDecisionOsFamily) {
+function familyTone(family: CreativeDecisionOsFamily, canonicalAction?: string | null) {
+  if (canonicalAction === "scale" || canonicalAction === "protect") {
+    return "border-emerald-200 bg-emerald-50";
+  }
+  if (canonicalAction === "refresh") {
+    return "border-orange-200 bg-orange-50";
+  }
+  if (canonicalAction === "cut" || canonicalAction === "diagnose") {
+    return "border-rose-200 bg-rose-50";
+  }
   if (family.primaryAction === "promote_to_scaling") {
     return "border-emerald-200 bg-emerald-50";
   }
@@ -67,7 +76,16 @@ function familyTone(family: CreativeDecisionOsFamily) {
   return "border-slate-200 bg-white";
 }
 
-function patternTone(pattern: CreativeDecisionOsPattern) {
+function patternTone(pattern: CreativeDecisionOsPattern, canonicalAction?: string | null) {
+  if (canonicalAction === "scale" || canonicalAction === "protect") {
+    return "border-emerald-200 bg-emerald-50";
+  }
+  if (canonicalAction === "refresh") {
+    return "border-orange-200 bg-orange-50";
+  }
+  if (canonicalAction === "cut" || canonicalAction === "diagnose") {
+    return "border-rose-200 bg-rose-50";
+  }
   if (pattern.lifecycleState === "stable_winner" || pattern.lifecycleState === "scale_ready") {
     return "border-emerald-200 bg-emerald-50";
   }
@@ -152,6 +170,7 @@ export function CreativeDecisionOsOverview({
   onClearFilters,
   showHeader = true,
   className,
+  canonicalResolverEnabled = false,
 }: {
   decisionOs: CreativeDecisionOsV1Response | null;
   quickFilters: CreativeQuickFilter[];
@@ -163,6 +182,7 @@ export function CreativeDecisionOsOverview({
   onClearFilters?: () => void;
   showHeader?: boolean;
   className?: string;
+  canonicalResolverEnabled?: boolean;
 }) {
   if (isLoading) {
     return (
@@ -193,21 +213,32 @@ export function CreativeDecisionOsOverview({
   const previewTruthSummary = buildCreativePreviewTruthSummary(decisionOs);
   const taxonomyCounts = buildCreativeTaxonomyCounts(decisionOs, {
     quickFilters,
+    useCanonical: canonicalResolverEnabled,
   });
   const policyCreatives = decisionOs.creatives
     .filter((creative) => creative.policy?.explanation)
     .slice(0, 4);
   const operatorPolicyCreatives = decisionOs.creatives
-    .filter((creative) => creative.operatorPolicy)
+    .filter((creative) => canonicalResolverEnabled ? creative.canonicalDecision : creative.operatorPolicy)
     .slice(0, 6);
   const operatorPolicyCounts = decisionOs.creatives.reduce(
     (acc, creative) => {
-      const state = creative.operatorPolicy?.state ?? "contextual_only";
+      const state = canonicalResolverEnabled
+        ? creative.canonicalDecision?.action ?? "test_more"
+        : creative.operatorPolicy?.state ?? "contextual_only";
       acc[state] = (acc[state] ?? 0) + 1;
       return acc;
     },
     {} as Record<string, number>,
   );
+  const canonicalActionForIds = (creativeIds: string[]) => {
+    if (!canonicalResolverEnabled) return null;
+    const priority = ["scale", "protect", "refresh", "cut", "diagnose", "test_more"];
+    const actions = creativeIds
+      .map((id) => decisionOs.creatives.find((creative) => creative.creativeId === id)?.canonicalDecision?.action)
+      .filter(Boolean) as string[];
+    return priority.find((action) => actions.includes(action)) ?? null;
+  };
 
   return (
     <>
@@ -340,19 +371,37 @@ export function CreativeDecisionOsOverview({
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
-              <span>Do now {operatorPolicyCounts.do_now ?? 0}</span>
-              <span>Protect {operatorPolicyCounts.do_not_touch ?? 0}</span>
-              <span>Review state {operatorPolicyCounts.watch ?? 0}</span>
-              <span>Investigate {operatorPolicyCounts.investigate ?? 0}</span>
-              <span>Ineligible/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
+              {canonicalResolverEnabled ? (
+                <>
+                  <span>Scale {operatorPolicyCounts.scale ?? 0}</span>
+                  <span>Protect {operatorPolicyCounts.protect ?? 0}</span>
+                  <span>Test More {operatorPolicyCounts.test_more ?? 0}</span>
+                  <span>Refresh {operatorPolicyCounts.refresh ?? 0}</span>
+                  <span>Cut {operatorPolicyCounts.cut ?? 0}</span>
+                  <span>Diagnose {operatorPolicyCounts.diagnose ?? 0}</span>
+                </>
+              ) : (
+                <>
+                  <span>Do now {operatorPolicyCounts.do_now ?? 0}</span>
+                  <span>Protect {operatorPolicyCounts.do_not_touch ?? 0}</span>
+                  <span>Review state {operatorPolicyCounts.watch ?? 0}</span>
+                  <span>Investigate {operatorPolicyCounts.investigate ?? 0}</span>
+                  <span>Ineligible/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
+                </>
+              )}
             </div>
           </div>
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
             {operatorPolicyCreatives.map((creative) => {
-              const operatorItem = buildCreativeOperatorItem(creative);
+              const operatorItem = buildCreativeOperatorItem(creative, {
+                useCanonical: canonicalResolverEnabled,
+              });
               const instruction = operatorItem.instruction;
-              const decision = resolveCreativeOperatorDecision(creative);
+              const decision = resolveCreativeOperatorDecision(creative, {
+                useCanonical: canonicalResolverEnabled,
+              });
               const subToneLabel = creativeOperatorSubToneLabel(decision.subTone);
+              const canonical = creative.canonicalDecision ?? null;
               return (
                 <div
                   key={`creative-operator-policy:${creative.creativeId}`}
@@ -362,10 +411,10 @@ export function CreativeDecisionOsOverview({
                     <div>
                       <p className="text-sm font-semibold text-slate-950">{creative.name}</p>
                       <p className="mt-1 text-xs font-semibold text-slate-800">
-                        {instruction?.primaryMove ?? creative.operatorPolicy.explanation}
+                        {instruction?.primaryMove ?? canonical?.primaryReason ?? creative.operatorPolicy?.explanation}
                       </p>
                       <p className="mt-1 text-xs text-slate-600">
-                        Why now: {instruction?.reasonSummary ?? creative.operatorPolicy.explanation}
+                        Why now: {instruction?.reasonSummary ?? canonical?.primaryReason ?? creative.operatorPolicy?.explanation}
                       </p>
                       {instruction ? (
                         <p className="mt-1 text-xs text-slate-600">
@@ -375,7 +424,9 @@ export function CreativeDecisionOsOverview({
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                        {creativeOperatorSegmentLabel(creative)}
+                        {canonicalResolverEnabled
+                          ? operatorItem.primaryAction
+                          : creativeOperatorSegmentLabel(creative)}
                       </span>
                       {subToneLabel ? (
                         <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
@@ -389,8 +440,18 @@ export function CreativeDecisionOsOverview({
                       <span key={`${creative.creativeId}:${label}`}>{label}</span>
                     ))}
                     {instruction ? <span>Urgency {instruction.urgency}</span> : null}
-                    <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
-                    <span>{creative.operatorPolicy.evidenceSource} evidence</span>
+                    <span>
+                      {pushReadinessLabel(
+                        canonicalResolverEnabled
+                          ? canonical?.actionReadiness ?? "needs_review"
+                          : creative.operatorPolicy?.pushReadiness ?? "needs_review",
+                      )}
+                    </span>
+                    <span>
+                      {canonicalResolverEnabled
+                        ? `${Math.round((canonical?.confidence.value ?? 0) * 100)}% confidence`
+                        : `${creative.operatorPolicy?.evidenceSource ?? "mixed"} evidence`}
+                    </span>
                     {instruction ? <span>{instruction.amountGuidance.label}</span> : null}
                   </div>
                   {instruction?.urgencyReason ? (
@@ -408,9 +469,9 @@ export function CreativeDecisionOsOverview({
                       Do not: {instruction.invalidActions[0]}
                     </p>
                   ) : null}
-                  {creative.operatorPolicy.missingEvidence.length > 0 ? (
+                  {(creative.operatorPolicy?.missingEvidence.length ?? 0) > 0 ? (
                     <p className="mt-2 text-xs text-amber-700">
-                      Missing: {creative.operatorPolicy.missingEvidence.slice(0, 3).join(", ")}
+                      Missing: {creative.operatorPolicy?.missingEvidence.slice(0, 3).join(", ")}
                     </p>
                   ) : null}
                 </div>
@@ -647,6 +708,7 @@ export function CreativeDecisionOsOverview({
           <div className="grid gap-2 md:grid-cols-2">
             {decisionOs.families.slice(0, 6).map((family) => {
               const active = activeFamilyId === family.familyId;
+              const canonicalAction = canonicalActionForIds(family.creativeIds);
               return (
                 <button
                   key={family.familyId}
@@ -654,7 +716,7 @@ export function CreativeDecisionOsOverview({
                   onClick={() => onSelectFamily(active ? null : family.familyId)}
                   className={cn(
                     "rounded-2xl border p-3 text-left transition-colors",
-                    familyTone(family),
+                    familyTone(family, canonicalAction),
                     active && "ring-2 ring-slate-300",
                   )}
                   data-testid={`creative-family-${family.familyId}`}
@@ -670,7 +732,7 @@ export function CreativeDecisionOsOverview({
                       </p>
                     </div>
                     <span className="rounded-full border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                      {family.lifecycleState.replaceAll("_", " ")}
+                      {(canonicalAction ?? family.lifecycleState).replaceAll("_", " ")}
                     </span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
@@ -701,7 +763,10 @@ export function CreativeDecisionOsOverview({
             {decisionOs.patterns.slice(0, 6).map((pattern) => (
               <div
                 key={pattern.patternKey}
-                className={cn("rounded-xl border p-3", patternTone(pattern))}
+                className={cn(
+                  "rounded-xl border p-3",
+                  patternTone(pattern, canonicalActionForIds(pattern.creativeIds)),
+                )}
               >
                 <p className="text-sm font-semibold text-slate-950">
                   {pattern.hook}

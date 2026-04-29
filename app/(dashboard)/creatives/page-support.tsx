@@ -207,15 +207,24 @@ function confidenceLabel(value: number | null | undefined): SharedCreativeAnalys
   return "Limited";
 }
 
+function canonicalConfidenceLabel(value: "low" | "medium" | "high"): SharedCreativeAnalysis["confidenceLabel"] {
+  if (value === "high") return "High";
+  if (value === "medium") return "Medium";
+  return "Limited";
+}
+
 export function buildSharedCreativeAnalysis(
   creative: CreativeDecisionOsCreative | null | undefined,
+  options?: { useCanonical?: boolean },
 ): SharedCreativeAnalysis | null {
   if (!creative) return null;
 
   const report = creative.report;
   const operatorItem = (() => {
     try {
-      return buildCreativeOperatorItem(creative);
+      return buildCreativeOperatorItem(creative, {
+        useCanonical: options?.useCanonical ?? false,
+      });
     } catch {
       return null;
     }
@@ -231,9 +240,10 @@ export function buildSharedCreativeAnalysis(
   const actionLabel =
     operatorItem?.primaryAction ??
     primaryActionLabel(creative.primaryAction, creative.legacyAction);
+  const canonical = options?.useCanonical ? creative.canonicalDecision ?? null : null;
   const summary = safeText(creative.summary, report?.summary ?? `${actionLabel} review is available.`);
   const why = safeText(
-    operatorItem?.reason,
+    canonical?.primaryReason ?? operatorItem?.reason,
     report?.coreVerdict ?? report?.summary ?? summary,
   );
   const whatToDo = safeText(
@@ -248,9 +258,11 @@ export function buildSharedCreativeAnalysis(
     creativeId: creative.creativeId,
     actionLabel,
     authorityLabel: operatorItem?.authorityLabel ?? actionLabel,
-    confidenceLabel: operatorItem?.confidence ?? confidenceLabel(creative.confidence),
+    confidenceLabel: canonical
+      ? canonicalConfidenceLabel(canonical.confidence.label)
+      : operatorItem?.confidence ?? confidenceLabel(creative.confidence),
     headline: safeText(instruction?.headline, `${actionLabel}: ${creative.name}`),
-    summary,
+    summary: canonical?.primaryReason ?? summary,
     whatToDo,
     why,
     evidenceStrength: instruction?.evidenceStrength ?? null,
@@ -280,10 +292,11 @@ export function buildSharedCreativeAnalysis(
 
 export function buildSharedCreativeAnalysisLookup(
   decisionOs: Pick<CreativeDecisionOsV1Response, "creatives"> | null | undefined,
+  options?: { useCanonical?: boolean },
 ) {
   const lookup = new Map<string, SharedCreativeAnalysis>();
   for (const creative of decisionOs?.creatives ?? []) {
-    const analysis = buildSharedCreativeAnalysis(creative);
+    const analysis = buildSharedCreativeAnalysis(creative, options);
     if (!analysis) continue;
     lookup.set(creative.creativeId, analysis);
   }

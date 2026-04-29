@@ -247,12 +247,26 @@ function WinningPatterns({ decisionOs }: { decisionOs: CreativeDecisionOsV1Respo
 
 // ─── section 3: risk signals ─────────────────────────────────────────────────
 
-function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response) {
+function dominantCanonicalAction(
+  decisionOs: CreativeDecisionOsV1Response,
+  creativeIds: string[],
+) {
+  const priority = ["scale", "protect", "refresh", "cut", "diagnose", "test_more"];
+  const actions = creativeIds
+    .map((id) => decisionOs.creatives.find((creative) => creative.creativeId === id)?.canonicalDecision?.action)
+    .filter(Boolean) as string[];
+  return priority.find((action) => actions.includes(action)) ?? null;
+}
+
+function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response, useCanonical: boolean) {
   const risks: Array<{ tone: "rose" | "amber"; title: string; body: string }> = [];
   const families = decisionOs.families ?? [];
 
   const fatiguingFamilies = families.filter(
-    (f) => f.lifecycleState === "fatigued_winner",
+    (f) =>
+      useCanonical
+        ? dominantCanonicalAction(decisionOs, f.creativeIds) === "refresh"
+        : f.lifecycleState === "fatigued_winner",
   );
   if (fatiguingFamilies.length >= 2) {
     risks.push({
@@ -306,8 +320,17 @@ function buildRiskSignals(decisionOs: CreativeDecisionOsV1Response) {
   return risks;
 }
 
-function RiskSignals({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
-  const risks = useMemo(() => buildRiskSignals(decisionOs), [decisionOs]);
+function RiskSignals({
+  decisionOs,
+  canonicalResolverEnabled = false,
+}: {
+  decisionOs: CreativeDecisionOsV1Response;
+  canonicalResolverEnabled?: boolean;
+}) {
+  const risks = useMemo(
+    () => buildRiskSignals(decisionOs, canonicalResolverEnabled),
+    [canonicalResolverEnabled, decisionOs],
+  );
 
   if (risks.length === 0) {
     return (
@@ -404,7 +427,11 @@ function FormatPerformance({ decisionOs }: { decisionOs: CreativeDecisionOsV1Res
 
 type CellState = "win" | "test" | "cut" | "empty";
 
-function buildCoverageGrid(patterns: CreativeDecisionOsPattern[]) {
+function buildCoverageGrid(
+  decisionOs: CreativeDecisionOsV1Response,
+  useCanonical: boolean,
+) {
+  const patterns = decisionOs.patterns ?? [];
   const hookSpend = new Map<string, number>();
   const formatSpend = new Map<string, number>();
 
@@ -435,6 +462,12 @@ function buildCoverageGrid(patterns: CreativeDecisionOsPattern[]) {
         (p) => p.hook === hook && p.format === format,
       );
       if (!pattern) return "empty";
+      if (useCanonical) {
+        const action = dominantCanonicalAction(decisionOs, pattern.creativeIds);
+        if (action === "scale" || action === "protect") return "win";
+        if (action === "cut" || action === "diagnose") return "cut";
+        return "test";
+      }
       if (winnerStates.has(pattern.lifecycleState)) return "win";
       if (cutStates.has(pattern.lifecycleState)) return "cut";
       return "test";
@@ -496,10 +529,16 @@ function CoverageCell({ state }: { state: CellState }) {
   );
 }
 
-function CoverageMap({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
+function CoverageMap({
+  decisionOs,
+  canonicalResolverEnabled = false,
+}: {
+  decisionOs: CreativeDecisionOsV1Response;
+  canonicalResolverEnabled?: boolean;
+}) {
   const coverage = useMemo(
-    () => buildCoverageGrid(decisionOs.patterns ?? []),
-    [decisionOs.patterns],
+    () => buildCoverageGrid(decisionOs, canonicalResolverEnabled),
+    [canonicalResolverEnabled, decisionOs],
   );
 
   if (coverage.hooks.length === 0) return null;
@@ -712,11 +751,19 @@ function SupplyPlan({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }
 
 // ─── section 9: comeback candidates ──────────────────────────────────────────
 
-function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Response }) {
+function ComebackCandidates({
+  decisionOs,
+  canonicalResolverEnabled = false,
+}: {
+  decisionOs: CreativeDecisionOsV1Response;
+  canonicalResolverEnabled?: boolean;
+}) {
   const comebacks = (decisionOs.creatives ?? []).filter(
     (c) =>
-      c.lifecycleState === "comeback_candidate" ||
-      c.primaryAction === "retest_comeback",
+      canonicalResolverEnabled
+        ? c.canonicalDecision?.action === "refresh"
+        : c.lifecycleState === "comeback_candidate" ||
+          c.primaryAction === "retest_comeback",
   );
 
   if (comebacks.length === 0) return null;
@@ -737,7 +784,11 @@ function ComebackCandidates({ decisionOs }: { decisionOs: CreativeDecisionOsV1Re
                 {c.name}
               </p>
               <Pill tone="amber">
-                {c.lifecycleState === "comeback_candidate" ? "Comeback" : "Paused winner"}
+                {canonicalResolverEnabled
+                  ? "Refresh"
+                  : c.lifecycleState === "comeback_candidate"
+                    ? "Comeback"
+                    : "Paused winner"}
               </Pill>
             </div>
             <p className="text-[11px] text-slate-500">
@@ -764,12 +815,14 @@ export function CreativeDecisionOsContent({
   quickFilters: _quickFilters,
   activeQuickFilterKey: _activeQuickFilterKey,
   onSelectQuickFilter: _onSelectQuickFilter,
+  canonicalResolverEnabled: _canonicalResolverEnabled = false,
 }: {
   decisionOs: CreativeDecisionOsV1Response | null;
   isLoading: boolean;
   quickFilters: CreativeQuickFilter[];
   activeQuickFilterKey: CreativeQuickFilterKey | null;
   onSelectQuickFilter: (key: CreativeQuickFilterKey) => void;
+  canonicalResolverEnabled?: boolean;
 }) {
   if (isLoading) {
     return (
@@ -790,13 +843,13 @@ export function CreativeDecisionOsContent({
     <div className="flex flex-col gap-4 px-5 py-5 md:px-6">
       <PortfolioHealth decisionOs={decisionOs} />
       <WinningPatterns decisionOs={decisionOs} />
-      <RiskSignals decisionOs={decisionOs} />
+      <RiskSignals decisionOs={decisionOs} canonicalResolverEnabled={_canonicalResolverEnabled} />
       <FormatPerformance decisionOs={decisionOs} />
-      <CoverageMap decisionOs={decisionOs} />
+      <CoverageMap decisionOs={decisionOs} canonicalResolverEnabled={_canonicalResolverEnabled} />
       <LifecyclePipeline decisionOs={decisionOs} />
       <ProtectedWinners decisionOs={decisionOs} />
       <SupplyPlan decisionOs={decisionOs} />
-      <ComebackCandidates decisionOs={decisionOs} />
+      <ComebackCandidates decisionOs={decisionOs} canonicalResolverEnabled={_canonicalResolverEnabled} />
     </div>
   );
 }
