@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-04-26T00:18:30.526Z",
+  "browserUse": {
+    "requestedSkill": "browser-use:browser",
+    "result": "required node_repl JavaScript tool was not exposed by tool discovery; Playwright fallback used for a limited attempt"
+  },
+  "attempts": [
+    {
+      "branch": "main",
+      "ref": "origin/main",
+      "serverCommand": "npx next dev --webpack --hostname 127.0.0.1 --port 3101",
+      "screenshotAttemptPath": "screenshots/main-creative-page-attempt.png",
+      "resultPath": "screenshots/main-creative-page-attempt.json",
+      "result": "redirected to /login; Creative page top summary/table screenshots for the live account/date scope were not captured"
+    }
+  ],
+  "unavailableForBranches": [
+    "main",
+    "pr65",
+    "pr74"
+  ],
+  "unavailableReason": "Fresh live DB audit path was blocked by 127.0.0.1:15432 connection refusal, and the local UI attempt did not authenticate into the Creative page."
+}

@@ -1,0 +1,13 @@
+[2026-04-26T00:09:52Z] start live-creative-audit: CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts
+Error: DATABASE_URL is not set. Make sure your PostgreSQL connection string is configured.
+    at getDatabaseUrl (/private/tmp/adsecute-reset-pack-main/lib/db.ts:366:11)
+    at createPool (/private/tmp/adsecute-reset-pack-main/lib/db.ts:516:23)
+    at getDb (/private/tmp/adsecute-reset-pack-main/lib/db.ts:679:47)
+    at getCandidateBusinesses (/private/tmp/adsecute-reset-pack-main/scripts/creative-segmentation-calibration-lab.ts:843:15)
+    at discoverRuntimeEligibleBusinesses (/private/tmp/adsecute-reset-pack-main/scripts/creative-live-firm-audit.ts:647:31)
+    at runCreativeLiveFirmAudit (/private/tmp/adsecute-reset-pack-main/scripts/creative-live-firm-audit.ts:808:29)
+    at path (/private/tmp/adsecute-reset-pack-main/scripts/creative-live-firm-audit.ts:1094:3)
+    at Object.<anonymous> (/private/tmp/adsecute-reset-pack-main/scripts/creative-live-firm-audit.ts:1102:1)
+    at Module._compile (node:internal/modules/cjs/loader:1692:14)
+    at Object.transformer (/Users/harmelek/Adsecute/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1104)
+[2026-04-26T00:09:52Z] exit_code=1

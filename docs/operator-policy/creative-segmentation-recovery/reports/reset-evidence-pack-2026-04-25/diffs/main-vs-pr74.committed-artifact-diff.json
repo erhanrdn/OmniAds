@@ -1,0 +1,73 @@
+{
+  "oldName": "main",
+  "newName": "pr74",
+  "available": true,
+  "sourceKind": "committed_sanitized_artifact_not_fresh_local_rerun",
+  "comparisonKey": "companyAlias|creativeAlias",
+  "note": "PR #74 has no fresh branch-specific committed audit artifact; this compares committed sanitized artifacts only.",
+  "oldArtifact": {
+    "generatedAt": "2026-04-24T21:26:56.219Z",
+    "auditWindow": {
+      "todayReference": "2026-04-25",
+      "startDate": "2026-03-26",
+      "endDate": "2026-04-24",
+      "days": 30,
+      "excludesToday": true
+    },
+    "rows": 78,
+    "businesses": 8,
+    "globalSummary": {
+      "sampledCreatives": 78,
+      "businessesWithZeroScale": 8,
+      "businessesWithZeroScaleReview": 6,
+      "userFacingSegments": {
+        "Retest": 1,
+        "Scale Review": 6,
+        "Protect": 6,
+        "Cut": 12,
+        "Refresh": 17,
+        "Watch": 10,
+        "Not Enough Data": 8,
+        "Test More": 13,
+        "Not eligible for evaluation": 5
+      }
+    }
+  },
+  "newArtifact": {
+    "generatedAt": "2026-04-24T21:26:56.219Z",
+    "auditWindow": {
+      "todayReference": "2026-04-25",
+      "startDate": "2026-03-26",
+      "endDate": "2026-04-24",
+      "days": 30,
+      "excludesToday": true
+    },
+    "rows": 78,
+    "businesses": 8,
+    "globalSummary": {
+      "sampledCreatives": 78,
+      "businessesWithZeroScale": 8,
+      "businessesWithZeroScaleReview": 6,
+      "userFacingSegments": {
+        "Retest": 1,
+        "Scale Review": 6,
+        "Protect": 6,
+        "Cut": 12,
+        "Refresh": 17,
+        "Watch": 10,
+        "Not Enough Data": 8,
+        "Test More": 13,
+        "Not eligible for evaluation": 5
+      }
+    }
+  },
+  "summary": {
+    "comparedRows": 78,
+    "changedRows": 0,
+    "primaryDecisionChangedRows": 0,
+    "actionabilityChangedRows": 0,
+    "queueEligibilityChangedRows": 0,
+    "applyEligibilityChangedRows": 0
+  },
+  "rows": []
+}

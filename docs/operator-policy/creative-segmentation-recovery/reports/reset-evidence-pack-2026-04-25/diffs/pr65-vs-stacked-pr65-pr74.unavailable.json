@@ -1,0 +1,9 @@
+{
+  "available": false,
+  "reason": "Stacked #65 + #74 was not cleanly possible without manual conflict resolution.",
+  "attemptedCommand": "git worktree add --detach /tmp/adsecute-reset-pack-stack origin/pr/65 && cd /tmp/adsecute-reset-pack-stack && git cherry-pick origin/main..origin/pr/74",
+  "conflictedFiles": [
+    "docs/operator-policy/creative-segmentation-recovery/STATE.md",
+    "lib/creative-operator-policy.ts"
+  ]
+}

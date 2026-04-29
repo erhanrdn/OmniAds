@@ -1,0 +1,33 @@
+branch_label=main
+worktree=/tmp/adsecute-reset-pack-main
+head=fa838df2be0a93c445680c42d23f4adadb52bd8f
+commit_date=2026-04-25 17:56:34 +0300
+subject=Harden review-only Scale surface emphasis
+npm-test.exit_code=0
+npm-test.start=2026-04-26T00:05:03Z
+npm-test.end=2026-04-26T00:05:11Z
+npm-test.command=npm test
+typecheck.exit_code=0
+typecheck.start=2026-04-26T00:05:11Z
+typecheck.end=2026-04-26T00:05:21Z
+typecheck.command=npx tsc --noEmit
+build.exit_code=0
+build.start=2026-04-26T00:05:22Z
+build.end=2026-04-26T00:05:58Z
+build.command=npm run build
+focused-creative-tests.exit_code=1
+focused-creative-tests.start=2026-04-26T00:05:58Z
+focused-creative-tests.end=2026-04-26T00:05:59Z
+focused-creative-tests.command=CREATIVE_TESTS="$(git ls-tree -r --name-only HEAD | rg '(^app/.*creatives.*\.test|^app/api/(creatives|meta/creatives).*\.test|^components/creatives/.*\.test|^lib/creative.*\.test|^scripts/creative.*\.test)' | sort | tr '\n' ' ')" && npx vitest run $CREATIVE_TESTS
+focused-creative-critical-subset.exit_code=0
+focused-creative-critical-subset.start=2026-04-26T00:09:00Z
+focused-creative-critical-subset.end=2026-04-26T00:09:02Z
+focused-creative-critical-subset.command=npx vitest run lib/creative-decision-os.test.ts lib/creative-decision-os-source.test.ts lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts scripts/creative-live-firm-audit.test.ts app/api/creatives/decision-os/route.test.ts components/creatives/CreativeDecisionSupportSurface.test.tsx components/creatives/CreativesTableSection.test.tsx 'app/(dashboard)/creatives/page-support.test.ts'
+live-creative-audit.exit_code=1
+live-creative-audit.start=2026-04-26T00:09:52Z
+live-creative-audit.end=2026-04-26T00:09:52Z
+live-creative-audit.command=CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts
+live-creative-audit-env-rerun.exit_code=1
+live-creative-audit-env-rerun.start=2026-04-26T00:10:26Z
+live-creative-audit-env-rerun.end=2026-04-26T00:10:32Z
+live-creative-audit-env-rerun.command=CREATIVE_LIVE_FIRM_AUDIT_MAX_ROWS=100000 node --import tsx scripts/creative-live-firm-audit.ts
