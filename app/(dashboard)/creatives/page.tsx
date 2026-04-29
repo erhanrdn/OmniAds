@@ -3,7 +3,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { useAppStore } from "@/store/app-store";
@@ -79,6 +79,10 @@ import {
   creativeQuickFilterShortLabel,
   type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
+import {
+  persistCreativeCanonicalResolverFlag,
+  resolveCreativeCanonicalResolverFlag,
+} from "@/lib/creative-decision-feature-flag";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -141,6 +145,7 @@ function formatSnapshotTimestamp(value: string | null | undefined) {
 
 export default function CreativesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
@@ -191,6 +196,25 @@ export default function CreativesPage() {
   const [decisionOsDrawerOpen, setDecisionOsDrawerOpen] = useState(false);
   const [benchmarkScopeMode, setBenchmarkScopeMode] =
     useState<CreativeBenchmarkScopeMode>("account");
+  const canonicalResolverParam = searchParams.get("canonicalResolver");
+  const canonicalResolverEnabled = useMemo(() => {
+    const cookieHeader = typeof document === "undefined" ? null : document.cookie;
+    return resolveCreativeCanonicalResolverFlag({
+      searchParams,
+      cookieHeader,
+      businessId,
+    }) === "v1";
+  }, [businessId, searchParams]);
+
+  useEffect(() => {
+    const normalized = canonicalResolverParam?.trim().toLowerCase();
+    if (normalized === "v1" || normalized === "1" || normalized === "true") {
+      persistCreativeCanonicalResolverFlag("v1");
+    }
+    if (normalized === "legacy" || normalized === "0" || normalized === "false") {
+      persistCreativeCanonicalResolverFlag("legacy");
+    }
+  }, [canonicalResolverParam]);
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -513,17 +537,20 @@ export default function CreativesPage() {
   );
   const baseFilteredRows = useMemo(() => {
     if (platform !== "meta") return [];
-    const baseRows = applyCreativeFilters(allRows, topFilters, creativeDecisionOs);
+    const baseRows = applyCreativeFilters(allRows, topFilters, creativeDecisionOs, {
+      useCanonical: canonicalResolverEnabled,
+    });
     if (!familyFocusIds || familyFocusIds.size === 0) return baseRows;
     return baseRows.filter((row) => familyFocusIds.has(row.id));
-  }, [allRows, creativeDecisionOs, familyFocusIds, platform, topFilters]);
+  }, [allRows, canonicalResolverEnabled, creativeDecisionOs, familyFocusIds, platform, topFilters]);
   const quickFilters = useMemo(
     () =>
       buildCreativeQuickFilters(creativeDecisionOs, {
         visibleIds: new Set(baseFilteredRows.map((row) => row.id)),
         includeZeroCounts: true,
+        useCanonical: canonicalResolverEnabled,
       }),
-    [baseFilteredRows, creativeDecisionOs],
+    [baseFilteredRows, canonicalResolverEnabled, creativeDecisionOs],
   );
   const activeQuickFilter = useMemo(
     () =>
@@ -770,7 +797,9 @@ export default function CreativesPage() {
         queryClient.setQueryData(creativeDecisionOsSnapshotQueryKey, snapshotPayload);
         decisionOsForShare = snapshotPayload.decisionOs ?? null;
       }
-      const analysisLookup = buildSharedCreativeAnalysisLookup(decisionOsForShare);
+      const analysisLookup = buildSharedCreativeAnalysisLookup(decisionOsForShare, {
+        useCanonical: canonicalResolverEnabled,
+      });
       const selectedForShare =
         selectionState.selectedRowIds.length > 0
           ? filteredRows.filter((row) => selectionState.selectedRowIds.includes(row.id))
@@ -1205,6 +1234,7 @@ export default function CreativesPage() {
                     rows={deferredFilteredRows}
                     creativeHistoryById={creativeHistoryById}
                     decisionOs={creativeDecisionOs}
+                    canonicalResolverEnabled={canonicalResolverEnabled}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
@@ -1228,6 +1258,7 @@ export default function CreativesPage() {
         allRows={filteredRows}
         creativeHistoryById={creativeHistoryById}
         decisionOs={creativeDecisionOs}
+        canonicalResolverEnabled={canonicalResolverEnabled}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         dateRange={dateRangeValue}
@@ -1271,6 +1302,7 @@ export default function CreativesPage() {
         }}
         onSelectQuickFilter={handlePerformanceQuickFilter}
         onClearFilters={clearCreativeFocusFilters}
+        canonicalResolverEnabled={canonicalResolverEnabled}
       />
     </div>
     </PlanGate>

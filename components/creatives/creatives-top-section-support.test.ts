@@ -188,6 +188,51 @@ describe("applyCreativeFilters", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe("ad_1");
   });
+
+  it("uses canonical decisions for primary action filters when the canonical flag is on", () => {
+    const rows = [
+      mapApiRowToUiRow(buildApiRow()),
+      mapApiRowToUiRow(buildApiRow({ id: "ad_2", creative_id: "cr_2" })),
+    ];
+    const decisionOs = {
+      creatives: [
+        {
+          creativeId: "ad_1",
+          lifecycleState: "scale_ready",
+          primaryAction: "promote_to_scaling",
+          operatorPolicy: { state: "do_now", segment: "scale_ready", pushReadiness: "safe_to_queue" },
+          canonicalDecision: { action: "refresh", actionReadiness: "needs_review" },
+          trust: { surfaceLane: "action_core" },
+          deployment: { targetLane: "Scaling", compatibility: { status: "compatible" } },
+        },
+        {
+          creativeId: "ad_2",
+          lifecycleState: "validating",
+          primaryAction: "keep_in_test",
+          operatorPolicy: { state: "watch", segment: "hold_monitor", pushReadiness: "review" },
+          canonicalDecision: { action: "test_more", actionReadiness: "ready" },
+          trust: { surfaceLane: "watchlist" },
+          deployment: { targetLane: "Test", compatibility: { status: "limited" } },
+        },
+      ],
+    } as any;
+
+    const canonicalResult = applyCreativeFilters(
+      rows,
+      [{ id: "rule_1", field: "primaryAction", operator: "equals", query: "refresh" }],
+      decisionOs,
+      { useCanonical: true },
+    );
+    const legacyResult = applyCreativeFilters(
+      rows,
+      [{ id: "rule_2", field: "primaryAction", operator: "equals", query: "promote_to_scaling" }],
+      decisionOs,
+      { useCanonical: true },
+    );
+
+    expect(canonicalResult.map((row) => row.id)).toEqual(["ad_1"]);
+    expect(legacyResult).toHaveLength(0);
+  });
 });
 
 describe("creative benchmark scope helpers", () => {

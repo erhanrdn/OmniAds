@@ -351,6 +351,7 @@ describe("CreativeDecisionOsSurface", () => {
     );
 
     expect(html).toContain("Today Priority / Buyer Command Strip");
+    expect(html).toContain("Canonical buyer surface");
     expect(html).toContain("Ready for Buyer Confirmation");
     expect(html).toContain("Diagnose First");
     expect(html).not.toContain("Watch");

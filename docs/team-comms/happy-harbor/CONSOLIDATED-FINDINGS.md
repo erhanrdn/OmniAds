@@ -69,22 +69,22 @@ Adsecute production kodunda her creative aynı anda üç farklı decision engine
 classifyLifecycle:
   spend<10 + impressions<500 + purchases=0
     → retired (history >= 2 strong window varsa comeback_candidate)
-  
+
   Recovery operating mode + severe guardrail
     → blocked (purchases>0 + history strong → fatigued_winner)
-  
+
   ROAS=worse + CPA=worse + spend>=150 + purchases<=1
     → blocked (history strong → comeback_candidate)
-  
+
   fatigue.status="fatigued"
     → fatigued_winner
-  
+
   ROAS=better + ClickToPurchase>=ok + purchases>=3 + spend>=150
     → scale_ready (history strong → stable_winner)
-  
+
   lowSignal (spend<120 OR purchases<2 OR impressions<5000)
     → creativeAge<=10 ? incubating : validating
-  
+
   default → validating
 
 decidePrimaryAction(lifecycleState):

@@ -42,6 +42,15 @@ import {
   toHeatAccentColor,
   toHeatCellStyle,
 } from "@/components/creatives/creatives-table-support";
+import {
+  calculateCreativeClickScore as calculateSharedCreativeClickScore,
+  calculateCreativeConvertScore as calculateSharedCreativeConvertScore,
+  calculateCreativeCtaScore as calculateSharedCreativeCtaScore,
+  calculateCreativeHookScore as calculateSharedCreativeHookScore,
+  calculateCreativeOfferScore as calculateSharedCreativeOfferScore,
+  calculateCreativeWatchScore as calculateSharedCreativeWatchScore,
+  type CreativeScoreFormulaInput,
+} from "@/lib/creative-score-formulas";
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -49,8 +58,6 @@ import { type CreativeDecisionOs } from "@/src/services";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
-import type { CreativeVerdict } from "@/lib/creative-verdict";
-import { VerdictBand } from "@/components/creatives/VerdictBand";
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -151,6 +158,7 @@ interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   decisionOs?: CreativeDecisionOs | null;
+  canonicalResolverEnabled?: boolean;
   defaultCurrency: string | null;
   initialPresetName?: string;
   selectedMetricIds: string[];
@@ -220,7 +228,6 @@ export interface HeatEvaluation {
 
 interface CreativeTableRowProps {
   row: MetaCreativeRow;
-  verdict?: CreativeVerdict | null;
   isSelected: boolean;
   highlighted: boolean;
   defaultCurrency: string | null;
@@ -234,6 +241,7 @@ interface CreativeTableRowProps {
   onToggleRow: (rowId: string) => void;
   onOpenRow: (rowId: string) => void;
   onOpenBreakdownRow?: (rowId: string) => void;
+  canonicalDecision?: NonNullable<CreativeDecisionOs>["creatives"][number]["canonicalDecision"];
 }
 
 
@@ -267,7 +275,6 @@ function logPerf(label: string, startMs: number, rowCount: number) {
 }
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
-  verdict: { minWidth: 190, preferredWidth: 220 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
@@ -280,7 +287,6 @@ function getDefaultColumnWidths(): Record<string, number> {
   }, {});
   return {
     creativeName: STATIC_COLUMN_SPECS.creativeName.preferredWidth,
-    verdict: STATIC_COLUMN_SPECS.verdict.preferredWidth,
     launchDate: STATIC_COLUMN_SPECS.launchDate.preferredWidth,
     activeStatus: STATIC_COLUMN_SPECS.activeStatus.preferredWidth,
     adLength: STATIC_COLUMN_SPECS.adLength.preferredWidth,
@@ -297,79 +303,46 @@ function parseLaunchDate(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function scaleMetricToScore(value: number, target: number): number {
-  if (!Number.isFinite(value) || target <= 0) return 0;
-  return clamp((value / target) * 100, 0, 100);
-}
-
-function hasAiTagValue(row: MetaCreativeRow, key: TagKey, value?: string): boolean {
-  const values = row.aiTags?.[key] ?? [];
-  if (!value) return values.length > 0;
-  return values.some((entry) => entry.toLowerCase() === value.toLowerCase());
+function buildCreativeScoreFormulaInput(row: MetaCreativeRow): CreativeScoreFormulaInput {
+  return {
+    format: row.format,
+    thumbstop: row.thumbstop,
+    video25: row.video25,
+    video50: row.video50,
+    video100: row.video100,
+    ctrAll: row.ctrAll,
+    seeMoreRate: row.seeMoreRate,
+    linkCtr: calculateCreativeLinkCtr(row),
+    clickToAddToCartRate: calculateCreativeClickToAddToCartRate(row),
+    clickToPurchaseRate: calculateCreativeClickToPurchaseRate(row),
+    atcToPurchaseRatio: row.atcToPurchaseRatio,
+    roas: row.roas,
+    aiTags: row.aiTags,
+  };
 }
 
 function calculateCreativeHookScore(row: MetaCreativeRow): number {
-  const videoFirstStop = scaleMetricToScore(row.thumbstop, 28);
-  const videoEarlyHold = scaleMetricToScore(row.video25, 32);
-  const imageClickPull = scaleMetricToScore(row.ctrAll, 2.8);
-  const imageReadMore = scaleMetricToScore(row.seeMoreRate, 18);
-  const base = hasVideoEvidence(row)
-    ? videoFirstStop * 0.7 + videoEarlyHold * 0.3
-    : imageClickPull * 0.65 + imageReadMore * 0.35;
-  const hookSignalBoost = hasAiTagValue(row, "hookTactic") ? 6 : 0;
-  const headlineSignalBoost =
-    hasAiTagValue(row, "headlineTactic", "Question Headline") ||
-    hasAiTagValue(row, "headlineTactic", "Number Headline")
-      ? 4
-      : 0;
-  return clamp(base + hookSignalBoost + headlineSignalBoost, 0, 100);
+  return calculateSharedCreativeHookScore(buildCreativeScoreFormulaInput(row));
 }
 
 function calculateCreativeWatchScore(row: MetaCreativeRow): number {
-  if (!hasVideoEvidence(row)) return 0;
-  const hookCarry = scaleMetricToScore(row.thumbstop, 28);
-  const midWatch = scaleMetricToScore(row.video50, 18);
-  const fullWatch = scaleMetricToScore(row.video100, 8);
-  return clamp(hookCarry * 0.2 + midWatch * 0.5 + fullWatch * 0.3, 0, 100);
+  return calculateSharedCreativeWatchScore(buildCreativeScoreFormulaInput(row));
 }
 
 function calculateCreativeClickScore(row: MetaCreativeRow): number {
-  const ctrAllScore = scaleMetricToScore(row.ctrAll, 2.8);
-  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
-  const seeMoreScore = scaleMetricToScore(row.seeMoreRate, 18);
-  return clamp(ctrAllScore * 0.45 + linkCtrScore * 0.4 + seeMoreScore * 0.15, 0, 100);
+  return calculateSharedCreativeClickScore(buildCreativeScoreFormulaInput(row));
 }
 
 function calculateCreativeCtaScore(row: MetaCreativeRow): number {
-  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
-  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
-  const clickToPurchaseScore = scaleMetricToScore(calculateCreativeClickToPurchaseRate(row), 5.5);
-  const ctaSignalBoost = hasAiTagValue(row, "headlineTactic", "CTA Headline") ? 8 : 0;
-  return clamp(
-    linkCtrScore * 0.35 + clickToAtcScore * 0.4 + clickToPurchaseScore * 0.25 + ctaSignalBoost,
-    0,
-    100
-  );
+  return calculateSharedCreativeCtaScore(buildCreativeScoreFormulaInput(row));
 }
 
 function calculateCreativeOfferScore(row: MetaCreativeRow): number {
-  const roasScore = scaleMetricToScore(row.roas, 4);
-  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
-  const atcToPurchaseScore = scaleMetricToScore(row.atcToPurchaseRatio, 42);
-  const explicitOfferBoost =
-    hasAiTagValue(row, "offerType") && !hasAiTagValue(row, "offerType", "No Explicit Offer") ? 10 : 0;
-  return clamp(
-    roasScore * 0.35 + clickToAtcScore * 0.25 + atcToPurchaseScore * 0.4 + explicitOfferBoost,
-    0,
-    100
-  );
+  return calculateSharedCreativeOfferScore(buildCreativeScoreFormulaInput(row));
 }
 
 function calculateCreativeConvertScore(row: MetaCreativeRow): number {
-  const roasScore = scaleMetricToScore(row.roas, 4);
-  const clickToPurchaseScore = scaleMetricToScore(calculateCreativeClickToPurchaseRate(row), 5.5);
-  const atcToPurchaseScore = scaleMetricToScore(row.atcToPurchaseRatio, 42);
-  return clamp(roasScore * 0.45 + clickToPurchaseScore * 0.3 + atcToPurchaseScore * 0.25, 0, 100);
+  return calculateSharedCreativeConvertScore(buildCreativeScoreFormulaInput(row));
 }
 
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
@@ -727,6 +700,7 @@ export function CreativesTableSection({
   rows,
   creativeHistoryById,
   decisionOs,
+  canonicalResolverEnabled = false,
   defaultCurrency,
   initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
@@ -818,13 +792,6 @@ export function CreativesTableSection({
   }, [tagsSearch]);
 
   const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
-  const verdictByCreativeId = useMemo(() => {
-    const next = new Map<string, CreativeVerdict>();
-    for (const creative of decisionOs?.creatives ?? []) {
-      if (creative.verdict) next.set(creative.creativeId, creative.verdict);
-    }
-    return next;
-  }, [decisionOs]);
 
   const ctx: TableCalcContext = useMemo(
     () => ({
@@ -841,6 +808,14 @@ export function CreativesTableSection({
     () => tablePreset.selectedColumns.map((key) => TABLE_COLUMN_MAP[key]).filter(Boolean),
     [tablePreset.selectedColumns]
   );
+  const canonicalDecisionById = useMemo(() => {
+    const lookup = new Map<string, NonNullable<CreativeDecisionOs>["creatives"][number]["canonicalDecision"]>();
+    if (!canonicalResolverEnabled) return lookup;
+    for (const creative of decisionOs?.creatives ?? []) {
+      lookup.set(creative.creativeId, creative.canonicalDecision);
+    }
+    return lookup;
+  }, [canonicalResolverEnabled, decisionOs]);
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
   const presetTagSummary = useMemo(
     () => selectedAiTagColumns.map((tagKey) => prettyTagLabel(tagKey)).join(", "),
@@ -952,7 +927,6 @@ export function CreativesTableSection({
   const totalTableWidth = useMemo(() => {
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
     let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
-    w += cw("verdict", STATIC_COLUMN_SPECS.verdict.minWidth, STATIC_COLUMN_SPECS.verdict.preferredWidth);
     if (tablePreset.showLaunchDate) w += cw("launchDate", STATIC_COLUMN_SPECS.launchDate.minWidth, STATIC_COLUMN_SPECS.launchDate.preferredWidth);
     if (tablePreset.showActiveStatus) w += cw("activeStatus", STATIC_COLUMN_SPECS.activeStatus.minWidth, STATIC_COLUMN_SPECS.activeStatus.preferredWidth);
     if (tablePreset.showAdLength) w += cw("adLength", STATIC_COLUMN_SPECS.adLength.minWidth, STATIC_COLUMN_SPECS.adLength.preferredWidth);
@@ -966,7 +940,7 @@ export function CreativesTableSection({
     return w;
   }, [columnWidths, tablePreset, selectedAiTagColumns, selectedColumns]);
   const tableColumnCount =
-    2 +
+    1 +
     selectedColumns.length +
     selectedAiTagColumns.length +
     Number(tablePreset.showLaunchDate) +
@@ -1476,35 +1450,6 @@ export function CreativesTableSection({
                 </div>
               </th>
 
-              <th
-                className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
-                style={{
-                  minWidth: STATIC_COLUMN_SPECS.verdict.minWidth,
-                  width: getColumnWidth(
-                    "verdict",
-                    STATIC_COLUMN_SPECS.verdict.minWidth,
-                    STATIC_COLUMN_SPECS.verdict.preferredWidth
-                  ),
-                }}
-              >
-                Verdict
-                <button
-                  type="button"
-                  aria-label="Resize Verdict column"
-                  className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
-                  onMouseDown={(event) =>
-                    startColumnResize(
-                      event,
-                      "verdict",
-                      STATIC_COLUMN_SPECS.verdict.minWidth,
-                      STATIC_COLUMN_SPECS.verdict.preferredWidth
-                    )
-                  }
-                >
-                  <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
-                </button>
-              </th>
-
               {tablePreset.showLaunchDate && (
                 <th
                   className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
@@ -1722,7 +1667,6 @@ export function CreativesTableSection({
               <CreativeTableRow
                 key={row.id}
                 row={row}
-                verdict={verdictByCreativeId.get(row.id) ?? null}
                 isSelected={selectedRowIdSet.has(row.id)}
                 highlighted={highlightedRowId === row.id}
                 defaultCurrency={defaultCurrency}
@@ -1736,6 +1680,7 @@ export function CreativesTableSection({
                 onToggleRow={onToggleRow}
                 onOpenRow={onOpenRow}
                 onOpenBreakdownRow={onOpenBreakdownRow}
+                canonicalDecision={canonicalDecisionById.get(row.id)}
               />
             ))}
             {bottomSpacerHeight > 0 && (
@@ -1760,7 +1705,6 @@ export function CreativesTableSection({
                 Net Results
               </td>
 
-              <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>
               {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
@@ -1873,7 +1817,6 @@ export function CreativesTableSection({
 
 const CreativeTableRow = memo(function CreativeTableRow({
   row,
-  verdict,
   isSelected,
   highlighted,
   defaultCurrency,
@@ -1887,6 +1830,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
   onToggleRow,
   onOpenRow,
   onOpenBreakdownRow,
+  canonicalDecision,
 }: CreativeTableRowProps) {
   const assetFallbacks = useMemo(
     () => getCreativeStaticPreviewSources(row, "table"),
@@ -1894,6 +1838,21 @@ const CreativeTableRow = memo(function CreativeTableRow({
   );
   const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
+  const canonicalActionLabel = canonicalDecision
+    ? canonicalDecision.action.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase())
+    : null;
+  const canonicalToneClass =
+    canonicalDecision?.action === "scale"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : canonicalDecision?.action === "protect"
+        ? "border-blue-200 bg-blue-50 text-blue-800"
+        : canonicalDecision?.action === "refresh"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : canonicalDecision?.action === "cut"
+            ? "border-rose-200 bg-rose-50 text-rose-800"
+            : canonicalDecision?.action === "diagnose"
+              ? "border-slate-200 bg-slate-50 text-slate-700"
+              : "border-sky-200 bg-sky-50 text-sky-800";
 
   return (
     <tr
@@ -1927,6 +1886,20 @@ const CreativeTableRow = memo(function CreativeTableRow({
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
             <p className="mt-1 truncate text-[9px] text-muted-foreground">
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
+              {canonicalDecision && canonicalActionLabel ? (
+                <span
+                  className={cn(
+                    "ml-0 inline-flex rounded-full border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide",
+                    canonicalToneClass,
+                  )}
+                  data-testid="creative-table-canonical-action"
+                >
+                  {canonicalActionLabel}
+                  {canonicalDecision.actionReadiness !== "ready"
+                    ? ` / ${canonicalDecision.actionReadiness.replaceAll("_", " ")}`
+                    : ""}
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={(event) => {
@@ -1944,14 +1917,6 @@ const CreativeTableRow = memo(function CreativeTableRow({
             </p>
           </div>
         </div>
-      </td>
-
-      <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
-        {verdict ? (
-          <VerdictBand verdict={verdict} size="compact" />
-        ) : (
-          <span className="text-[9px] text-slate-400">-</span>
-        )}
       </td>
 
       {tablePreset.showLaunchDate && (

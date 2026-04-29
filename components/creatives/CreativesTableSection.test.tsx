@@ -344,7 +344,7 @@ describe("CreativesTableSection", () => {
     expect(html).not.toContain("Promote now");
   });
 
-  it("marks legacy null-phase verdicts as needing analysis in the verdict column", () => {
+  it("keeps legacy null-phase verdict snapshots out of the canonical verdict column", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(
       <CreativesTableSection
@@ -377,8 +377,8 @@ describe("CreativesTableSection", () => {
       />,
     );
 
-    expect(html).toContain("Verdict");
-    expect(html).toContain("NEEDS ANALYSIS");
+    expect(html).toContain("Truth Gated Creative");
+    expect(html).not.toContain("NEEDS ANALYSIS");
   });
 
   it("renders the updated heatmap legend copy for the creatives table", () => {

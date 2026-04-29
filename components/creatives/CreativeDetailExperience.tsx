@@ -33,12 +33,7 @@ import {
   creativeBenchmarkReliabilityLabel,
   creativeBusinessValidationNote,
 } from "@/lib/creative-operator-surface";
-import {
-  VerdictBand,
-  VerdictWhy,
-  getVerdictActionConfig,
-} from "@/components/creatives/VerdictBand";
-import type { CreativeAction } from "@/lib/creative-verdict";
+import { resolveCreativeCanonicalDecision } from "@/lib/creative-canonical-decision";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -46,6 +41,7 @@ interface CreativeDetailExperienceProps {
   allRows: MetaCreativeRow[];
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   decisionOs?: CreativeDecisionOs | null;
+  canonicalResolverEnabled?: boolean;
   open: boolean;
   notes: string;
   dateRange: CreativeDateRangeValue;
@@ -219,6 +215,7 @@ export function CreativeDetailExperience({
   allRows,
   creativeHistoryById,
   decisionOs,
+  canonicalResolverEnabled = false,
   open,
   notes,
   dateRange,
@@ -230,7 +227,6 @@ export function CreativeDetailExperience({
   const language = usePreferencesStore((state) => state.language);
   const creativeTranslations = getTranslations(language).creativeDetail;
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
-  const [verdictActionNotice, setVerdictActionNotice] = useState<string | null>(null);
   const livePreviewStageRef = useRef<HTMLDivElement | null>(null);
   const livePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [livePreviewScale, setLivePreviewScale] = useState(1);
@@ -309,9 +305,37 @@ export function CreativeDetailExperience({
     () => (row ? decisionOs?.creatives.find((creative) => creative.creativeId === row.id) ?? null : null),
     [decisionOs, row]
   );
+  const fallbackCanonicalDecision = useMemo(() => {
+    if (!canonicalResolverEnabled || !row || decisionOsCreative?.canonicalDecision) return null;
+    return resolveCreativeCanonicalDecision({
+      creativeId: row.id,
+      creativeName: row.name,
+      creativeFormat: row.format,
+      spend: row.spend,
+      purchases: row.purchases,
+      purchaseValue: row.purchaseValue,
+      impressions: row.impressions,
+      linkClicks: row.linkClicks,
+      roas: row.roas,
+      cpa: row.cpa,
+      ctr: row.ctrAll,
+      aiTags: row.aiTags,
+      commercialTruthConfigured: false,
+    });
+  }, [canonicalResolverEnabled, decisionOsCreative?.canonicalDecision, row]);
+  const canonicalDecision = decisionOsCreative?.canonicalDecision ?? fallbackCanonicalDecision;
+  const canonicalFallbackBadge =
+    canonicalResolverEnabled && decisionOsCreative && !decisionOsCreative.canonicalDecision
+      ? "Legacy snapshot — canonical decision computed from row metrics. Re-run analysis to persist it."
+      : null;
   const operatorItem = useMemo(
-    () => (decisionOsCreative ? buildCreativeOperatorItem(decisionOsCreative) : null),
-    [decisionOsCreative],
+    () =>
+      decisionOsCreative
+        ? buildCreativeOperatorItem(decisionOsCreative, {
+            useCanonical: canonicalResolverEnabled && Boolean(decisionOsCreative.canonicalDecision),
+          })
+        : null,
+    [canonicalResolverEnabled, decisionOsCreative],
   );
   const businessValidationNote = useMemo(
     () => (decisionOsCreative ? creativeBusinessValidationNote(decisionOsCreative) : null),
@@ -368,38 +392,7 @@ export function CreativeDetailExperience({
       nextStep: report.summary,
     } satisfies CreativeDecision;
   }, [report]);
-  const useLegacyVerdictContract =
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("verdictContract") === "v0";
   const previewTruth = decisionOsCreative?.previewStatus ?? null;
-  const handleVerdictAction = (action: CreativeAction) => {
-    if (!row || !decisionOsCreative?.verdict) return;
-    const actionConfig = getVerdictActionConfig(action);
-    const event = {
-      eventName: "creative_verdict_action_requested",
-      creativeId: row.id,
-      businessId,
-      verdict: {
-        headline: decisionOsCreative.verdict.headline,
-        action,
-        actionReadiness: decisionOsCreative.verdict.actionReadiness,
-        phase: decisionOsCreative.verdict.phase,
-        phaseSource: decisionOsCreative.verdict.phaseSource ?? null,
-      },
-    };
-    console.info("[creative_verdict_action_requested]", event);
-    window.dispatchEvent(new CustomEvent("creative_verdict_action_requested", { detail: event }));
-    if (action === "scale") {
-      const scaleEvent = { ...event, eventName: "creative_promote_to_scale_requested" };
-      console.info("[creative_promote_to_scale_requested]", scaleEvent);
-      window.dispatchEvent(
-        new CustomEvent("creative_promote_to_scale_requested", { detail: scaleEvent }),
-      );
-      setVerdictActionNotice("Scale promotion logged. Live mutation will be available in Faz E.");
-      return;
-    }
-    setVerdictActionNotice(`${actionConfig.label} intent logged. Live mutation will be available in Faz E.`);
-  };
   const canGenerateAiInterpretation =
     decisionOsCreative?.trust.truthState === "live_confident" &&
     previewTruth?.liveDecisionWindow === "ready";
@@ -740,47 +733,52 @@ export function CreativeDetailExperience({
 
               {/* Block 1: Verdict */}
               {(() => {
-                const verdict = decisionOsCreative.verdict;
-                const shouldUseLegacyVerdict = useLegacyVerdictContract || !verdict;
-                const legacyTheme = shouldUseLegacyVerdict
-                  ? getLegacyVerdictTheme(
-                      decision.action,
-                      report.lifecycleState ?? decision.lifecycleState,
+                const vt = operatorItem
+                  ? getPrimaryDecisionVerdictTheme(
+                      operatorItem.primaryAction,
+                      operatorItem.authorityLabel,
                     )
-                  : null;
+                  : getVerdictTheme(decision.action, report.lifecycleState ?? decision.lifecycleState);
                 return (
                   <div className="flex flex-col gap-2.5" data-testid="creative-detail-verdict">
-                    {legacyTheme ? (
-                      <div
-                        className={cn(
-                          "flex min-h-16 items-center justify-between gap-3 rounded-lg px-4 py-3",
-                          legacyTheme.band,
-                        )}
-                      >
-                        <div className="min-w-0">
-                          <div className={cn("truncate text-[18px] font-semibold leading-tight", legacyTheme.titleClass)}>
-                            {legacyTheme.label}
-                          </div>
-                          <div className={cn("text-[12px] leading-snug", legacyTheme.bodyClass)}>
-                            {legacyTheme.tagline}
-                          </div>
+                    <div className={cn("flex items-center justify-between gap-3 rounded-2xl px-4 py-3.5", vt.band)} style={{ minHeight: 64 }}>
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <div className={cn("text-[22px] font-semibold leading-none tracking-tight", vt.titleClass)}>
+                          {vt.label}
                         </div>
-                        <div className={cn("shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em]", legacyTheme.pill)}>
-                          legacy
-                        </div>
+                        <div className={cn("text-[12px] leading-snug", vt.bodyClass)}>{vt.tagline}</div>
                       </div>
-                    ) : verdict ? (
-                      <>
-                        <VerdictBand verdict={verdict} onAction={handleVerdictAction} />
-                        <VerdictWhy verdict={verdict} />
-                        {verdictActionNotice ? (
-                          <p className="px-1 text-[11px] font-medium text-emerald-700">
-                            {verdictActionNotice}
-                          </p>
-                        ) : null}
-                      </>
+                      <div className={cn("shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em]", vt.pill)}>
+                        {vt.label}
+                      </div>
+                    </div>
+                    <p className="px-1 text-[13px] leading-relaxed text-slate-600">
+                      {canonicalResolverEnabled && canonicalDecision
+                        ? canonicalDecision.primaryReason
+                        : decisionOsCreative?.summary ?? "Legacy snapshot — re-run analysis to refresh the decision payload."}
+                    </p>
+                    {canonicalFallbackBadge ? (
+                      <p className="px-1 text-[11px] font-semibold text-amber-700">
+                        {canonicalFallbackBadge}
+                      </p>
                     ) : null}
-                    <p className="px-1 text-[13px] leading-relaxed text-slate-600">{decisionOsCreative.summary}</p>
+                    {canonicalResolverEnabled && canonicalDecision ? (
+                      <div className="flex flex-wrap gap-1 px-1">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          Confidence {canonicalDecision.confidence.label}
+                        </span>
+                        {canonicalDecision.actionReadiness !== "ready" ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {canonicalDecision.actionReadiness.replaceAll("_", " ")}
+                          </span>
+                        ) : null}
+                        {canonicalDecision.reasonChips.slice(0, 3).map((chip) => (
+                          <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                            {chip.replaceAll("_", " ")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     {previewTruth?.liveDecisionWindow !== "ready" ? (
                       <p className="px-1 text-[11px] text-amber-700">
                         Preview {(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")} — analysis is metrics-only.
@@ -1108,7 +1106,7 @@ type VerdictTheme = {
   tagline: string;
 };
 
-function getLegacyVerdictTheme(
+function getVerdictTheme(
   action: CreativeDecision["action"],
   lifecycleState: CreativeDecision["lifecycleState"] | undefined,
 ): VerdictTheme {
@@ -1167,6 +1165,76 @@ function getLegacyVerdictTheme(
     titleClass: "text-[#1e40af]",
     bodyClass: "text-[#3b82f6]",
     pill: "bg-[#0284c7] text-white",
+    label: "Diagnose",
+    tagline: "Context or evidence needs review",
+  };
+}
+
+function getPrimaryDecisionVerdictTheme(
+  primaryAction: string,
+  authorityLabel?: string | null,
+): VerdictTheme {
+  if (primaryAction === "Scale") {
+    return {
+      band: "bg-[#ecfdf5] border-l-4 border-[#10b981]",
+      titleClass: "text-[#047857]",
+      bodyClass: "text-[#059669]",
+      pill: "bg-[#059669] text-white",
+      label: "Scale",
+      tagline:
+        authorityLabel === "Review only"
+          ? "Review only — business target missing"
+          : "Ready to scale — above benchmark",
+    };
+  }
+  if (primaryAction === "Test More") {
+    return {
+      band: "bg-[#f0f9ff] border-l-4 border-[#0ea5e9]",
+      titleClass: "text-[#0c4a6e]",
+      bodyClass: "text-[#0284c7]",
+      pill: "bg-[#0284c7] text-white",
+      label: "Test More",
+      tagline: "Promising — collect more evidence",
+    };
+  }
+  if (primaryAction === "Protect") {
+    return {
+      band: "bg-[#eff6ff] border-l-4 border-[#3b82f6]",
+      titleClass: "text-[#1e3a8a]",
+      bodyClass: "text-[#1d4ed8]",
+      pill: "bg-[#2563eb] text-white",
+      label: "Protect",
+      tagline: "Stable winner — do not change",
+    };
+  }
+  if (primaryAction === "Refresh") {
+    return {
+      band: "bg-[#fffbeb] border-l-4 border-[#f59e0b]",
+      titleClass: "text-[#92400e]",
+      bodyClass: "text-[#b45309]",
+      pill: "bg-[#d97706] text-white",
+      label: "Refresh",
+      tagline:
+        authorityLabel === "Revive"
+          ? "Comeback candidate — review reactivation"
+          : "Plan a new variant or refresh",
+    };
+  }
+  if (primaryAction === "Cut") {
+    return {
+      band: "bg-[#fff1f2] border-l-4 border-[#f43f5e]",
+      titleClass: "text-[#9f1239]",
+      bodyClass: "text-[#be123c]",
+      pill: "bg-[#e11d48] text-white",
+      label: "Cut",
+      tagline: "Below benchmark — operator review",
+    };
+  }
+  return {
+    band: "bg-[#f8fafc] border-l-4 border-[#64748b]",
+    titleClass: "text-[#334155]",
+    bodyClass: "text-[#475569]",
+    pill: "bg-[#475569] text-white",
     label: "Diagnose",
     tagline: "Context or evidence needs review",
   };

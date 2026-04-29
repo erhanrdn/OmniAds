@@ -44,6 +44,7 @@ type CreativeDecisionOsDrawerProps = {
   onSelectFamily: (familyId: string | null) => void;
   onSelectQuickFilter: (key: CreativeQuickFilterKey) => void;
   onClearFilters: () => void;
+  canonicalResolverEnabled?: boolean;
 };
 
 export function CreativeDecisionOsDrawer({
@@ -64,6 +65,7 @@ export function CreativeDecisionOsDrawer({
   onSelectFamily,
   onSelectQuickFilter,
   onClearFilters,
+  canonicalResolverEnabled = false,
 }: CreativeDecisionOsDrawerProps) {
   const [width, setWidth] = useState(CREATIVE_DECISION_OS_DRAWER_DEFAULT_WIDTH);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -250,6 +252,7 @@ export function CreativeDecisionOsDrawer({
             quickFilters={quickFilters}
             activeQuickFilterKey={activeQuickFilterKey}
             onSelectQuickFilter={onSelectQuickFilter}
+            canonicalResolverEnabled={canonicalResolverEnabled}
           />
         </div>
       </aside>

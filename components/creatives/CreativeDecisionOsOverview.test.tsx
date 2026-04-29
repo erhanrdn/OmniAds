@@ -499,4 +499,54 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).not.toContain("Evergreen Winners");
     expect(html).not.toContain("Cut / Campaign Check");
   });
+
+  it("uses canonical action labels for overview primary surfaces when the flag is enabled", () => {
+    const model = payload();
+    model.creatives[0].canonicalDecision = {
+      action: "refresh",
+      actionReadiness: "needs_review",
+      confidence: {
+        value: 0.7,
+        deterministic: 0.7,
+        calibrationCap: 0.72,
+        calibrationStatus: "uncalibrated",
+        evidence: 0.8,
+        signalConsistency: 0.7,
+        calibrationFreshness: 0.9,
+        label: "medium",
+      },
+      primaryReason: "Canonical resolver says this winner needs a refresh.",
+      reasonChips: ["canonical_refresh"],
+      debug: {
+        score: 72,
+        subScores: {},
+        readinessReasons: ["commercial_truth_missing"],
+        diagnosticFlags: [],
+        calibrationVersion: "global-default-v0.5",
+        resolverVersion: "canonical-v0.5",
+      },
+    };
+    model.families[0].lifecycleState = "scale_ready";
+    model.families[0].primaryAction = "promote_to_scaling";
+    model.patterns[0].lifecycleState = "scale_ready";
+
+    const html = renderToStaticMarkup(
+      <CreativeDecisionOsOverview
+        decisionOs={model}
+        quickFilters={buildCreativeQuickFilters(model, { useCanonical: true })}
+        isLoading={false}
+        activeFamilyId={null}
+        activeQuickFilterKey={null}
+        onSelectFamily={vi.fn()}
+        onSelectQuickFilter={vi.fn()}
+        canonicalResolverEnabled
+      />,
+    );
+
+    expect(html).toContain("Canonical resolver says this winner needs a refresh.");
+    expect(html).toMatch(/Scale[\s\S]*0/);
+    expect(html).toMatch(/Refresh[\s\S]*1/);
+    expect(html).toContain("refresh");
+    expect(html).not.toContain("safe to queue");
+  });
 });

@@ -371,7 +371,7 @@ describe("CreativeDetailExperience", () => {
     expect(html).not.toContain("Generate AI interpretation");
   });
 
-  it("shows the break-even median proxy badge when verdict evidence uses fallback calibration", () => {
+  it("does not surface Happy Harbor break-even proxy badges in the canonical refactor branch", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const decisionOsRow = buildDecisionOsRow(row.id, {
       verdict: {
@@ -410,11 +410,12 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Break-even: median proxy");
-    expect(html).toContain("/commercial-truth");
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("Break-even: median proxy");
+    expect(html).not.toContain("/commercial-truth");
   });
 
-  it("shows an amber phase migration badge for legacy verdict snapshots", () => {
+  it("keeps legacy null-phase verdict snapshot badges out of the canonical detail surface", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const decisionOsRow = buildDecisionOsRow(row.id, {
       verdict: {
@@ -453,12 +454,12 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("NEEDS ANALYSIS");
-    expect(html).toContain("Needs Diagnosis");
-    expect(html).toContain("Action is blocked.");
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("NEEDS ANALYSIS");
+    expect(html).not.toContain("Action is blocked.");
   });
 
-  it("shows the Promote to Scale CTA for ready test winners", () => {
+  it("does not expose the Happy Harbor Promote to Scale CTA from legacy verdict payloads", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const decisionOsRow = buildDecisionOsRow(row.id, {
       verdict: {
@@ -498,7 +499,8 @@ describe("CreativeDetailExperience", () => {
       />,
     );
 
-    expect(html).toContain("Promote to Scale");
+    expect(html).toContain("Preview Missing Creative");
+    expect(html).not.toContain("Promote to Scale");
   });
 
   it("keeps AI interpretation support-only when preview truth is ready", () => {

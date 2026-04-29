@@ -193,6 +193,7 @@ interface CreativesTopSectionProps {
   activeQuickFilterKey?: CreativeQuickFilterKey | null;
   onToggleQuickFilter?: (key: CreativeQuickFilterKey) => void;
   showDecisionSupportSurface?: boolean;
+  canonicalResolverEnabled?: boolean;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -558,6 +559,7 @@ export function CreativesTopSection({
   activeQuickFilterKey = null,
   onToggleQuickFilter,
   showDecisionSupportSurface = true,
+  canonicalResolverEnabled = false,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
@@ -615,6 +617,7 @@ export function CreativesTopSection({
             filters={filters}
             rows={allRowsForHeatmap}
             decisionOs={decisionOs ?? null}
+            canonicalResolverEnabled={canonicalResolverEnabled}
             onChange={onFiltersChange}
           />
 
@@ -708,6 +711,7 @@ export function CreativesTopSection({
           activeQuickFilterKey={activeQuickFilterKey}
           onToggleQuickFilter={onToggleQuickFilter}
           className="mt-4"
+          canonicalResolverEnabled={canonicalResolverEnabled}
         />
       ) : null}
 
@@ -773,6 +777,7 @@ export function CreativesTopSection({
           previewStripSummary={previewStripSummary}
           previewTruthSummary={selectedPreviewTruthSummary}
           decisionOs={decisionOs}
+          canonicalResolverEnabled={canonicalResolverEnabled}
         />
       </div>
     </section>
@@ -794,11 +799,13 @@ function AddFilterDropdown({
   filters,
   rows,
   decisionOs,
+  canonicalResolverEnabled,
   onChange,
 }: {
   filters: CreativeFilterRule[];
   rows: MetaCreativeRow[];
   decisionOs: CreativeDecisionOsV1Response | null;
+  canonicalResolverEnabled?: boolean;
   onChange: (next: CreativeFilterRule[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -879,15 +886,45 @@ function AddFilterDropdown({
       case "isCatalog":
         return ["true", "false"];
       case "lifecycleState":
-        return collect(decisionOs?.creatives.map((creative) => creative.lifecycleState) ?? []);
+        return collect(
+          decisionOs?.creatives.map((creative) =>
+            canonicalResolverEnabled
+              ? creative.canonicalDecision?.action ?? null
+              : creative.lifecycleState,
+          ) ?? [],
+        );
       case "primaryAction":
-        return collect(decisionOs?.creatives.map((creative) => creative.primaryAction) ?? []);
+        return collect(
+          decisionOs?.creatives.map((creative) =>
+            canonicalResolverEnabled
+              ? creative.canonicalDecision?.action ?? null
+              : creative.primaryAction,
+          ) ?? [],
+        );
       case "operatorSegment":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.segment ?? null) ?? []);
+        return collect(
+          decisionOs?.creatives.map((creative) =>
+            canonicalResolverEnabled
+              ? creative.canonicalDecision?.action ?? null
+              : creative.operatorPolicy?.segment ?? null,
+          ) ?? [],
+        );
       case "operatorState":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.state ?? null) ?? []);
+        return collect(
+          decisionOs?.creatives.map((creative) =>
+            canonicalResolverEnabled
+              ? creative.canonicalDecision?.actionReadiness ?? null
+              : creative.operatorPolicy?.state ?? null,
+          ) ?? [],
+        );
       case "pushReadiness":
-        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.pushReadiness ?? null) ?? []);
+        return collect(
+          decisionOs?.creatives.map((creative) =>
+            canonicalResolverEnabled
+              ? creative.canonicalDecision?.actionReadiness ?? null
+              : creative.operatorPolicy?.pushReadiness ?? null,
+          ) ?? [],
+        );
       case "surfaceLane":
         return collect(decisionOs?.creatives.map((creative) => creative.trust.surfaceLane) ?? []);
       case "familySource":
@@ -910,7 +947,7 @@ function AddFilterDropdown({
       default:
         return collect(rows.flatMap((row) => row.tags ?? []));
     }
-  }, [decisionOs, field, rows]);
+  }, [canonicalResolverEnabled, decisionOs, field, rows]);
 
   const filteredSuggestions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1361,6 +1398,7 @@ function PreviewStrip({
   previewStripSummary,
   previewTruthSummary,
   decisionOs,
+  canonicalResolverEnabled = false,
 }: {
   businessId?: string;
   rows: MetaCreativeRow[];
@@ -1381,6 +1419,7 @@ function PreviewStrip({
   };
   previewTruthSummary?: CreativePreviewTruthSummary | null;
   decisionOs?: CreativeDecisionOsV1Response | null;
+  canonicalResolverEnabled?: boolean;
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
@@ -1470,15 +1509,19 @@ function PreviewStrip({
       { primary: string; subTone: string | null; reasons: string[] }
     >();
     for (const creative of decisionOs?.creatives ?? []) {
-      const decision = resolveCreativeOperatorDecision(creative);
+      const decision = resolveCreativeOperatorDecision(creative, {
+        useCanonical: canonicalResolverEnabled,
+      });
       map.set(creative.creativeId, {
-        primary: creativeOperatorSegmentLabel(creative),
+        primary: canonicalResolverEnabled
+          ? decision.primary
+          : creativeOperatorSegmentLabel(creative),
         subTone: creativeOperatorSubToneLabel(decision.subTone),
         reasons: decision.reasons.map(creativeOperatorReasonTagLabel),
       });
     }
     return map;
-  }, [decisionOs]);
+  }, [canonicalResolverEnabled, decisionOs]);
 
   if (previewStripState === "data_loading") {
     return (

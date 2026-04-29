@@ -72,6 +72,7 @@ type CreativeDecisionSupportSurfaceProps = {
   activeQuickFilterKey?: CreativeQuickFilterKey | null;
   onToggleQuickFilter?: (key: CreativeQuickFilterKey) => void;
   className?: string;
+  canonicalResolverEnabled?: boolean;
 };
 
 export function CreativeDecisionSupportSurface({
@@ -82,13 +83,15 @@ export function CreativeDecisionSupportSurface({
   activeQuickFilterKey = null,
   onToggleQuickFilter,
   className,
+  canonicalResolverEnabled = false,
 }: CreativeDecisionSupportSurfaceProps) {
   const operatorSurface = useMemo(
     () =>
       buildCreativeOperatorSurfaceModel(decisionOs ?? null, {
         visibleIds: new Set(allRows.map((row) => row.id)),
+        useCanonical: canonicalResolverEnabled,
       }),
-    [allRows, decisionOs],
+    [allRows, canonicalResolverEnabled, decisionOs],
   );
   const previewTruthSummary = useMemo(
     () =>

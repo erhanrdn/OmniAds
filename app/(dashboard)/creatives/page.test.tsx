@@ -9,6 +9,7 @@ let mockDateRange = {
   lastDays: 14,
   sinceDate: "",
 };
+let mockSearchParams = new URLSearchParams();
 let observedQueryKeys: Record<string, unknown[]> = {};
 let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
 const mutateRunAnalysis = vi.fn();
@@ -69,6 +70,7 @@ vi.mock("next/dynamic", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -246,6 +248,7 @@ describe("Creatives page Decision OS snapshot contract", () => {
       lastDays: 14,
       sinceDate: "",
     };
+    mockSearchParams = new URLSearchParams();
   });
 
   it("loads snapshots without date range in the Decision OS query identity", () => {
