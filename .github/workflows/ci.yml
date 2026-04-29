@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'docs/team-comms/**'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
