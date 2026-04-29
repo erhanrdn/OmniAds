@@ -81,7 +81,6 @@ import {
 } from "@/lib/creative-operator-surface";
 import {
   persistCreativeCanonicalResolverFlag,
-  resolveCreativeCanonicalResolverFlag,
 } from "@/lib/creative-decision-feature-flag";
 
 function clampCreativeDateRangeToHistoryLimit(
@@ -143,6 +142,28 @@ function formatSnapshotTimestamp(value: string | null | undefined) {
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
+function normalizeCanonicalResolverOverride(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "v1" || normalized === "1" || normalized === "true" || normalized === "canonical") {
+    return "v1";
+  }
+  if (normalized === "legacy" || normalized === "0" || normalized === "false" || normalized === "off") {
+    return "legacy";
+  }
+  return null;
+}
+
+function readCanonicalResolverCookie() {
+  if (typeof document === "undefined") return null;
+  const cookie = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("canonicalResolver="));
+  if (!cookie) return null;
+  return decodeURIComponent(cookie.split("=").slice(1).join("="));
+}
+
 export default function CreativesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -197,14 +218,31 @@ export default function CreativesPage() {
   const [benchmarkScopeMode, setBenchmarkScopeMode] =
     useState<CreativeBenchmarkScopeMode>("account");
   const canonicalResolverParam = searchParams.get("canonicalResolver");
-  const canonicalResolverEnabled = useMemo(() => {
-    const cookieHeader = typeof document === "undefined" ? null : document.cookie;
-    return resolveCreativeCanonicalResolverFlag({
-      searchParams,
-      cookieHeader,
-      businessId,
-    }) === "v1";
-  }, [businessId, searchParams]);
+  const canonicalResolverServerQuery = useQuery({
+    queryKey: ["creative-canonical-resolver-assignment", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/creatives/canonical-resolver?businessId=${encodeURIComponent(businessId)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error("Unable to resolve canonical resolver assignment.");
+      }
+      return (await response.json()) as { cohort?: string };
+    },
+  });
+  const canonicalResolverOverride = useMemo(
+    () =>
+      normalizeCanonicalResolverOverride(canonicalResolverParam) ??
+      normalizeCanonicalResolverOverride(readCanonicalResolverCookie()),
+    [canonicalResolverParam],
+  );
+  const canonicalResolverEnabled = canonicalResolverOverride
+    ? canonicalResolverOverride === "v1"
+    : canonicalResolverServerQuery.data?.cohort === "canonical-v1";
 
   useEffect(() => {
     const normalized = canonicalResolverParam?.trim().toLowerCase();
