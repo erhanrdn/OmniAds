@@ -34,9 +34,13 @@ describe("Creative Decision Center V2.1 spike artifacts", () => {
   });
 
   it("does not emit row-level brief_variation in shadow output", () => {
-    const report = readJson<{ rows: Array<{ afterBuyerAction: string }> }>("before-after-shadow");
+    const report = readJson<{ rows: Array<{ afterBuyerAction: string }> }>(
+      "before-after-shadow",
+    );
 
-    expect(report.rows.some((row) => row.afterBuyerAction === "brief_variation")).toBe(false);
+    expect(
+      report.rows.some((row) => row.afterBuyerAction === "brief_variation"),
+    ).toBe(false);
   });
 
   it("enforces safety invariants in fixture-backed shadow output", () => {
@@ -60,7 +64,10 @@ describe("Creative Decision Center V2.1 spike artifacts", () => {
         expect(row.topReasonTag).toBe("disapproved_or_limited");
         expect(row.missingData).toHaveLength(0);
       }
-      if (["scale", "cut"].includes(row.afterBuyerAction) && row.missingData.length > 0) {
+      if (
+        ["scale", "cut"].includes(row.afterBuyerAction) &&
+        row.missingData.length > 0
+      ) {
         expect(row.afterConfidenceBand).not.toBe("high");
       }
       if (row.creativeName.toLowerCase().includes("disapproved")) {
@@ -73,11 +80,13 @@ describe("Creative Decision Center V2.1 spike artifacts", () => {
   });
 
   it("captures metamorphic sensitivity for freshness and benchmark changes", () => {
-    const report = readJson<Array<{
-      config: string;
-      decisionsChanged: number;
-      unsafeScaleCut: number;
-    }>>("config-sensitivity");
+    const report = readJson<
+      Array<{
+        config: string;
+        decisionsChanged: number;
+        unsafeScaleCut: number;
+      }>
+    >("config-sensitivity");
 
     const aggressive = report.find((item) => item.config === "aggressive");
     const conservative = report.find((item) => item.config === "conservative");
@@ -93,14 +102,20 @@ describe("Creative Decision Center V2.1 spike artifacts", () => {
 
     const offenders = files.filter((file) => {
       const source = readFileSync(file, "utf8");
-      return /buyerAction\s*=|buyerAction:\s*|afterBuyerAction|brief_variation/.test(source);
+      return /buyerAction\s*=|buyerAction:\s*|afterBuyerAction|brief_variation/.test(
+        source,
+      );
     });
 
     expect(offenders).toEqual([]);
   });
 
   it("records live-read status explicitly", () => {
-    const status = readJson<{ attempted: boolean; reason: string; missingEnv: string[] }>("live-status");
+    const status = readJson<{
+      attempted: boolean;
+      reason: string;
+      missingEnv: string[];
+    }>("live-status");
 
     expect(typeof status.attempted).toBe("boolean");
     expect(status.reason.length).toBeGreaterThan(0);
