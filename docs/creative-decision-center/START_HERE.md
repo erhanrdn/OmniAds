@@ -51,6 +51,8 @@ PR 2: golden fixtures + invariant tests, or PR 1 completion if the owner wants t
 
 ## Files
 
+### Canonical Context Files
+
 - [CONTEXT_SNAPSHOT.md](./CONTEXT_SNAPSHOT.md)
 - [DECISION_LOG.md](./DECISION_LOG.md)
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
@@ -69,3 +71,21 @@ PR 2: golden fixtures + invariant tests, or PR 1 completion if the owner wants t
 - [NEXT_CHAT_PROMPT.md](./NEXT_CHAT_PROMPT.md)
 - [CONTEXT_MANIFEST.json](./CONTEXT_MANIFEST.json)
 
+## Evidence / Audit Reports
+
+- [00-repo-audit.md](./00-repo-audit.md)
+- [01-vocabulary-mapping.md](./01-vocabulary-mapping.md)
+- [02-data-readiness.md](./02-data-readiness.md)
+- [03-before-after-shadow-report.md](./03-before-after-shadow-report.md)
+- [04-golden-cases.md](./04-golden-cases.md)
+- [05-migration-plan.md](./05-migration-plan.md)
+- [06-risk-register.md](./06-risk-register.md)
+- [07-product-acceptance-criteria.md](./07-product-acceptance-criteria.md)
+- [08-identity-target-time-audit.md](./08-identity-target-time-audit.md)
+- [09-tests-backtest-confidence.md](./09-tests-backtest-confidence.md)
+- [10-observability-overrides-security-meta-db.md](./10-observability-overrides-security-meta-db.md)
+- [11-ui-copy-pr-sunset-go-no-go.md](./11-ui-copy-pr-sunset-go-no-go.md)
+
+## Generated Artifacts
+
+Generated spike artifacts, if present, live under [generated/](./generated/). Treat fixture-backed outputs separately from live DB/API results. Do not claim live shadow or backtest results unless the relevant report says they were run.

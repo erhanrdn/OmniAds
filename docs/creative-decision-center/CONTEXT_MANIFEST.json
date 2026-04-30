@@ -42,7 +42,7 @@
     "Historical outcome backtest is NOT RUN."
   ],
   "nextRecommendedPR": "Repo audit + vocabulary mapping completion, or golden fixtures + invariants depending on owner choice.",
-  "docs": [
+  "canonicalDocs": [
     "START_HERE.md",
     "CONTEXT_SNAPSHOT.md",
     "DECISION_LOG.md",
@@ -61,6 +61,29 @@
     "GLOSSARY.md",
     "NEXT_CHAT_PROMPT.md"
   ],
+  "evidenceReports": [
+    "00-repo-audit.md",
+    "01-vocabulary-mapping.md",
+    "02-data-readiness.md",
+    "03-before-after-shadow-report.md",
+    "04-golden-cases.md",
+    "05-migration-plan.md",
+    "06-risk-register.md",
+    "07-product-acceptance-criteria.md",
+    "08-identity-target-time-audit.md",
+    "09-tests-backtest-confidence.md",
+    "10-observability-overrides-security-meta-db.md",
+    "11-ui-copy-pr-sunset-go-no-go.md"
+  ],
+  "generatedArtifacts": [
+    "generated/aggregate-test.json",
+    "generated/before-after-shadow.json",
+    "generated/config-sensitivity.json",
+    "generated/data-readiness-coverage.json",
+    "generated/golden-cases.json",
+    "generated/live-status.json",
+    "generated/performance-smoke.json"
+  ],
   "deferredItems": [
     "asset library",
     "timestamp comments",
@@ -73,4 +96,3 @@
     "automated queue/apply actions"
   ]
 }
-

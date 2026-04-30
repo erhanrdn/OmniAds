@@ -14,3 +14,4 @@ Rules:
 - Do not delete V1/operator/V2 snapshot compatibility without a migration plan.
 - Do not rename routes in the first migration PR.
 - Prefer small PRs with explicit rollback.
+- If asked to continue this work in a new AI chat, start from START_HERE.md and follow its read order.
