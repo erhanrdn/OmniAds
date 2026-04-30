@@ -40,3 +40,49 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-034 | old V1 stable_winner maps to V2 Protect | Protect | protect | review_only | performance | medium | high | stable_winner | mature | diagnose_data |
 | GC-035 | old V1 fatigued_winner maps to V2 Refresh | Refresh | refresh | review_only | fatigue | high | high | fatigue_composite | mature | diagnose_data |
 
+## Case Notes
+
+- GC-001 proves `fix_delivery` requires active ad, active campaign/adset, zero spend, and zero impressions proof.
+- GC-002 proves a paused campaign must become campaign context / `diagnose_data`, not `fix_delivery`.
+- GC-003 proves a paused adset must not be treated as a delivery failure.
+- GC-004 proves disapproval is a policy blocker before performance.
+- GC-005 proves limited delivery with a reason can become `fix_policy`.
+- GC-006 proves unknown policy status cannot become confident `fix_policy`.
+- GC-007 proves low-spend new launches should stay in launch monitoring.
+- GC-008 proves early no-purchase data is not enough for hard cut without maturity.
+- GC-009 proves severe early spend still needs an explicit severe-loss rule before hard cut.
+- GC-010 proves mature high-spend losers can map to `Cut` / `cut`.
+- GC-011 proves mature high-confidence winners can map to `Scale` / `scale`.
+- GC-012 proves composite fatigue maps to `Refresh` / `refresh`.
+- GC-013 proves CTR drop alone is not enough for confident fatigue.
+- GC-014 proves frequency increase alone is not enough for confident fatigue.
+- GC-015 proves CPM increase alone is not enough for confident fatigue.
+- GC-016 proves missing benchmark forces `diagnose_data` or confidence cap.
+- GC-017 proves weak benchmark prevents high-confidence scale/cut.
+- GC-018 proves stale data blocks hard confident actions.
+- GC-019 proves missing attribution/truth blocks performance confidence.
+- GC-020 proves suspected tracking drop is data quality first.
+- GC-021 proves high priority can still be low confidence when delivery proof is missing.
+- GC-022 proves low maturity can still be high priority when policy proof exists.
+- GC-023 proves mature data can still be low confidence if attribution is degraded.
+- GC-024 proves spend-without-impressions anomaly is data quality, not performance.
+- GC-025 proves landing/CVR issues should be diagnosed rather than disguised as creative failure.
+- GC-026 proves strong ROAS at tiny spend is not scalable yet.
+- GC-027 proves strong CPA with low purchase count is not scalable yet.
+- GC-028 proves fatigue clusters are aggregate-sensitive and need composite proof.
+- GC-029 proves winner gaps are aggregate-only and should not force a random row action.
+- GC-030 proves approved-but-unused creatives are aggregate-only until launch/delivery linkage exists.
+- GC-031 proves backup variant gaps are family-level unless a true primary creative exists.
+- GC-032 proves old challenger aggressiveness should become regression context, not authority.
+- GC-033 proves operator urgency must not override V2 data-quality diagnosis.
+- GC-034 proves V1 `stable_winner` maps to V2 `Protect`.
+- GC-035 proves V1 `fatigued_winner` maps to V2 `Refresh`.
+
+## Fixture Requirements
+
+- Every executable fixture must include the expected engine primary decision.
+- Every executable fixture must include the expected buyer-facing action.
+- Every executable fixture must include actionability, problem class, priority, confidence, maturity, and top reason tag.
+- Every fixture with missing required data must assert the safe fallback.
+- Aggregate-only cases must assert that no row-level `brief_variation` is emitted.
+- These cases are required before resolver behavior changes.
