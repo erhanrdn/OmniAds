@@ -34,16 +34,21 @@ Current conclusion: evolve existing `creative-decision-os-v2` into V2.1. Do not 
 - UI must render `decisionCenter`; UI must not compute `buyerAction`.
 - `brief_variation` is never a row-level buyer action.
 - Missing data means `diagnose_data` or capped confidence, not fake certainty.
+- No high-confidence scale/cut on stale or missing data.
+- Policy and delivery blockers override performance.
 - Existing V1/operator snapshots must remain renderable through backward-compatible adapters.
 - Do not rename routes in the first migration PR.
 - Do not delete V1, V2, operator-policy, operator-surface, old snapshots, or existing consumers early.
+- Do not implement resolver changes before reading `DECISION_LOG.md`, `DATA_READINESS.md`, `GOLDEN_CASES.md`, and `INVARIANTS.md`.
 
 ## Known Blockers
 
 - V2 input likely lacks `ctr`, `cpm`, `frequency`, `firstSeenAt`, `firstSpendAt`, `reviewStatus`, `disapprovalReason`, `limitedReason`, and `spend24h`.
 - `fix_delivery`, `fix_policy`, `watch_launch`, and reliable fatigue decisions require data enrichment before confident emission.
 - `creative-operator-policy` and `creative-operator-surface` are first-class decision/vocabulary layers, not simple helpers.
-- Live before/after shadow and historical backtest are not completed in this context pack.
+- Live before/after shadow comparison is not complete unless `generated/live-status.json` and `03-before-after-shadow-report.md` prove otherwise.
+- Historical outcome backtest is not complete unless `09-tests-backtest-confidence.md` proves otherwise.
+- Old snapshots need read-time compatibility.
 
 ## Next Recommended PR
 
@@ -88,4 +93,17 @@ PR 2: golden fixtures + invariant tests, or PR 1 completion if the owner wants t
 
 ## Generated Artifacts
 
-Generated spike artifacts, if present, live under [generated/](./generated/). Treat fixture-backed outputs separately from live DB/API results. Do not claim live shadow or backtest results unless the relevant report says they were run.
+Generated spike artifacts, if present, live under [generated/](./generated/).
+
+- [generated/README.md](./generated/README.md)
+- [generated/aggregate-test.json](./generated/aggregate-test.json)
+- [generated/before-after-shadow.json](./generated/before-after-shadow.json)
+- [generated/config-sensitivity.json](./generated/config-sensitivity.json)
+- [generated/data-readiness-coverage.json](./generated/data-readiness-coverage.json)
+- [generated/golden-cases.json](./generated/golden-cases.json)
+- [generated/live-status.json](./generated/live-status.json)
+- [generated/performance-smoke.json](./generated/performance-smoke.json)
+
+Treat generated outputs as fixture-backed unless `generated/live-status.json` proves a live DB/API read occurred. `live-status.json` is the authority for live-read status.
+
+If `live-status.json` says `attempted=false`, `DATABASE_URL` was missing, or no live read occurred, do not call any generated artifact a live test. Generated artifacts are planning and shadow-validation context, not production implementation.

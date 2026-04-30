@@ -4,7 +4,7 @@
 
 | Imported module | Current importers |
 |---|---|
-| `lib/creative-decision-os.ts` | `src/services/data-service-ai.ts`, `lib/command-center.ts`, `lib/creative-decision-os-snapshots.ts`, `lib/creative-decision-os-v2-preview.ts`, `lib/creative-historical-intelligence.ts`, `lib/ai/generate-creative-decisions.ts`, `lib/creative-decision-os-source.ts`, `lib/meta/decision-os-linkage.ts`, `app/api/creatives/decision-os/route.ts`, `app/api/creatives/decision-os-v2/preview/route.ts`, `app/api/meta/decision-os/route.ts`, `app/api/meta/recommendations/route.ts`, Creative page/components/tests/scripts |
+| `lib/creative-decision-os.ts` | Service/API layers, command center, snapshot helpers, V2 preview, historical intelligence, AI legacy generator, source/linkage helpers, Creative page/components/tests/scripts |
 | `lib/creative-decision-os-v2.ts` | `lib/creative-decision-os-v2-preview.ts`, `lib/creative-decision-os-v2-evaluation.ts`, `scripts/creative-decision-os-v2-live-audit.ts`, tests |
 | `lib/creative-operator-policy.ts` | `lib/creative-decision-os.ts`, `lib/creative-media-buyer-scoring.ts`, tests, audit scripts |
 | `lib/creative-operator-surface.ts` | Creative page, page-support, drawer/content/overview/support/detail/top section, segmentation scripts/tests |
@@ -83,4 +83,3 @@
 | `kill` | Old challenger | Hard stop | Cut | performance | cut | review_only | deprecate user-facing | Regression only | Medium |
 
 Blunt call: the surviving buyer vocabulary should be V2 primaryDecision plus deterministic `buyerAction`. Operator segment/reason tags should remain migration inputs and drawer evidence, not another user-facing authority.
-
