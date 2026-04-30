@@ -21,6 +21,7 @@ import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
+import { CreativeDecisionCenterSurface } from "@/components/creatives/CreativeDecisionCenterSurface";
 import { CreativeBenchmarkScopeControl } from "@/components/creatives/CreativeBenchmarkScopeControl";
 import { CreativeDecisionOsV2PreviewSurface } from "@/components/creatives/CreativeDecisionOsV2PreviewSurface";
 import {
@@ -474,6 +475,7 @@ export default function CreativesPage() {
   const creativeDecisionSnapshotResponse = creativeDecisionOsSnapshotQuery.data ?? null;
   const creativeDecisionSnapshot = creativeDecisionSnapshotResponse?.snapshot ?? null;
   const creativeDecisionOs = creativeDecisionSnapshotResponse?.decisionOs ?? null;
+  const creativeDecisionCenter = creativeDecisionSnapshotResponse?.decisionCenter ?? null;
   const creativeDecisionOsV2Preview =
     creativeDecisionOsV2PreviewQuery.data?.decisionOsV2Preview ?? null;
   const decisionSnapshotGeneratedAt = formatSnapshotTimestamp(
@@ -1167,6 +1169,11 @@ export default function CreativesPage() {
               />
             ) : null}
 
+            <CreativeDecisionCenterSurface
+              decisionCenter={creativeDecisionCenter}
+              onOpenRow={(rowId) => openCreativeDrawer(rowId, true)}
+            />
+
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 
             {creativesMetadataQuery.isError && (
@@ -1215,6 +1222,7 @@ export default function CreativesPage() {
                     rows={deferredFilteredRows}
                     creativeHistoryById={creativeHistoryById}
                     decisionOs={creativeDecisionOs}
+                    decisionCenter={creativeDecisionCenter}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
@@ -1263,6 +1271,7 @@ export default function CreativesPage() {
       />
       <CreativeDecisionOsDrawer
         decisionOs={creativeDecisionOs}
+        decisionCenter={creativeDecisionCenter}
         isLoading={creativeDecisionOsSnapshotQuery.isLoading || creativeDecisionOsRunMutation.isPending}
         snapshot={creativeDecisionSnapshot}
         snapshotStatus={creativeDecisionSnapshotResponse?.status ?? (creativeDecisionOsSnapshotQuery.isLoading ? "running" : "not_run")}

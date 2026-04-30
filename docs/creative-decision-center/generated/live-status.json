@@ -1,7 +1,12 @@
 {
   "attempted": false,
+  "source": "fixture",
+  "readOnly": true,
   "reason": "DATABASE_URL is not set; no live DB/snapshot read was attempted.",
   "missingEnv": [
     "DATABASE_URL"
-  ]
+  ],
+  "snapshotId": null,
+  "generatedAt": "2026-04-30T14:37:28.226Z",
+  "rowCount": 35
 }

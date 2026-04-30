@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCreativeDecisionOsV2Preview } from "@/src/services/data-service-ai";
+import {
+  getCreativeDecisionOsSnapshot,
+  getCreativeDecisionOsV2Preview,
+} from "@/src/services/data-service-ai";
 
 function previewResponse(enabled: boolean) {
   return new Response(
@@ -17,6 +20,34 @@ function previewResponse(enabled: boolean) {
       },
       generatedAt: "2026-04-27T12:00:00.000Z",
       decisionOsV2Preview: null,
+      error: null,
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
+function snapshotResponse(decisionCenter: unknown = undefined) {
+  return new Response(
+    JSON.stringify({
+      contractVersion: "creative-decision-os-snapshot.v1",
+      status: "ready",
+      scope: {
+        analysisScope: "account",
+        analysisScopeId: null,
+        analysisScopeLabel: "Account-wide",
+        benchmarkScope: "account",
+        benchmarkScopeId: null,
+        benchmarkScopeLabel: "Account-wide",
+      },
+      snapshot: null,
+      decisionOs: {
+        contractVersion: "creative-decision-os.v1",
+        creatives: [],
+      },
+      ...(decisionCenter !== undefined ? { decisionCenter } : {}),
       error: null,
     }),
     {
@@ -82,5 +113,83 @@ describe("getCreativeDecisionOsV2Preview", () => {
     expect(parsed.searchParams.get("creativeDecisionOsV2Preview")).toBeNull();
     expect(init.method).toBe("GET");
     expect(init.body).toBeUndefined();
+  });
+});
+
+describe("getCreativeDecisionOsSnapshot", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts old snapshot responses without decisionCenter", async () => {
+    const fetchMock = vi.fn(async () => snapshotResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await getCreativeDecisionOsSnapshot("business-1");
+
+    expect(payload.contractVersion).toBe("creative-decision-os-snapshot.v1");
+    expect(payload.decisionOs?.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.decisionCenter).toBeUndefined();
+  });
+
+  it("accepts additive snapshot responses with decisionCenter null", async () => {
+    const fetchMock = vi.fn(async () => snapshotResponse(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await getCreativeDecisionOsSnapshot("business-1");
+
+    expect(payload.decisionCenter).toBeNull();
+  });
+
+  it("accepts additive snapshot responses with an empty decisionCenter", async () => {
+    const fetchMock = vi.fn(async () =>
+      snapshotResponse({
+        contractVersion: "creative-decision-center.v2.1",
+        engineVersion: "engine",
+        adapterVersion: "adapter",
+        configVersion: "config",
+        generatedAt: "2026-04-30T00:00:00.000Z",
+        dataFreshness: { status: "unknown", maxAgeHours: null },
+        inputCoverageSummary: {},
+        missingDataSummary: {},
+        todayBrief: [],
+        actionBoard: {
+          scale: [],
+          cut: [],
+          refresh: [],
+          protect: [],
+          test_more: [],
+          watch_launch: [],
+          fix_delivery: [],
+          fix_policy: [],
+          diagnose_data: [],
+        },
+        rowDecisions: [],
+        aggregateDecisions: [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await getCreativeDecisionOsSnapshot("business-1");
+
+    expect(payload.decisionCenter?.contractVersion).toBe(
+      "creative-decision-center.v2.1",
+    );
+    expect(payload.decisionCenter?.rowDecisions).toEqual([]);
+  });
+
+  it("still rejects invalid snapshot contract versions", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ contractVersion: "wrong" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getCreativeDecisionOsSnapshot("business-1")).rejects.toThrow(
+      "Creative Decision OS snapshot API returned an invalid payload.",
+    );
   });
 });

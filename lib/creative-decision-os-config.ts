@@ -28,3 +28,34 @@ export function isCreativeDecisionOsV1EnabledForBusiness(
   if (!businessId) return false;
   return canaryBusinesses.includes(businessId);
 }
+
+export function isCreativeDecisionCenterV21Enabled() {
+  return envBoolean("CREATIVE_DECISION_CENTER_V21", false);
+}
+
+export function getCreativeDecisionCenterV21CanaryBusinesses() {
+  return parseEnvList("CREATIVE_DECISION_CENTER_V21_CANARY_BUSINESSES");
+}
+
+export function isCreativeDecisionCenterV21EnabledForBusiness(
+  businessId: string | null | undefined,
+) {
+  if (!isCreativeDecisionCenterV21Enabled()) return false;
+  const canaryBusinesses = getCreativeDecisionCenterV21CanaryBusinesses();
+  if (canaryBusinesses.length === 0) return true;
+  if (!businessId) return false;
+  return canaryBusinesses.includes(businessId);
+}
+
+export function isCreativeDecisionCenterV21LiveRowsEnabled() {
+  return envBoolean("CREATIVE_DECISION_CENTER_V21_LIVE_ROWS", false);
+}
+
+export function isCreativeDecisionCenterV21LiveRowsEnabledForBusiness(
+  businessId: string | null | undefined,
+) {
+  return (
+    isCreativeDecisionCenterV21LiveRowsEnabled() &&
+    isCreativeDecisionCenterV21EnabledForBusiness(businessId)
+  );
+}

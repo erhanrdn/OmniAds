@@ -13,6 +13,7 @@ import type {
   CreativeDecisionOsSnapshot,
   CreativeDecisionOsSnapshotStatus,
 } from "@/lib/creative-decision-os-snapshots";
+import type { DecisionCenterSnapshot } from "@/lib/creative-decision-center/contracts";
 import { CreativeDecisionOsContent } from "@/components/creatives/CreativeDecisionOsContent";
 
 const CREATIVE_DECISION_OS_DRAWER_STORAGE_KEY = "creative-decision-os-drawer-width-v1";
@@ -28,6 +29,7 @@ export function clampCreativeDecisionOsDrawerWidth(width: number, viewportWidth:
 
 type CreativeDecisionOsDrawerProps = {
   decisionOs: CreativeDecisionOsV1Response | null;
+  decisionCenter?: DecisionCenterSnapshot | null;
   isLoading: boolean;
   snapshot?: CreativeDecisionOsSnapshot | null;
   snapshotStatus?: CreativeDecisionOsSnapshotStatus;
@@ -48,6 +50,7 @@ type CreativeDecisionOsDrawerProps = {
 
 export function CreativeDecisionOsDrawer({
   decisionOs,
+  decisionCenter = null,
   isLoading,
   snapshot = null,
   snapshotStatus = "not_run",
@@ -219,6 +222,40 @@ export function CreativeDecisionOsDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto">
+          {decisionCenter ? (
+            <section
+              data-testid="creative-decision-center-drawer-summary"
+              className="border-b border-slate-200 bg-white px-6 py-4"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Decision Center V2.1
+                  </p>
+                  <h3 className="mt-1 text-sm font-semibold text-slate-950">
+                    {decisionCenter.rowDecisions.length} row decisions · {decisionCenter.aggregateDecisions.length} aggregate decisions
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {decisionCenter.todayBrief.length} brief items · freshness {decisionCenter.dataFreshness.status}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-right text-[11px] text-slate-500">
+                  <span>engine</span>
+                  <span className="font-medium text-slate-900">{decisionCenter.engineVersion}</span>
+                  <span>adapter</span>
+                  <span className="font-medium text-slate-900">{decisionCenter.adapterVersion}</span>
+                  <span>config</span>
+                  <span className="font-medium text-slate-900">{decisionCenter.configVersion}</span>
+                </div>
+              </div>
+              {decisionCenter.rowDecisions.length === 0 && decisionCenter.aggregateDecisions.length === 0 ? (
+                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  No validated V2.1 actions are present in this snapshot. Legacy Decision OS remains available below.
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+
           {!hasReadySnapshot && (
             <div className="px-5 pt-5 md:px-6">
               <section

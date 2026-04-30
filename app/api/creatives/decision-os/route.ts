@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
+import {
+  isCreativeDecisionCenterV21EnabledForBusiness,
+  isCreativeDecisionCenterV21LiveRowsEnabledForBusiness,
+  isCreativeDecisionOsV1EnabledForBusiness,
+} from "@/lib/creative-decision-os-config";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import type { CreativeDecisionBenchmarkScopeInput } from "@/lib/creative-decision-os";
 import {
   buildCreativeDecisionOsSnapshotResponse,
+  type CreativeDecisionOsSnapshot,
   getLatestCreativeDecisionOsSnapshot,
   resolveCreativeDecisionOsSnapshotScope,
   saveCreativeDecisionOsSnapshot,
 } from "@/lib/creative-decision-os-snapshots";
+import { buildValidatedCreativeDecisionCenterV21Snapshot } from "@/lib/creative-decision-center/snapshot-builder";
 
 function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -114,6 +120,19 @@ async function authorize(request: NextRequest, businessId: string | null) {
   return { access, businessId };
 }
 
+function maybeBuildDecisionCenter(input: {
+  businessId: string;
+  snapshot: CreativeDecisionOsSnapshot | null;
+}) {
+  if (!isCreativeDecisionCenterV21EnabledForBusiness(input.businessId)) {
+    return null;
+  }
+  return buildValidatedCreativeDecisionCenterV21Snapshot({
+    snapshot: input.snapshot,
+    enableRows: isCreativeDecisionCenterV21LiveRowsEnabledForBusiness(input.businessId),
+  });
+}
+
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
   const authorized = await authorize(request, businessId);
@@ -133,6 +152,10 @@ export async function GET(request: NextRequest) {
       scope,
       snapshot,
       status: snapshot ? snapshot.status : "not_run",
+      decisionCenter: maybeBuildDecisionCenter({
+        businessId: authorized.businessId,
+        snapshot,
+      }),
     }),
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -209,6 +232,10 @@ export async function POST(request: NextRequest) {
         scope,
         snapshot,
         status: "ready",
+        decisionCenter: maybeBuildDecisionCenter({
+          businessId: authorized.businessId,
+          snapshot,
+        }),
       }),
       { headers: { "Cache-Control": "no-store" } },
     );

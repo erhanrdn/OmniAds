@@ -1,273 +1,186 @@
 {
-  "fields": [
+  "contractVersion": "creative-decision-center.v2.1.data-readiness.v0",
+  "generatedAt": "2026-04-30T14:37:28.226Z",
+  "source": "fixture",
+  "readOnly": true,
+  "liveStatus": {
+    "attempted": false,
+    "source": "fixture",
+    "readOnly": true,
+    "reason": "DATABASE_URL is not set; no live DB/snapshot read was attempted.",
+    "missingEnv": [
+      "DATABASE_URL"
+    ],
+    "snapshotId": null,
+    "generatedAt": "2026-04-30T14:37:28.226Z",
+    "rowCount": 35
+  },
+  "coverage": [
     {
-      "field": "spend24h",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "fix_delivery"
-      ]
+      "field": "spend",
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
     },
     {
-      "field": "impressions24h",
-      "coveragePercent": 97.14,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": [
-        "fix_delivery"
-      ]
+      "field": "purchases",
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
+    },
+    {
+      "field": "impressions",
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
+    },
+    {
+      "field": "roas",
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
+    },
+    {
+      "field": "cpa",
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
+    },
+    {
+      "field": "ctr",
+      "presentRows": 6,
+      "totalRows": 35,
+      "coveragePct": 17.14,
+      "status": "partial"
+    },
+    {
+      "field": "cpm",
+      "presentRows": 6,
+      "totalRows": 35,
+      "coveragePct": 17.14,
+      "status": "partial"
+    },
+    {
+      "field": "frequency",
+      "presentRows": 6,
+      "totalRows": 35,
+      "coveragePct": 17.14,
+      "status": "partial"
     },
     {
       "field": "firstSeenAt",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "watch_launch"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
       "field": "firstSpendAt",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "watch_launch"
-      ]
-    },
-    {
-      "field": "launchAgeHours",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "watch_launch"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
       "field": "reviewStatus",
-      "coveragePercent": 97.14,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": [
-        "fix_policy"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
       "field": "effectiveStatus",
-      "coveragePercent": 97.14,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": [
-        "fix_policy",
-        "unused_approved_creatives"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
       "field": "disapprovalReason",
-      "coveragePercent": 5.71,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": [
-        "fix_policy"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
       "field": "limitedReason",
-      "coveragePercent": 2.86,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": [
-        "fix_policy"
-      ]
+      "presentRows": 3,
+      "totalRows": 35,
+      "coveragePct": 8.57,
+      "status": "partial"
     },
     {
-      "field": "ctr7d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
+      "field": "spend24h",
+      "presentRows": 1,
+      "totalRows": 35,
+      "coveragePct": 2.86,
+      "status": "partial"
     },
     {
-      "field": "ctr14d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
-    },
-    {
-      "field": "cpm7d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
-    },
-    {
-      "field": "cpm14d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
-    },
-    {
-      "field": "frequency7d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
-    },
-    {
-      "field": "frequency14d",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "refresh",
-        "fatigue_cluster"
-      ]
-    },
-    {
-      "field": "targetCpa",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": []
-    },
-    {
-      "field": "targetRoas",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": []
-    },
-    {
-      "field": "benchmarkReliability",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": []
+      "field": "impressions24h",
+      "presentRows": 1,
+      "totalRows": 35,
+      "coveragePct": 2.86,
+      "status": "partial"
     },
     {
       "field": "campaignStatus",
-      "coveragePercent": 97.14,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": []
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
     },
     {
       "field": "adsetStatus",
-      "coveragePercent": 97.14,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
-      "blocksWhichBuyerActions": []
+      "presentRows": 35,
+      "totalRows": 35,
+      "coveragePct": 100,
+      "status": "ready"
     },
     {
       "field": "adStatus",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": []
+      "presentRows": 4,
+      "totalRows": 35,
+      "coveragePct": 11.43,
+      "status": "partial"
     },
     {
-      "field": "familyId",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "brief_variation",
-        "creative_supply_warning"
-      ]
+      "field": "benchmarkReliability",
+      "presentRows": 33,
+      "totalRows": 35,
+      "coveragePct": 94.29,
+      "status": "partial"
     },
     {
-      "field": "approvedButUnused",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "unused_approved_creatives"
-      ]
+      "field": "targetSource",
+      "presentRows": 33,
+      "totalRows": 35,
+      "coveragePct": 94.29,
+      "status": "partial"
     },
     {
-      "field": "hasBackupVariant",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "brief_variation",
-        "creative_supply_warning"
-      ]
-    },
-    {
-      "field": "attributionTruth",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "scale",
-        "cut",
-        "refresh",
-        "protect"
-      ]
-    },
-    {
-      "field": "dataFreshnessHours",
-      "coveragePercent": 100,
-      "sampleCount": 35,
-      "source": "fixture",
-      "missingReason": null,
-      "blocksWhichBuyerActions": [
-        "all_hard_actions"
-      ]
+      "field": "dataFreshness",
+      "presentRows": 34,
+      "totalRows": 35,
+      "coveragePct": 97.14,
+      "status": "partial"
     }
   ],
-  "eligibility": {
-    "totalCreatives": 35,
-    "scaleOrCutEligiblePercent": 11.43,
-    "fixDeliveryEligiblePercent": 2.86,
-    "fixPolicyEligiblePercent": 8.57,
-    "watchLaunchEligiblePercent": 51.43,
-    "fatigueRefreshEligiblePercent": 2.86,
-    "diagnoseDataPercent": 22.86
-  }
+  "blockers": [
+    "fix_delivery requires active status plus spend24h/impressions24h proof",
+    "fix_policy requires review/effective status and policy reason proof",
+    "watch_launch requires firstSeenAt/firstSpendAt launch basis",
+    "high-confidence fatigue requires CTR/CPM/frequency coverage",
+    "high-confidence scale/cut requires explicit data freshness",
+    "high-confidence scale/cut requires target or benchmark source"
+  ],
+  "notes": [
+    "This report is read-only planning evidence.",
+    "It does not prove production behavior and does not mutate DB/API data."
+  ]
 }
