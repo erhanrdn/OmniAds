@@ -1,0 +1,7 @@
+{
+  "attempted": false,
+  "reason": "DATABASE_URL is not set; no live DB/snapshot read was attempted.",
+  "missingEnv": [
+    "DATABASE_URL"
+  ]
+}

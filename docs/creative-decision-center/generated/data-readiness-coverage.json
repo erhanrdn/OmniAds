@@ -1,0 +1,273 @@
+{
+  "fields": [
+    {
+      "field": "spend24h",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "fix_delivery"
+      ]
+    },
+    {
+      "field": "impressions24h",
+      "coveragePercent": 97.14,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": [
+        "fix_delivery"
+      ]
+    },
+    {
+      "field": "firstSeenAt",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "watch_launch"
+      ]
+    },
+    {
+      "field": "firstSpendAt",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "watch_launch"
+      ]
+    },
+    {
+      "field": "launchAgeHours",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "watch_launch"
+      ]
+    },
+    {
+      "field": "reviewStatus",
+      "coveragePercent": 97.14,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": [
+        "fix_policy"
+      ]
+    },
+    {
+      "field": "effectiveStatus",
+      "coveragePercent": 97.14,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": [
+        "fix_policy",
+        "unused_approved_creatives"
+      ]
+    },
+    {
+      "field": "disapprovalReason",
+      "coveragePercent": 5.71,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": [
+        "fix_policy"
+      ]
+    },
+    {
+      "field": "limitedReason",
+      "coveragePercent": 2.86,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": [
+        "fix_policy"
+      ]
+    },
+    {
+      "field": "ctr7d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "ctr14d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "cpm7d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "cpm14d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "frequency7d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "frequency14d",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "refresh",
+        "fatigue_cluster"
+      ]
+    },
+    {
+      "field": "targetCpa",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "targetRoas",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "benchmarkReliability",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "campaignStatus",
+      "coveragePercent": 97.14,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "adsetStatus",
+      "coveragePercent": 97.14,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": "Field is not guaranteed by current V1/V2 row contracts; fixture simulates target V2.1 data.",
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "adStatus",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": []
+    },
+    {
+      "field": "familyId",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "brief_variation",
+        "creative_supply_warning"
+      ]
+    },
+    {
+      "field": "approvedButUnused",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "unused_approved_creatives"
+      ]
+    },
+    {
+      "field": "hasBackupVariant",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "brief_variation",
+        "creative_supply_warning"
+      ]
+    },
+    {
+      "field": "attributionTruth",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "scale",
+        "cut",
+        "refresh",
+        "protect"
+      ]
+    },
+    {
+      "field": "dataFreshnessHours",
+      "coveragePercent": 100,
+      "sampleCount": 35,
+      "source": "fixture",
+      "missingReason": null,
+      "blocksWhichBuyerActions": [
+        "all_hard_actions"
+      ]
+    }
+  ],
+  "eligibility": {
+    "totalCreatives": 35,
+    "scaleOrCutEligiblePercent": 11.43,
+    "fixDeliveryEligiblePercent": 2.86,
+    "fixPolicyEligiblePercent": 8.57,
+    "watchLaunchEligiblePercent": 51.43,
+    "fatigueRefreshEligiblePercent": 2.86,
+    "diagnoseDataPercent": 22.86
+  }
+}
