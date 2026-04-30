@@ -51,7 +51,12 @@ Verification query after deletion returned no remaining workflow runs for the li
 
 ## Issues
 
-- Issue search found `#83` (`Remove verdictContract=v0 compatibility flag after Happy Harbor rollout`), which predates this canonical cleanup and is not a canonical resolver PR #84 artifact. It was left untouched to avoid modifying unrelated issues.
+- Issue search found `#83` (`Remove verdictContract=v0 compatibility flag after Happy Harbor rollout`), which referenced the removed Happy Harbor/verdictContract work.
+- 2026-04-30 followup: attempted GraphQL `deleteIssue`, but GitHub returned `FORBIDDEN` (`Viewer not authorized to delete`).
+- Closed `#83` as obsolete with the required rollback comment.
+- Removed the `happy-harbor` label from `#83` and deleted the repository label because no other issue or PR used it.
+- Verified `cleanup` exists and is now only on closed `#83`; left it intact because it is a generic label.
+- Final sweep for `canonical`, `verdictContract`, `happy harbor`, and `PR 84` found no other open issue from this work attempt. It found PR #84 and historical unrelated PRs only; those were left untouched.
 
 ## Remaining GitHub Artifacts
 
