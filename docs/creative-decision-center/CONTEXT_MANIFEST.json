@@ -1,0 +1,99 @@
+{
+  "project": "Adsecute Creative Decision Center",
+  "version": "v0.1.0",
+  "lastUpdated": "2026-04-30",
+  "startHere": "docs/creative-decision-center/START_HERE.md",
+  "canonicalDecision": "Evolve creative-decision-os-v2 to V2.1; do not create a new standalone core.",
+  "mvp": [
+    "Today Brief",
+    "Action Board",
+    "Creative Table",
+    "Minimal Detail Drawer"
+  ],
+  "nonNegotiables": [
+    "Do not implement resolver changes before reading DECISION_LOG.md, DATA_READINESS.md, GOLDEN_CASES.md, and INVARIANTS.md.",
+    "Do not create a new standalone decision core unless DECISION_LOG.md is updated with a new ADR.",
+    "Do not add row-level brief_variation.",
+    "Do not let UI compute buyerAction.",
+    "Do not emit high-confidence decisions when required data is missing.",
+    "Do not delete V1/operator/V2 snapshot compatibility without a migration plan.",
+    "Do not rename routes in the first migration PR."
+  ],
+  "readOrder": [
+    "CONTEXT_SNAPSHOT.md",
+    "DECISION_LOG.md",
+    "ARCHITECTURE.md",
+    "VOCABULARY_MAPPING.md",
+    "DATA_READINESS.md",
+    "GOLDEN_CASES.md",
+    "INVARIANTS.md",
+    "CONTRACTS.md",
+    "MIGRATION_PLAN.md",
+    "PR_SEQUENCE.md",
+    "RISK_REGISTER.md",
+    "OPEN_QUESTIONS.md"
+  ],
+  "currentStatus": "Context pack created; implementation not started.",
+  "knownBlockers": [
+    "V2 input likely lacks ctr, cpm, frequency, firstSeenAt, firstSpendAt, reviewStatus, disapprovalReason, limitedReason, and spend24h.",
+    "fix_delivery, fix_policy, watch_launch, and reliable fatigue require data enrichment before confident emission.",
+    "operator-policy and operator-surface are first-class migration scope.",
+    "Live before/after shadow report is NOT RUN in this context pack.",
+    "Historical outcome backtest is NOT RUN."
+  ],
+  "nextRecommendedPR": "Repo audit + vocabulary mapping completion, or golden fixtures + invariants depending on owner choice.",
+  "canonicalDocs": [
+    "START_HERE.md",
+    "CONTEXT_SNAPSHOT.md",
+    "DECISION_LOG.md",
+    "ARCHITECTURE.md",
+    "VOCABULARY_MAPPING.md",
+    "DATA_READINESS.md",
+    "BEFORE_AFTER_SHADOW_REPORT.md",
+    "GOLDEN_CASES.md",
+    "INVARIANTS.md",
+    "CONTRACTS.md",
+    "MIGRATION_PLAN.md",
+    "PR_SEQUENCE.md",
+    "RISK_REGISTER.md",
+    "OPEN_QUESTIONS.md",
+    "PROMPTS.md",
+    "GLOSSARY.md",
+    "NEXT_CHAT_PROMPT.md"
+  ],
+  "evidenceReports": [
+    "00-repo-audit.md",
+    "01-vocabulary-mapping.md",
+    "02-data-readiness.md",
+    "03-before-after-shadow-report.md",
+    "04-golden-cases.md",
+    "05-migration-plan.md",
+    "06-risk-register.md",
+    "07-product-acceptance-criteria.md",
+    "08-identity-target-time-audit.md",
+    "09-tests-backtest-confidence.md",
+    "10-observability-overrides-security-meta-db.md",
+    "11-ui-copy-pr-sunset-go-no-go.md"
+  ],
+  "generatedArtifacts": [
+    "generated/README.md",
+    "generated/aggregate-test.json",
+    "generated/before-after-shadow.json",
+    "generated/config-sensitivity.json",
+    "generated/data-readiness-coverage.json",
+    "generated/golden-cases.json",
+    "generated/live-status.json",
+    "generated/performance-smoke.json"
+  ],
+  "deferredItems": [
+    "asset library",
+    "timestamp comments",
+    "approval workflow",
+    "client share links",
+    "PDF/Notion export",
+    "TikTok/Meta merge",
+    "seasonality",
+    "hook library",
+    "automated queue/apply actions"
+  ]
+}

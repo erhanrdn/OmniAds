@@ -1,0 +1,106 @@
+[
+  {
+    "config": "conservative",
+    "decisionsChanged": 1,
+    "changedActions": [
+      {
+        "creativeId": "gc-34",
+        "action": "protect",
+        "defaultAction": "scale"
+      }
+    ],
+    "unsafeScaleCut": 0
+  },
+  {
+    "config": "aggressive",
+    "decisionsChanged": 17,
+    "changedActions": [
+      {
+        "creativeId": "gc-08",
+        "action": "protect",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-09",
+        "action": "protect",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-13",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-14",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-15",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-16",
+        "action": "diagnose_data",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-17",
+        "action": "diagnose_data",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-24",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-25",
+        "action": "cut",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-26",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-27",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-28",
+        "action": "refresh",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-29",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-30",
+        "action": "diagnose_data",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-32",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-33",
+        "action": "test_more",
+        "defaultAction": "watch_launch"
+      },
+      {
+        "creativeId": "gc-35",
+        "action": "refresh",
+        "defaultAction": "watch_launch"
+      }
+    ],
+    "unsafeScaleCut": 0
+  }
+]

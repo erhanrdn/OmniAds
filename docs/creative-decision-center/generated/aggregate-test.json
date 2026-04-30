@@ -1,0 +1,48 @@
+{
+  "source": "fixture",
+  "aggregates": [
+    {
+      "action": "fatigue_cluster",
+      "canEmitNow": "no",
+      "count": 0,
+      "blockedBy": [],
+      "oneLine": "Top creative cluster shows composite fatigue pressure."
+    },
+    {
+      "action": "winner_gap",
+      "canEmitNow": "no",
+      "count": 0,
+      "blockedBy": [
+        "no current explicit last winner date field"
+      ],
+      "oneLine": "No new winner in configured window."
+    },
+    {
+      "action": "unused_approved_creatives",
+      "canEmitNow": "conditional",
+      "count": 1,
+      "blockedBy": [
+        "current MetaCreativeRow lacks reliable effectiveStatus + zero-delivery unused-approved distinction"
+      ],
+      "oneLine": "Approved creatives exist but have no delivery."
+    },
+    {
+      "action": "brief_variation",
+      "canEmitNow": "conditional",
+      "count": 0,
+      "blockedBy": [
+        "backlog/production status unavailable"
+      ],
+      "oneLine": "Winner family needs backup variation."
+    },
+    {
+      "action": "creative_supply_warning",
+      "canEmitNow": "no",
+      "count": 0,
+      "blockedBy": [
+        "backlog/brief/production status unavailable"
+      ],
+      "oneLine": "Creative supply is below required buffer."
+    }
+  ]
+}

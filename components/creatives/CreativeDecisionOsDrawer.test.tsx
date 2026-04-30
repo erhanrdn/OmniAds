@@ -94,4 +94,54 @@ describe("CreativeDecisionOsDrawer", () => {
       "Reporting range changes do not recompute Creative Decision OS.",
     );
   });
+
+  it("renders a V2.1 decision center summary without replacing the legacy drawer", () => {
+    const html = renderToStaticMarkup(
+      <CreativeDecisionOsDrawer
+        decisionOs={null}
+        decisionCenter={
+          {
+            contractVersion: "creative-decision-center.v2.1",
+            engineVersion: "creative-decision-os.v2.1-shadow-empty",
+            adapterVersion: "creative-decision-center.buyer-adapter.v0",
+            configVersion: "creative-decision-center.v2.1.default",
+            generatedAt: "2026-04-10T00:00:00.000Z",
+            dataFreshness: { status: "unknown", maxAgeHours: null },
+            inputCoverageSummary: { totalCreatives: 12 },
+            missingDataSummary: {},
+            todayBrief: [],
+            actionBoard: {
+              scale: [],
+              cut: [],
+              refresh: [],
+              protect: [],
+              test_more: [],
+              watch_launch: [],
+              fix_delivery: [],
+              fix_policy: [],
+              diagnose_data: [],
+            },
+            rowDecisions: [],
+            aggregateDecisions: [],
+          } as any
+        }
+        isLoading={false}
+        snapshotStatus="ready"
+        open
+        onOpenChange={vi.fn()}
+        quickFilters={[]}
+        allRows={[]}
+        selectedRows={[]}
+        activeFamilyId={null}
+        activeQuickFilterKey={null}
+        onSelectFamily={vi.fn()}
+        onSelectQuickFilter={vi.fn()}
+        onClearFilters={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Decision Center V2.1");
+    expect(html).toContain("0 row decisions");
+    expect(html).toContain("Legacy Decision OS remains available below.");
+  });
 });

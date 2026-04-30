@@ -1,0 +1,176 @@
+# Proposed Contracts
+
+Documentation only. Do not implement runtime code from this file without tests and ADR review.
+
+## Core Types
+
+```ts
+type CreativeDecisionOsV21PrimaryDecision =
+  | "Scale"
+  | "Cut"
+  | "Refresh"
+  | "Protect"
+  | "Test More"
+  | "Diagnose";
+
+type CreativeDecisionCenterBuyerAction =
+  | "scale"
+  | "cut"
+  | "refresh"
+  | "protect"
+  | "test_more"
+  | "watch_launch"
+  | "fix_delivery"
+  | "fix_policy"
+  | "diagnose_data";
+
+type CreativeDecisionCenterAggregateAction =
+  | "brief_variation"
+  | "creative_supply_warning"
+  | "winner_gap"
+  | "fatigue_cluster"
+  | "unused_approved_creatives";
+
+interface CreativeDecisionOsV21Output {
+  contractVersion: "creative-decision-os.v2.1";
+  engineVersion: string;
+  primaryDecision: CreativeDecisionOsV21PrimaryDecision;
+  actionability: "direct" | "review_only" | "blocked" | "diagnose";
+  problemClass:
+    | "performance"
+    | "creative"
+    | "fatigue"
+    | "delivery"
+    | "policy"
+    | "data_quality"
+    | "campaign_context"
+    | "insufficient_signal"
+    | "launch_monitoring";
+  confidence: number;
+  maturity: "too_early" | "learning" | "actionable" | "mature";
+  priority: "critical" | "high" | "medium" | "low";
+  reasonTags: string[];
+  evidenceSummary: string;
+  blockerReasons: string[];
+  missingData: string[];
+  queueEligible: false;
+  applyEligible: false;
+}
+
+interface CreativeDecisionCenterRowDecision {
+  scope: "creative";
+  creativeId: string;
+  rowId?: string;
+  identityGrain: "ad" | "creative" | "asset" | "family";
+  familyId?: string | null;
+  engine: CreativeDecisionOsV21Output;
+  buyerAction: CreativeDecisionCenterBuyerAction;
+  buyerLabel: string;
+  uiBucket: CreativeDecisionCenterBuyerAction;
+  confidenceBand: "high" | "medium" | "low";
+  priority: "critical" | "high" | "medium" | "low";
+  oneLine: string;
+  reasons: string[];
+  nextStep: string;
+  missingData: string[];
+}
+
+interface CreativeDecisionCenterAggregateDecision {
+  scope: "page" | "family";
+  familyId?: string | null;
+  action: CreativeDecisionCenterAggregateAction;
+  priority: "critical" | "high" | "medium" | "low";
+  confidence: number;
+  oneLine: string;
+  reasons: string[];
+  affectedCreativeIds: string[];
+  nextStep: string;
+  missingData: string[];
+}
+
+interface DecisionCenterSnapshot {
+  contractVersion: "creative-decision-center.v2.1";
+  engineVersion: string;
+  adapterVersion: string;
+  configVersion: string;
+  generatedAt: string;
+  dataFreshness: {
+    status: "fresh" | "stale" | "unknown";
+    maxAgeHours?: number | null;
+  };
+  inputCoverageSummary: Record<string, number>;
+  missingDataSummary: Record<string, number>;
+  todayBrief: Array<{
+    id: string;
+    priority: "critical" | "high" | "medium" | "low";
+    text: string;
+    rowIds: string[];
+    aggregateIds?: string[];
+  }>;
+  actionBoard: Record<CreativeDecisionCenterBuyerAction, string[]>;
+  rowDecisions: CreativeDecisionCenterRowDecision[];
+  aggregateDecisions: CreativeDecisionCenterAggregateDecision[];
+}
+
+interface BuyerActionMappingRule {
+  id: string;
+  when: {
+    primaryDecision?: CreativeDecisionOsV21PrimaryDecision;
+    problemClass?: CreativeDecisionOsV21Output["problemClass"];
+    reasonTagsAny?: string[];
+    actionability?: CreativeDecisionOsV21Output["actionability"];
+    requiredData?: string[];
+    blockersAbsent?: string[];
+  };
+  output: {
+    buyerAction: CreativeDecisionCenterBuyerAction;
+    buyerLabel: string;
+    uiBucket: CreativeDecisionCenterBuyerAction;
+    nextStepTemplate: string;
+  };
+}
+
+interface CreativeDecisionConfig {
+  configVersion: string;
+  launchWindowHours: number;
+  noSpendWindowHours: number;
+  minSpendForMaturityMultiplier: number;
+  minPurchasesForScale: number;
+  minImpressionsForCtrReliability: number;
+  fatigueCtrDropPct: number;
+  fatigueCpmIncreasePct: number;
+  fatigueFrequencyIncreasePct: number;
+  maxCpaOverTargetForCut: number;
+  minRoasOverTargetForScale: number;
+  winnerGapDays: number;
+  fatigueClusterTopN: number;
+  benchmarkReliabilityMinimum: "strong" | "medium" | "weak";
+  staleDataHours: number;
+  minConfidenceForScale: number;
+  minConfidenceForCut: number;
+}
+```
+
+## Constraints
+
+- Do not collapse `primaryDecision` and `buyerAction`.
+- Do not add `brief_variation` to row-level `BuyerAction`.
+- Row decision must expose engine root for drawer.
+- Snapshot must include `engineVersion`, `adapterVersion`, `configVersion`, `generatedAt`, `dataFreshness`, `inputCoverageSummary`, and `missingDataSummary`.
+
+## Minimal Drawer Fields
+
+- `buyerAction`
+- `buyerLabel`
+- engine `primaryDecision`
+- `actionability`
+- `problemClass`
+- `reasonTags`
+- `evidenceSummary`
+- blockers
+- `confidence`
+- `maturity`
+- `priority`
+- `nextStep`
+- `missingData` if any
+

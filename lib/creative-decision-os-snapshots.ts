@@ -9,6 +9,7 @@ import type {
   CreativeDecisionBenchmarkScopeInput,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import type { DecisionCenterSnapshot } from "@/lib/creative-decision-center/contracts";
 
 export const CREATIVE_DECISION_OS_SNAPSHOT_CONTRACT_VERSION =
   "creative-decision-os-snapshot.v1";
@@ -78,6 +79,7 @@ export interface CreativeDecisionOsSnapshotApiResponse {
   scope: CreativeDecisionOsSnapshotScope;
   snapshot: CreativeDecisionOsSnapshot | null;
   decisionOs: CreativeDecisionOsV1Response | null;
+  decisionCenter: DecisionCenterSnapshot | null;
   error: CreativeDecisionOsSnapshotError | null;
 }
 
@@ -429,6 +431,7 @@ export function buildCreativeDecisionOsSnapshotResponse(input: {
   status?: CreativeDecisionOsSnapshotStatus;
   scope: CreativeDecisionOsSnapshotScope;
   snapshot?: CreativeDecisionOsSnapshot | null;
+  decisionCenter?: DecisionCenterSnapshot | null;
   error?: CreativeDecisionOsSnapshotError | null;
 }): CreativeDecisionOsSnapshotApiResponse {
   const snapshot = input.snapshot ?? null;
@@ -439,6 +442,7 @@ export function buildCreativeDecisionOsSnapshotResponse(input: {
     scope: snapshot?.scope ?? input.scope,
     snapshot,
     decisionOs: snapshot?.status === "ready" ? snapshot.payload : null,
+    decisionCenter: input.decisionCenter ?? null,
     error: input.error ?? snapshot?.error ?? null,
   };
 }

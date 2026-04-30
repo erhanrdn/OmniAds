@@ -1,0 +1,20 @@
+[
+  {
+    "creativeCount": 100,
+    "runtimeMs": 0.27,
+    "approxPayloadBytes": 33493,
+    "note": "Generated fixture rows; excludes DB/API and React render cost."
+  },
+  {
+    "creativeCount": 1000,
+    "runtimeMs": 1.84,
+    "approxPayloadBytes": 334429,
+    "note": "Generated fixture rows; excludes DB/API and React render cost."
+  },
+  {
+    "creativeCount": 5000,
+    "runtimeMs": 5.65,
+    "approxPayloadBytes": 1672333,
+    "note": "Generated fixture rows; excludes DB/API and React render cost."
+  }
+]

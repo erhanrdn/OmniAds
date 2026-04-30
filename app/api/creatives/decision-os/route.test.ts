@@ -35,6 +35,8 @@ vi.mock("@/lib/meta/operator-decision-source", () => ({
 }));
 
 vi.mock("@/lib/creative-decision-os-config", () => ({
+  isCreativeDecisionCenterV21EnabledForBusiness: vi.fn(),
+  isCreativeDecisionCenterV21LiveRowsEnabledForBusiness: vi.fn(),
   isCreativeDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
 
@@ -166,6 +168,8 @@ describe("GET /api/creatives/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(config.isCreativeDecisionCenterV21EnabledForBusiness).mockReturnValue(false);
+    vi.mocked(config.isCreativeDecisionCenterV21LiveRowsEnabledForBusiness).mockReturnValue(false);
     vi.mocked(snapshotStore.getLatestCreativeDecisionOsSnapshot).mockResolvedValue(null);
     vi.mocked(snapshotStore.saveCreativeDecisionOsSnapshot).mockImplementation(
       async (input) =>
@@ -524,8 +528,143 @@ describe("GET /api/creatives/decision-os", () => {
     expect(payload.status).toBe("ready");
     expect(payload.snapshot.snapshotId).toBe("snap_ready");
     expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.decisionCenter).toBeNull();
     expect(decisionWindowSource.getMetaDecisionWindowContext).not.toHaveBeenCalled();
     expect(decisionOs.buildCreativeDecisionOs).not.toHaveBeenCalled();
+  });
+
+  it("adds a validated empty decisionCenter behind the V2.1 feature flag", async () => {
+    vi.mocked(config.isCreativeDecisionCenterV21EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(snapshotStore.getLatestCreativeDecisionOsSnapshot).mockResolvedValue({
+      snapshotId: "snap_ready",
+      surface: "creative",
+      businessId: "biz",
+      scope: snapshotStore.resolveCreativeDecisionOsSnapshotScope(null),
+      decisionAsOf: "2026-04-10",
+      generatedAt: "2026-04-10T01:00:00.000Z",
+      generatedBy: "user_1",
+      sourceWindow: {
+        analyticsStartDate: "2026-04-01",
+        analyticsEndDate: "2026-04-10",
+        reportingStartDate: "2026-04-01",
+        reportingEndDate: "2026-04-10",
+        decisionWindowStartDate: "2026-03-12",
+        decisionWindowEndDate: "2026-04-10",
+        decisionWindowLabel: "primary 30d",
+      },
+      versions: {
+        operatorDecisionVersion: "2026-04-10-phase-04-v1",
+        policyVersion: null,
+        instructionVersion: null,
+      },
+      inputHash: "input_hash",
+      evidenceHash: "evidence_hash",
+      summaryCounts: {},
+      status: "ready",
+      error: null,
+      payload: {
+        contractVersion: "creative-decision-os.v1",
+        engineVersion: "creative-decision-os.v1",
+        creatives: [{ creativeId: "creative_1" }],
+      } as never,
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/decision-os?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.contractVersion).toBe("creative-decision-os-snapshot.v1");
+    expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.legacyDecisionOs).toBeUndefined();
+    expect(payload.decisionCenter.contractVersion).toBe("creative-decision-center.v2.1");
+    expect(payload.decisionCenter.rowDecisions).toEqual([]);
+    expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
+    expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual([]);
+  });
+
+  it("adds validated row decisions only when the live-row flag is enabled", async () => {
+    vi.mocked(config.isCreativeDecisionCenterV21EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(config.isCreativeDecisionCenterV21LiveRowsEnabledForBusiness).mockReturnValue(true);
+    vi.mocked(snapshotStore.getLatestCreativeDecisionOsSnapshot).mockResolvedValue({
+      snapshotId: "snap_ready",
+      surface: "creative",
+      businessId: "biz",
+      scope: snapshotStore.resolveCreativeDecisionOsSnapshotScope(null),
+      decisionAsOf: "2026-04-10",
+      generatedAt: new Date().toISOString(),
+      generatedBy: "user_1",
+      sourceWindow: {
+        analyticsStartDate: "2026-04-01",
+        analyticsEndDate: "2026-04-10",
+        reportingStartDate: "2026-04-01",
+        reportingEndDate: "2026-04-10",
+        decisionWindowStartDate: "2026-03-12",
+        decisionWindowEndDate: "2026-04-10",
+        decisionWindowLabel: "primary 30d",
+      },
+      versions: {
+        operatorDecisionVersion: "2026-04-10-phase-04-v1",
+        policyVersion: null,
+        instructionVersion: null,
+      },
+      inputHash: "input_hash",
+      evidenceHash: "evidence_hash",
+      summaryCounts: {},
+      status: "ready",
+      error: null,
+      payload: {
+        contractVersion: "creative-decision-os.v1",
+        engineVersion: "creative-decision-os.v1",
+        commercialTruthCoverage: {
+          missingInputs: [],
+          configuredSections: { targetPack: true },
+        },
+        summary: { totalCreatives: 1 },
+        creatives: [
+          {
+            creativeId: "creative_1",
+            familyId: "family_1",
+            creativeAgeDays: 20,
+            spend: 1600,
+            purchases: 8,
+            impressions: 20000,
+            roas: 1.6,
+            cpa: 30,
+            ctr: 1.2,
+            primaryAction: "promote_to_scaling",
+            decisionSignals: [],
+            benchmarkReliability: "medium",
+            relativeBaseline: { medianSpend: 500, weightedRoas: 1, weightedCpa: 50 },
+            benchmark: { metrics: { roas: { benchmark: 1 }, cpa: { benchmark: 50 } } },
+            economics: { targetRoas: 1, targetCpa: 50 },
+            fatigue: { status: "none" },
+            deliveryContext: {
+              activeDelivery: true,
+              pausedDelivery: false,
+              campaignStatus: "ACTIVE",
+              adSetStatus: "ACTIVE",
+            },
+            trust: {},
+          },
+        ],
+        families: [],
+        supplyPlan: [],
+      } as never,
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/creatives/decision-os?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionCenter.contractVersion).toBe("creative-decision-center.v2.1");
+    expect(payload.decisionCenter.rowDecisions).toHaveLength(1);
+    expect(payload.decisionCenter.rowDecisions[0].buyerAction).toBe("scale");
+    expect(payload.decisionCenter.actionBoard.scale).toEqual(["creative_1"]);
+    expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
   });
 
   it("returns not-run from GET when no matching snapshot exists", async () => {
@@ -539,6 +678,7 @@ describe("GET /api/creatives/decision-os", () => {
     expect(payload.status).toBe("not_run");
     expect(payload.snapshot).toBeNull();
     expect(payload.decisionOs).toBeNull();
+    expect(payload.decisionCenter).toBeNull();
     expect(decisionWindowSource.getMetaDecisionWindowContext).not.toHaveBeenCalled();
     expect(decisionOs.buildCreativeDecisionOs).not.toHaveBeenCalled();
   });
@@ -557,6 +697,7 @@ describe("GET /api/creatives/decision-os", () => {
     expect(payload.status).toBe("ready");
     expect(payload.snapshot.snapshotId).toBe("snap_1");
     expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.decisionCenter).toBeNull();
     expect(payload.decisionOs.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
     expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
       businessId: "biz",
@@ -605,6 +746,23 @@ describe("GET /api/creatives/decision-os", () => {
         reportingEndDate: "2026-04-10",
       }),
     );
+  });
+
+  it("adds decisionCenter to POST responses only when the V2.1 feature flag is enabled", async () => {
+    vi.mocked(config.isCreativeDecisionCenterV21EnabledForBusiness).mockReturnValue(true);
+
+    const response = await POST(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.decisionOs.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.legacyDecisionOs).toBeUndefined();
+    expect(payload.decisionCenter.contractVersion).toBe("creative-decision-center.v2.1");
+    expect(payload.decisionCenter.rowDecisions).toEqual([]);
   });
 
   it("lets provider decision timing resolve decisionAsOf when the request omits it", async () => {
