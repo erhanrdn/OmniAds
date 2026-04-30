@@ -19,3 +19,78 @@
 
 Do not merge too much into one PR. Prefer explicit rollback per PR.
 
+## PR Acceptance Notes
+
+### PR 1
+
+- Must contain context only.
+- Must not change runtime behavior.
+- Must make future AI chats start from `START_HERE.md`.
+
+### PR 2
+
+- Must add golden fixtures and invariant tests before resolver edits.
+- Expected failures are acceptable if clearly marked.
+- Resolver behavior should still be unchanged.
+
+### PR 3
+
+- Must keep all scripts non-production and read-only.
+- Must record live DB/API status explicitly.
+- Must not require production secrets for fixture mode.
+
+### PR 4
+
+- Must add contracts/types without wiring UI or routes to new behavior.
+- Must keep `primaryDecision` and `buyerAction` separate.
+
+### PR 5
+
+- Must centralize thresholds.
+- Must prevent resolver code from scattering hard-coded constants.
+
+### PR 6
+
+- Must run adapter in shadow mode only.
+- Must prove adapter is deterministic and table-driven.
+- Must not become a hidden second decision engine.
+
+### PR 7
+
+- Must add `decisionCenter` additively.
+- Must preserve old `decisionOs` response shape and old snapshot rendering.
+
+### PR 8
+
+- Must show engine root in the drawer.
+- Must not hide missing data, blockers, actionability, or problem class.
+
+### PR 9
+
+- Must render Today Brief from `decisionCenter`.
+- Must not compute top actions in UI.
+
+### PR 10
+
+- Must render Action Board buckets from `buyerAction`.
+- Must not derive buckets from V1/operator fields when `decisionCenter` exists.
+
+### PR 11
+
+- Must keep table fallback for old snapshots.
+- Must not leave buyer-facing labels blank on missing data.
+
+### PR 12
+
+- Must keep `brief_variation` aggregate-only.
+- Must disable aggregate actions when required family/supply data is missing.
+
+### PR 13
+
+- Must avoid PII and raw account identifiers in logs.
+- Must include conflict, missing-data, and fallback metrics.
+
+### PR 14
+
+- Must not delete legacy systems until imports are gone and old snapshots render.
+- Must add guardrails only after replacement paths are stable.

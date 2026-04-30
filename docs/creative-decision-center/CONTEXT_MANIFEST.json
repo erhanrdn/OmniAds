@@ -76,6 +76,7 @@
     "11-ui-copy-pr-sunset-go-no-go.md"
   ],
   "generatedArtifacts": [
+    "generated/README.md",
     "generated/aggregate-test.json",
     "generated/before-after-shadow.json",
     "generated/config-sensitivity.json",
